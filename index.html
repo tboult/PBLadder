@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <base target="_top">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Pickleball Ladder">
+    <title>SunCity Pickleball Ladder</title>
+    
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="https://raw.githubusercontent.com/tboult/RR/refs/heads/main/SunLadder.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="https://raw.githubusercontent.com/tboult/RR/refs/heads/main/SunLadder.png">
+
+    <style>
+      :root {
+        --bg-color: #f4f6f8;
+        --text-color: #212529;
+        --header-bg: #2d6a4f;
+        --header-text: white;
+        --nav-bg: #e9ecef;
+        --nav-text: #495057;
+        --nav-active-bg: #2d6a4f;
+        --nav-active-text: white;
+        --card-bg: white;
+        --card-border: rgba(0,0,0,0.08);
+        --input-border: #ced4da;
+        --input-bg: white;
+        --btn-main-bg: #2d6a4f;
+        --btn-main-text: white;
+        --btn-sub-bg: #6c757d;
+        --btn-sub-text: white;
+        --btn-danger-bg: #d90429;
+        --btn-danger-text: white;
+        --row-border: #f1f3f5;
+        --row-hover: #e9ecef;
+        --row-checked-bg: #d8f3dc;
+        --court-header-bg: #e8f5e9;
+        --court-header-text: #1b4332;
+        --focus-ring: #ffbf47;
+      }
+
+      body.high-contrast {
+        --bg-color: #000000;
+        --text-color: #ffffff;
+        --header-bg: #ffff00;
+        --header-text: #000000;
+        --nav-bg: #1a1a1a;
+        --nav-text: #ffffff;
+        --nav-active-bg: #ffff00;
+        --nav-active-text: #000000;
+        --card-bg: #1a1a1a;
+        --card-border: #ffff00;
+        --input-border: #ffff00;
+        --input-bg: #000000;
+        --btn-main-bg: #ffff00;
+        --btn-main-text: #000000;
+        --btn-sub-bg: #ffffff;
+        --btn-sub-text: #000000;
+        --btn-danger-bg: #ff4d4d;
+        --btn-danger-text: #000000;
+        --row-border: #333333;
+        --row-hover: #333300;
+        --row-checked-bg: #333300;
+        --court-header-bg: #ffff00;
+        --court-header-text: #000000;
+        --focus-ring: #ffffff;
+      }
+
+      * { box-sizing: border-box; }
+      html { font-size: 100%; transition: font-size 0.2s ease; }
+      
+      body { 
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+        margin: 0; 
+        padding: 0.75rem; 
+        background-color: var(--bg-color); 
+        color: var(--text-color); 
+        line-height: 1.6;
+      }
+      
+      .header-title { 
+        text-align: center; 
+        font-size: 1.25rem; 
+        margin: 0 0 0.75rem 0; 
+        padding: 0.75rem; 
+        background-color: #e8f5e9;
+        color: #1b5e20;
+        border: 1px solid #a5d6a7;
+        border-radius: 0.5rem; 
+        user-select: none;
+        -webkit-user-select: none;
+        touch-action: manipulation;
+        cursor: pointer;
+      }
+      
+      .access-panel {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 0.75rem;
+        background: var(--card-bg);
+        padding: 0.5rem;
+        border-radius: 0.5rem;
+        border: 2px solid var(--card-border);
+        align-items: center;
+        justify-content: center;
+        flex-wrap: wrap;
+      }
+      .access-panel button {
+        flex: 1;
+        min-width: 44px;
+        margin-top: 0;
+        padding: 0.5rem;
+        min-height: 44px;
+        font-size: 1.1rem;
+        font-weight: bold;
+        background: var(--btn-sub-bg);
+        color: var(--btn-sub-text);
+      }
+      .access-panel button.active {
+        border: 3px solid var(--text-color);
+        background: var(--btn-main-bg);
+        color: var(--btn-main-text);
+      }
+
+      .nav { display: flex; background: var(--nav-bg); border-radius: 0.5rem; padding: 0.2rem; margin-bottom: 0.75rem; overflow-x: auto;}
+      .nav button { flex: 1; min-width: 4.5rem; padding: 0.75rem 0.25rem; border: none; background: transparent; cursor: pointer; font-weight: 700; font-size: 0.9rem; color: var(--nav-text); border-radius: 0.4rem; transition: 0.2s; min-height: 54px; }
+      .nav button.active { background: var(--nav-active-bg); color: var(--nav-active-text); box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+      .tab-content { display: none; }
+      .tab-content.active { display: block; }
+
+      input, select, button { 
+        width: 100%; 
+        padding: 0.75rem; 
+        margin-top: 0.5rem; 
+        border-radius: 0.5rem; 
+        border: 2px solid var(--input-border); 
+        font-size: 1.1rem; 
+        background: var(--input-bg);
+        color: var(--text-color);
+        min-height: 54px; 
+      }
+      
+      input:focus, select:focus, button:focus {
+        outline: 3px solid var(--focus-ring);
+        outline-offset: 2px;
+      }
+      button, .btn, .btn-main {
+        background-color: #e8f5e9;
+        color: #1b5e20;
+        border: 1px solid #a5d6a7;
+        padding: 10px 16px;
+        border-radius: 6px;
+        font-weight: bold;
+        cursor: pointer;
+        transition: background-color 0.2s ease;
+      }
+
+      button:hover, .btn:hover, .btn-main:hover {
+        background-color: #c8e6c9; 
+        color: #0d3b0e;
+      }
+
+      button:active, .btn:active, .btn-main:active {
+        background-color: #a5d6a7;
+      }
+
+      .btn-sub { background-color: var(--btn-sub-bg); color: var(--btn-sub-text); font-weight: bold; border: none; cursor: pointer; }
+      .btn-danger { background-color: var(--btn-danger-bg); color: var(--btn-danger-text); font-weight: bold; border: none; cursor: pointer; }
+      .card { background: var(--card-bg); border: 2px solid var(--card-border); border-radius: 0.5rem; padding: 0.75rem; margin-top: 0.75rem; }
+      
+      .player-row { display: flex; align-items: center; justify-content: space-between; padding: 1rem 0.75rem; border-bottom: 2px solid var(--row-border); background: var(--card-bg); cursor: pointer; min-height: 54px; }
+      .player-row:active { background: var(--row-hover); }
+      .player-row.checked { background: var(--row-checked-bg); }
+      .player-name { font-size: 1.1rem; font-weight: 600; pointer-events: none; }
+      .check-icon { font-size: 1.25rem; pointer-events: none; }
+
+      #playerList { margin-top: 0.75rem; max-height: 60vh; overflow-y: auto; border-radius: 0.5rem; border: 2px solid var(--row-border); overflow-x: hidden; }
+      .court-header { font-weight: bold; background: var(--court-header-bg); color: var(--court-header-text); padding: 0.5rem 0.75rem; margin-top: 0; font-size: 1.1rem; border-bottom: 2px solid var(--row-border);}
+      
+      .score-grid { display: grid; grid-template-columns: 2.2fr 1fr 1fr 1fr; gap: 0.4rem; align-items: center; margin-top: 0.4rem; }
+      .score-grid input { text-align: center; margin-top: 0; padding: 0.5rem; font-size: 1.1rem; min-height: 54px; }
+      
+      .status-badge { display: inline-block; padding: 0.25rem 0.75rem; border-radius: 1rem; font-size: 0.9rem; font-weight: bold; }
+      .status-active { background-color: var(--row-checked-bg); color: var(--text-color); border: 1px solid var(--text-color); }
+      .status-inactive { background-color: #fff3bf; color: #856404; }
+      .status-msg { margin-top: 0.75rem; text-align: center; font-size: 1rem; font-weight: 600; }
+      
+      table.data-table { width: 100%; border-collapse: collapse; font-size: 1rem; margin-top: 0.75rem; }
+      table.data-table th { background: var(--header-bg); color: var(--header-text); padding: 0.5rem; text-align: left; }
+      table.data-table td { padding: 0.5rem; border-bottom: 2px solid var(--row-border); }
+
+      @media (max-width: 768px) {
+        .desktop-only { display: none !important; }
+      }
+    </style>
+  </head>
+  <body>
+
+    <h2 class="header-title" id="mainHeader" onpointerdown="handleSecretTap(event)">🥒 SCPB Ladder 🥒</h2>
+
+    <div class="nav">
+      <button id="tab1Btn" class="active" onclick="switchTab('checkin')">Check-In</button>
+      <button id="tab2Btn" onclick="switchTab('phone')">Enter Scores</button>
+      <button id="tab3Btn" onclick="switchTab('ranksched')">Schedule<br> & Ranks</button>
+      <button id="tab4Btn" onclick="switchTab('help')">Help</button>
+      <button id="tabAdminBtn" style="display:none; background:var(--btn-danger-bg); color:var(--btn-danger-text);" onclick="switchTab('admin')">Admin</button>
+    </div>
+
+    <!-- TAB 1: CHECK-IN SYSTEM -->
+    <div id="checkinTab" class="tab-content active">
+      <label><b>Select Group:</b></label>
+      <select id="sheetSelect" onchange="onGroupChange('sheetSelect'); loadCheckInPlayers()"><option value="">-- Choose Ladder --</option></select>
+      <div id="playerList"><i>Select a group above...</i></div>
+      <button id="saveCheckInBtn" class="btn-main" onclick="submitCheckIns()" disabled>Save Check-Ins</button>
+      <div id="checkInStatus" class="status-msg"></div>
+    </div>
+
+    <!-- TAB 2: SCORES & PHONE LOOKUP -->
+    <div id="phoneTab" class="tab-content">
+      <div id="phoneEntrySection">
+        <label><b>Enter Phone Number:</b></label>
+        <input type="tel" id="phoneInput" placeholder="e.g. 555-123-4567">
+        <button class="btn-main" onclick="lookupPhone()">Find My Foursome</button>
+      </div>
+      
+      <div id="lookupResult" style="display:none;">
+        <div class="card">
+          <h4 style="margin:0 0 0.25rem 0;" id="pNameDisplay"></h4>
+          <p style="margin:0.25rem 0; font-size:1rem;">Group: <b id="pGroupDisplay"></b> | Court: <b id="pCourtDisplay"></b></p>
+          <p style="margin:0.25rem 0 0 0; font-size:1rem;">Status: <span id="pStatusDisplay" class="status-badge"></span></p>
+          <button class="btn-sub" style="margin-top:0.75rem;" onclick="toggleStatus()">Toggle Active / Inactive</button>
+        </div>
+
+        <div id="scoreEntrySection" style="margin-top: 0.75rem;">
+          <h4 style="margin: 0.75rem 0 0.25rem 0;">Submit Court Scores</h4>
+          <div id="scoreInputsContainer"></div>
+          <button class="btn-main" onclick="saveScores()">Submit Scores</button>
+        </div>
+        
+        <button class="btn-danger" style="margin-top:1.5rem;" onclick="clearPhoneCache()">Sign Out / Clear Saved Phone</button>
+      </div>
+      
+      <!-- REGISTRATION FORM -->
+      <div id="registrationSection" class="card" style="display:none;">
+        <h4 style="margin:0 0 0.75rem 0;">New Player Registration</h4>
+        <input type="text" id="regFirst" placeholder="First Name">
+        <input type="text" id="regLast" placeholder="Last Name">
+        <input type="tel" id="regPhone" placeholder="Phone Number">
+        <input type="email" id="regEmail" placeholder="Email">
+        <select id="regGroup" onchange="onGroupChange('regGroup')"><option value="">-- Select Group --</option></select>
+        <button class="btn-main" onclick="submitRegistration()">Register Player</button>
+        <button class="btn-sub" onclick="cancelRegistration()">Cancel</button>
+      </div>
+      
+      <div id="phoneStatus" class="status-msg"></div>
+    </div>
+
+    <!-- TAB 3: RANKINGS & SCHEDULE VIEWER -->
+    <div id="rankschedTab" class="tab-content">
+      <label><b>Select Group:</b></label>
+      <select id="groupViewerSelect" onchange="onGroupChange('groupViewerSelect'); loadRankingsAndSched()"><option value="">-- Choose Group --</option></select>
+      <div id="viewerContent" style="margin-top: 0.75rem;"></div>
+      <div id="viewerStatus" class="status-msg"></div>
+    </div>
+
+    <!-- TAB 4: HELP -->
+    <div id="helpTab" class="tab-content">
+      <div class="access-panel">
+        <h3 style="margin-top:0;">📱 Adjust sizes / Contrast</h3>
+        <button id="btn-size-normal" class="active" onclick="applyTextSize('normal')">Bold</button>
+        <button id="btn-size-large" onclick="applyTextSize('large')">Large</button>
+        <button id="btn-size-huge" onclick="applyTextSize('huge')">HUGE</button>
+        <button id="btn-contrast-toggle" onclick="toggleContrast()">High Contrast</button>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-top:0;">📱 Install on Phone</h3>
+        <p>You can add this app directly to your home screen for easy access!</p>
+        <b>iPhone (Safari):</b>
+        <ol style="margin-top:0.25rem; font-size:1rem;">
+          <li>Tap the <b>Share</b> icon at the bottom of the screen (square with an up arrow).</li>
+          <li>Scroll down and tap <b>Add to Home Screen</b>.</li>
+        </ol>
+        <b>Android (Chrome):</b>
+        <ol style="margin-top:0.25rem; font-size:1rem;">
+          <li>Tap the <b>3 dots</b> (menu) in the top right.</li>
+          <li>Tap <b>Add to Home screen</b>.</li>
+        </ol>
+        <div class="help-section" style="margin-top: 20px; text-align: center;">
+          <p style="font-size: 0.9em; color: #666;">Not seeing recent app updates or icons?</p>
+          <button onclick="forceResetApp()" style="background-color: #d9534f; color: white; border: none; padding: 10px 16px; border-radius: 6px; font-weight: bold; cursor: pointer;">
+            🔄 Reset & Hard Refresh App
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 5: ADMIN -->
+    <div id="adminTab" class="tab-content">
+      <div class="card">
+        <h3 style="margin-top:0; color:var(--btn-danger-bg);">⚙️ Admin Controls</h3>
+        
+        <a id="adminSheetLink" href="#" target="_blank" class="btn-main" style="display:block; padding:0.75rem; margin-bottom:1rem; border-radius:0.5rem; text-align:center;">📝 Edit Score Data Sheet</a>
+
+        <div class="card" style="margin-bottom:1rem; background: var(--bg-color);">
+          <h4 style="margin:0 0 0.5rem 0;">👥 Quick Active / Inactive Manager</h4>
+          
+          <label><b>Select Group:</b></label>
+          <select id="adminStatusGroupSelect" onchange="onGroupChange('adminStatusGroupSelect'); loadAdminPlayerStatus()" style="margin-bottom: 0.5rem;">
+            <option value="">-- Choose Group --</option>
+          </select>
+          
+          <input type="text" id="adminPlayerSearch" onkeyup="filterAdminPlayers()" placeholder="🔍 Search names..." style="width: 100%; padding: 0.5rem; margin-bottom: 0.75rem; border-radius: 0.25rem; border: 1px solid #ccc; box-sizing: border-box;">
+          
+          <div id="adminPlayerStatusList" style="margin-top:0.25rem; max-height:60vh; overflow-y:auto; border-radius:0.5rem; border:2px solid var(--row-border);">
+            <i>Select a group above...</i>
+          </div>
+        </div>
+        
+        <label style="font-size:1.1rem; font-weight:bold;">Reschedule Based on Check-Ins:</label>
+        <select id="adminSchedSelect" onchange="onGroupChange('adminSchedSelect')"><option value="">-- Select Schedule Tab --</option></select>
+        <button class="btn-main" onclick="runReschedule()">Rebuild Checked-In Courts</button>
+        <hr>
+        <button class="btn-sub" onclick="runAdmin('menuSortActivePlayers')">Sort Active Players (Current Tab)</button>
+        <button class="btn-sub" onclick="runAdmin('menuGenerateScheduleTabs')">Generate All Schedule Tabs</button>
+        <button class="btn-sub" onclick="runAdmin('menuUpdateStandingsWithShift')">End of Week (Shift Scores)</button>
+        <button class="btn-sub" onclick="runAdmin('menuCorrectScoresNoShift')">Correct Scores (No Shift)</button>
+        <button class="btn-sub" onclick="getAdminPdf()">Download PDF Schedules</button>
+
+        <div class="card" style="margin-top:1.5rem; margin-bottom:1rem; background: var(--bg-color);">
+          <h4 style="margin:0 0 0.5rem 0;">➕ Add New Player</h4>
+          <input type="text" id="adminRegFirst" placeholder="First Name">
+          <input type="text" id="adminRegLast" placeholder="Last Name">
+          <input type="tel" id="adminRegPhone" placeholder="Phone Number">
+          <input type="email" id="adminRegEmail" placeholder="Email">
+          <select id="adminRegGroup" onchange="onGroupChange('adminRegGroup')"><option value="">-- Select Group --</option></select>
+          <button class="btn-main" style="margin-top:0.75rem;" onclick="submitAdminRegistration()">Add Player</button>
+        </div>
+        
+        <button class="btn-danger desktop-only" style="margin-top:2rem;" onclick="if(confirm('🚨 WARNING: Are you sure you want to start a new season? This will permanently wipe all current scores across ALL groups.')) runAdmin('startNewSeason')">🚨 Start New Season</button>
+
+        <div id="adminStatus" class="status-msg"></div>
+      </div>
+    </div>
+
+    <script>
+      // ⚠️ REPLACE WITH YOUR DEPLOYED GOOGLE APPS SCRIPT WEB APP URL
+      const API_URL = "https://script.google.com/macros/s/YOUR_EXEC_ID/exec";
+      const CURRENT_APP_VERSION = "1.1.0";
+
+      // --- REGISTER SERVICE WORKER FOR PWA ---
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('./sw.js')
+            .then(reg => console.log('PWA Service Worker registered:', reg.scope))
+            .catch(err => console.warn('Service Worker registration failed:', err));
+        });
+      }
+
+      // --- CENTRALIZED API CALL HELPER ---
+      async function apiCall(action, payload = {}) {
+        const url = new URL(API_URL);
+        url.searchParams.set('action', action);
+        
+        const options = {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        };
+        
+        try {
+          const res = await fetch(url.toString(), options);
+          const json = await res.json();
+          if (json.status === "error") throw new Error(json.message);
+          return json.data;
+        } catch (err) {
+          console.error("API Call Error:", err);
+          throw err;
+        }
+      }
+
+      // --- LOCAL STORAGE CACHE HANDLERS ---
+      function getSavedGroup() {
+        try { return localStorage.getItem('scpb_selected_group') || ''; } catch(e) { return ''; }
+      }
+
+      function setSavedGroup(groupName) {
+        if (!groupName) return;
+        let cleanGroup = groupName.replace(/^Sched[\s_-]*/i, '').replace(/^Score[\s_-]*/i, '').trim();
+        try { localStorage.setItem('scpb_selected_group', cleanGroup); } catch(e) {}
+        syncAllGroupDropdowns(cleanGroup);
+      }
+
+      function syncAllGroupDropdowns(groupName) {
+        const selectIds = ['sheetSelect', 'groupViewerSelect', 'regGroup', 'adminRegGroup', 'adminStatusGroupSelect', 'adminSchedSelect'];
+        selectIds.forEach(id => {
+          const el = document.getElementById(id);
+          if (!el) return;
+          for (let i = 0; i < el.options.length; i++) {
+            let optVal = el.options[i].value.replace(/^Sched[\s_-]*/i, '').replace(/^Score[\s_-]*/i, '').trim();
+            if (optVal.toLowerCase() === groupName.toLowerCase()) {
+              el.selectedIndex = i;
+              break;
+            }
+          }
+        });
+      }
+
+      function onGroupChange(sourceSelectId) {
+        const val = document.getElementById(sourceSelectId).value;
+        if (val) setSavedGroup(val);
+      }
+
+      async function checkAppVersion() {
+        try {
+          const serverVersion = await apiCall('getAppVersion');
+          const savedVersion = localStorage.getItem('app_installed_version');
+          if (savedVersion !== serverVersion) {
+            localStorage.setItem('app_installed_version', serverVersion);
+            window.location.reload(true);
+          }
+        } catch (e) {
+          console.warn("Version check failed.");
+        }
+      }
+
+      async function forceResetApp() {
+        if (confirm("This will clear cached app data and force-download the latest version. Continue?")) {
+          try {
+            localStorage.clear();
+            sessionStorage.clear();
+          } catch(e) {}
+          if ('serviceWorker' in navigator) {
+            const registrations = await navigator.serviceWorker.getRegistrations();
+            for (let registration of registrations) { await registration.unregister(); }
+          }
+          if ('caches' in window) {
+            const cacheNames = await caches.keys();
+            for (let name of cacheNames) { await caches.delete(name); }
+          }
+          const currentUrl = new URL(window.location.href);
+          currentUrl.searchParams.set('reset_ts', Date.now());
+          window.location.href = currentUrl.toString();
+        }
+      }
+
+      window.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') checkAppVersion();
+      });
+
+      const htmlRoot = document.documentElement;
+      const sizeRatios = { normal: '150%', large: '200%', huge: '250%' };
+        
+      function applyTextSize(size) {
+        htmlRoot.style.fontSize = sizeRatios[size];
+        try { localStorage.setItem('pwa-text-size', size); } catch(e) {}
+        document.getElementById('btn-size-normal').classList.remove('active');
+        document.getElementById('btn-size-large').classList.remove('active');
+        document.getElementById('btn-size-huge').classList.remove('active');
+        document.getElementById('btn-size-' + size).classList.add('active');
+      }
+
+      function toggleContrast() {
+        const isHigh = document.body.classList.toggle('high-contrast');
+        try { localStorage.setItem('pwa-contrast', isHigh ? 'high' : 'normal'); } catch(e) {}
+        document.getElementById('btn-contrast-toggle').classList.toggle('active', isHigh);
+      }
+
+      function initAccessibility() {
+        let savedSize = 'normal';
+        let savedContrast = 'normal';
+        try {
+          savedSize = localStorage.getItem('pwa-text-size') || 'normal';
+          savedContrast = localStorage.getItem('pwa-contrast') || 'normal';
+        } catch(e) {}
+        applyTextSize(savedSize);
+        if (savedContrast === 'high') { document.body.classList.add('high-contrast'); document.getElementById('btn-contrast-toggle').classList.add('active'); }
+      }
+
+      let currentPlayerData = null;
+      let tapCount = 0;
+      let tapTimer = null;
+
+      window.onload = async function() {
+        checkAppVersion();
+        initAccessibility();
+        
+        try {
+          const sheets = await apiCall('getSchedTabNames');
+          populateSheets(sheets);
+          autoSelectStoredGroup();
+        } catch(e) {}
+
+        try {
+          const groups = await apiCall('getAvailableGroups');
+          populateGroups(groups);
+          autoSelectStoredGroup();
+        } catch(e) {}
+
+        try {
+          const url = await apiCall('getAdminSheetUrl');
+          document.getElementById('adminSheetLink').href = url;
+        } catch(e) {}
+        
+        try {
+          const savedPhone = localStorage.getItem('foursome_phone');
+          if (savedPhone) {
+            document.getElementById('phoneInput').value = savedPhone;
+            lookupPhone();
+          }
+        } catch(e) {}
+      };
+
+      function autoSelectStoredGroup() {
+        const savedGroup = getSavedGroup();
+        if (savedGroup) {
+          syncAllGroupDropdowns(savedGroup);
+          if (document.getElementById('sheetSelect').value) loadCheckInPlayers();
+          if (document.getElementById('groupViewerSelect').value) loadRankingsAndSched();
+          if (document.getElementById('adminStatusGroupSelect').value) loadAdminPlayerStatus();
+        }
+      }
+
+      function handleSecretTap(e) {
+        if (e && e.cancelable) e.preventDefault(); 
+        tapCount++;
+        clearTimeout(tapTimer);
+        if (tapCount >= 5) {
+            document.getElementById('tabAdminBtn').style.display = 'block';
+            document.getElementById('adminStatus').innerText = "Admin unlocked!";
+            tapCount = 0;
+        }
+        tapTimer = setTimeout(() => { tapCount = 0; }, 2000);
+      }          
+
+      function switchTab(tab) {
+        document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
+        
+        document.getElementById(tab + 'Tab').classList.add('active');
+        let btnId = tab === 'ranksched' ? 'tab3Btn' : tab === 'checkin' ? 'tab1Btn' : tab === 'phone' ? 'tab2Btn' : tab === 'help' ? 'tab4Btn' : 'tabAdminBtn';
+        document.getElementById(btnId).classList.add('active');
+      }
+
+      function populateSheets(sheets) {
+        const sel1 = document.getElementById('sheetSelect');
+        const sel2 = document.getElementById('adminSchedSelect');
+        sel1.innerHTML = '<option value="">-- Choose Group --</option>';
+        sel2.innerHTML = '<option value="">-- Choose Group --</option>';
+        sheets.forEach(function(s) {
+          var cleanName = String(s).replace(/^Sched[\s_-]*/i, '').trim();
+          sel1.innerHTML += '<option value="' + s + '">' + cleanName + '</option>';
+          sel2.innerHTML += '<option value="' + s + '">' + cleanName + '</option>';
+        });
+      }
+        
+      function populateGroups(groups) {
+        const sel1 = document.getElementById('groupViewerSelect');
+        const sel2 = document.getElementById('regGroup');
+        const sel3 = document.getElementById('adminRegGroup');
+        const sel4 = document.getElementById('adminStatusGroupSelect');
+        
+        sel1.innerHTML = '<option value="">-- Choose Group --</option>';
+        if(sel2) sel2.innerHTML = '<option value="">-- Select Group --</option>';
+        if(sel3) sel3.innerHTML = '<option value="">-- Select Group --</option>';
+        if(sel4) sel4.innerHTML = '<option value="">-- Select Group --</option>';
+        
+        groups.forEach(function(g) {
+          sel1.innerHTML += '<option value="' + g + '">' + g + '</option>';
+          if (sel2) sel2.innerHTML += '<option value="' + g + '">' + g + '</option>';
+          if (sel3) sel3.innerHTML += '<option value="' + g + '">' + g + '</option>';
+          if (sel4) sel4.innerHTML += '<option value="' + g + '">' + g + '</option>';
+        });
+      }
+
+      async function loadAdminPlayerStatus() {
+        const group = document.getElementById('adminStatusGroupSelect').value;
+        if(!group) return;
+        document.getElementById('adminStatus').innerText = "Loading players...";
+        try {
+          const players = await apiCall('getAdminPlayersByGroup', { group: group });
+          renderAdminPlayerStatus(players);
+        } catch(e) {
+          document.getElementById('adminStatus').innerText = e.message;
+        }
+      }
+
+      function renderAdminPlayerStatus(players) {
+        document.getElementById('adminStatus').innerText = "";
+        const container = document.getElementById('adminPlayerStatusList');
+        container.innerHTML = "";
+        
+        if(!players || players.length === 0) {
+          container.innerHTML = "<p style='padding:0.75rem; text-align:center;'>No players found.</p>";
+          return;
+        }
+        
+        players.forEach(p => {
+          let div = document.createElement('div');
+          div.className = "player-row " + (p.status === "ACTIVE" ? "checked" : "");
+          let isActive = (p.status === "ACTIVE");
+          let uiColor = isActive ? '#00c853' : '#9e9e9e';
+          let uiWeight = isActive ? 'bold' : 'normal';
+          
+          div.innerHTML = '<span class="player-name" style="color: ' + uiColor + '; font-weight: ' + uiWeight + ';">' + p.name + '</span>' +
+                          '<button class="btn-sub" ' +
+                          'style="min-width:auto; min-height:auto; padding:0.4rem 0.75rem; margin:0; background-color: ' + uiColor + '; border: none; color: white;" ' +
+                          'onclick="toggleAdminStatus(\'' + p.phone + '\', this)">' + 
+                          p.status + 
+                          '</button>';
+                          
+          container.appendChild(div);
+        });
+      }
+
+      async function toggleAdminStatus(phone, buttonElement) {
+        buttonElement.innerText = "...";
+        try {
+          const newStatus = await apiCall('togglePlayerStatus', { phone: phone });
+          buttonElement.innerText = newStatus;
+          const nameSpan = buttonElement.parentElement.querySelector('.player-name');
+          if(newStatus === "ACTIVE") {
+            buttonElement.parentElement.classList.add('checked');
+            buttonElement.style.backgroundColor = '#00c853';
+            if (nameSpan) { nameSpan.style.color = '#00c853'; nameSpan.style.fontWeight = 'bold'; }
+          } else {
+            buttonElement.parentElement.classList.remove('checked');
+            buttonElement.style.backgroundColor = '#9e9e9e';
+            if (nameSpan) { nameSpan.style.color = '#9e9e9e'; nameSpan.style.fontWeight = 'normal'; }
+          }
+        } catch(e) { alert(e.message); }
+      }
+
+      async function submitAdminRegistration() {
+        let data = {
+          first: document.getElementById('adminRegFirst').value,
+          last: document.getElementById('adminRegLast').value,
+          phone: document.getElementById('adminRegPhone').value,
+          email: document.getElementById('adminRegEmail').value,
+          group: document.getElementById('adminRegGroup').value
+        };
+        
+        document.getElementById('adminStatus').innerText = "Adding player...";
+        try {
+          const res = await apiCall('addNewUser', data);
+          document.getElementById('adminStatus').innerText = res;
+          document.getElementById('adminRegFirst').value = "";
+          document.getElementById('adminRegLast').value = "";
+          document.getElementById('adminRegPhone').value = "";
+          document.getElementById('adminRegEmail').value = "";
+        } catch(e) {
+          document.getElementById('adminStatus').innerText = e.message;
+        }
+      }
+
+      async function loadCheckInPlayers() {
+        const sheet = document.getElementById('sheetSelect').value;
+        if (!sheet) return;
+        document.getElementById('checkInStatus').innerText = "Loading players...";
+        try {
+          const data = await apiCall('getPlayersForCheckIn', { sheet: sheet });
+          renderCheckInPlayers(data);
+        } catch(e) {
+          document.getElementById('checkInStatus').innerText = e.message;
+        }
+      }
+
+      function renderCheckInPlayers(data) {
+        document.getElementById('checkInStatus').innerText = "";
+        const container = document.getElementById('playerList');
+        container.innerHTML = "";
+        if (!data || data.length === 0) {
+          container.innerHTML = "<p style='text-align:center;'>No players found.</p>";
+          document.getElementById('saveCheckInBtn').disabled = true;
+          return;
+        }
+
+        let currentCourt = "";
+        data.forEach((p) => {
+          if (p.court !== currentCourt) {
+            currentCourt = p.court;
+            let ch = document.createElement('div');
+            ch.className = "court-header";
+            ch.innerText = "Court: " + currentCourt;
+            container.appendChild(ch);
+          }
+          let div = document.createElement('div');
+          div.className = p.checked ? "player-row checked" : "player-row";
+          div.setAttribute('data-checked', p.checked ? "true" : "false");
+          div.setAttribute('data-name', p.name);
+          div.onclick = function() {
+            let isChecked = this.getAttribute('data-checked') === "true";
+            this.setAttribute('data-checked', !isChecked);
+            this.className = !isChecked ? "player-row checked" : "player-row";
+            this.querySelector('.check-icon').innerText = !isChecked ? "✅" : "❌";
+          };
+          
+          div.innerHTML = `<span class="player-name">${p.name}</span>
+                           <span class="check-icon">${p.checked ? '✅' : '❌'}</span>`;
+          container.appendChild(div);
+        });
+        document.getElementById('saveCheckInBtn').disabled = false;
+      }
+
+      async function submitCheckIns() {
+        const sheetName = document.getElementById('sheetSelect').value;
+        const rows = document.querySelectorAll('#playerList .player-row');
+        let checkedNames = [];
+        rows.forEach(r => { if (r.getAttribute('data-checked') === "true") checkedNames.push(r.getAttribute('data-name')); });
+        
+        document.getElementById('checkInStatus').innerText = "Saving...";
+        document.getElementById('saveCheckInBtn').disabled = true;
+        try {
+          const res = await apiCall('saveCheckIns', { sheet: sheetName, checkedNames: checkedNames });
+          document.getElementById('checkInStatus').innerText = res;
+          setTimeout(loadCheckInPlayers, 1000);
+        } catch(e) {
+          document.getElementById('checkInStatus').innerText = e.message;
+        }
+      }
+
+      async function lookupPhone() {
+        const phone = document.getElementById('phoneInput').value;
+        document.getElementById('phoneStatus').innerText = "Searching player...";
+        
+        try {
+          const res = await apiCall('findFoursomeByPhone', { phone: phone });
+          document.getElementById('phoneStatus').innerText = "";
+          localStorage.setItem('foursome_phone', phone);
+          document.getElementById('phoneEntrySection').style.display = "none";
+          document.getElementById('lookupResult').style.display = "block";
+          
+          currentPlayerData = res;
+          document.getElementById('pNameDisplay').innerText = res.playerName;
+          document.getElementById('pGroupDisplay').innerText = res.groupName || "N/A";
+          document.getElementById('pCourtDisplay').innerText = res.court || "N/A";
+          
+          if (res.groupName) setSavedGroup(res.groupName);
+          
+          const statBadge = document.getElementById('pStatusDisplay');
+          statBadge.innerText = res.status;
+          statBadge.className = "status-badge " + (res.status === "ACTIVE" ? "status-active" : "status-inactive");
+          
+          const scoreContainer = document.getElementById('scoreInputsContainer');
+          scoreContainer.innerHTML = "";
+
+          if (res.foursome && res.foursome.length > 0) {
+            document.getElementById('scoreEntrySection').style.display = "block";
+            scoreContainer.innerHTML = "<div class='score-grid' style='font-weight:bold; font-size:1rem;'><div>Player</div><div>G1</div><div>G2</div><div>G3</div></div>";
+            res.foursome.forEach(p => {
+              scoreContainer.innerHTML += `<div class="score-grid card">
+                <div><b>${p.name}</b></div>
+                <input type="number" id="g1_${p.name}" value="${p.g1}">
+                <input type="number" id="g2_${p.name}" value="${p.g2}">
+                <input type="number" id="g3_${p.name}" value="${p.g3}">
+              </div>`;
+            });
+          } else {
+            document.getElementById('scoreEntrySection').style.display = "none";
+          }
+        } catch(err) {
+          document.getElementById('phoneStatus').innerText = err.message;
+        }
+      }
+
+      function clearPhoneCache() {
+        localStorage.removeItem('foursome_phone');
+        document.getElementById('phoneInput').value = "";
+        document.getElementById('lookupResult').style.display = "none";
+        document.getElementById('phoneEntrySection').style.display = "block";
+        currentPlayerData = null;
+      }
+
+      async function toggleStatus() {
+        document.getElementById('phoneStatus').innerText = "Updating status...";
+        try {
+          await apiCall('togglePlayerStatus', { phone: document.getElementById('phoneInput').value });
+          lookupPhone();
+        } catch(e) {
+          document.getElementById('phoneStatus').innerText = e.message;
+        }
+      }
+
+      async function saveScores() {
+        if (!currentPlayerData || !currentPlayerData.foursome) return;
+        let scoresMap = {};
+        currentPlayerData.foursome.forEach(p => {
+          scoresMap[p.name] = {
+            g1: document.getElementById('g1_' + p.name).value,
+            g2: document.getElementById('g2_' + p.name).value,
+            g3: document.getElementById('g3_' + p.name).value
+          };
+        });
+        
+        document.getElementById('phoneStatus').innerText = "Submitting scores...";
+        try {
+          const res = await apiCall('submitCourtScores', {
+            groupName: currentPlayerData.groupName,
+            court: currentPlayerData.court,
+            scores: scoresMap,
+            submitter: currentPlayerData.playerName
+          });
+          document.getElementById('phoneStatus').innerText = res;
+        } catch(e) {
+          document.getElementById('phoneStatus').innerText = e.message;
+        }
+      }
+
+      function cancelRegistration() {
+        document.getElementById('registrationSection').style.display = "none";
+        document.getElementById('phoneEntrySection').style.display = "block";
+      }
+
+      async function submitRegistration() {
+        let data = {
+          first: document.getElementById('regFirst').value,
+          last: document.getElementById('regLast').value,
+          phone: document.getElementById('regPhone').value,
+          email: document.getElementById('regEmail').value,
+          group: document.getElementById('regGroup').value
+        };
+        
+        document.getElementById('phoneStatus').innerText = "Registering...";
+        try {
+          const res = await apiCall('addNewUser', data);
+          document.getElementById('phoneStatus').innerText = res;
+          setTimeout(cancelRegistration, 2000);
+        } catch(e) {
+          document.getElementById('phoneStatus').innerText = e.message;
+        }
+      }
+
+      async function loadRankingsAndSched() {
+        const group = document.getElementById('groupViewerSelect').value;
+        if (!group) return;
+        
+        document.getElementById('viewerStatus').innerText = "Loading schedule and rankings...";
+        try {
+          const data = await apiCall('getRankingsAndSchedData', { group: group });
+          renderRankingsAndSched(data);
+        } catch(e) {
+          document.getElementById('viewerStatus').innerText = e.message;
+        }
+      }
+
+      function renderRankingsAndSched(data) {
+        document.getElementById('viewerStatus').innerText = "";
+        let html = "";
+        let wLabel = data.weekNum; 
+        
+        if (data.sched && data.sched.length > 0) {
+          html += `<h4 style='margin:1rem 0 0.5rem 0;'>🎾 Week ${wLabel} Tentative Court Assignments</h4>`;
+          let currentCourt = "";
+          data.sched.forEach(row => {
+            if (row.court !== currentCourt) {
+              if (currentCourt !== "") html += "</div>";
+              currentCourt = row.court;
+              html += "<div class='card'><div class='court-header'>Court " + currentCourt + "</div>";
+            }
+            html += "<div style='padding:0.5rem 0; font-size:1.1rem; border-bottom:2px solid var(--row-border);'>" + row.name + "</div>";
+          });
+          if (currentCourt !== "") html += "</div>";
+        }
+
+        if (data.rankings && data.rankings.length > 0) {
+          html += `<h4 style='margin:1.5rem 0 0.5rem 0;'>📊 Week ${wLabel} Group Rankings</h4>`;
+          html += "<table class='data-table'><thead><tr><th>#</th><th>Player</th><th>Win %</th><th>Pts</th></tr></thead><tbody>";
+          data.rankings.forEach(r => { html += `<tr><td><b>${r.rank}</b></td><td>${r.name}</td><td>${r.pct}</td><td>${r.pts}</td></tr>`; });
+          html += "</tbody></table>";
+        }
+        document.getElementById('viewerContent').innerHTML = html;
+      }
+
+      async function runAdmin(funcName, arg) {
+        document.getElementById('adminStatus').innerText = "Processing...";
+        try {
+          const res = await apiCall(funcName, { arg: arg });
+          document.getElementById('adminStatus').innerText = res || "Done.";
+        } catch(e) {
+          document.getElementById('adminStatus').innerText = e.message;
+        }
+      }
+
+      function runReschedule() {
+        let tab = document.getElementById('adminSchedSelect').value;
+        if (!tab) return alert("Select a schedule tab");
+        runAdmin('rescheduleFromCheckIns', tab);
+      }
+
+      async function getAdminPdf() {
+        document.getElementById('adminStatus').innerText = "Generating PDF...";
+        try {
+          const b64 = await apiCall('webExportSchedulePdf');
+          document.getElementById('adminStatus').innerHTML = 
+            `<a download="Schedule.pdf" href="data:application/pdf;base64,${b64}" style="display:inline-block; margin-top:1rem; padding:0.75rem; background:var(--btn-main-bg); color:var(--btn-main-text); border-radius:0.5rem; text-decoration:none;">⬇ Download PDF Ready</a>`;
+        } catch(e) {
+          document.getElementById('adminStatus').innerText = e.message;
+        }
+      }
+
+      function filterAdminPlayers() {
+        const input = document.getElementById('adminPlayerSearch');
+        const filter = input.value.toLowerCase();
+        const list = document.getElementById('adminPlayerStatusList');
+        const rows = list.children; 
+        
+        for (let i = 0; i < rows.length; i++) {
+          if (rows[i].tagName === 'I') continue; 
+          const text = rows[i].textContent || rows[i].innerText;
+          if (text.toLowerCase().indexOf(filter) > -1) {
+            rows[i].style.display = ""; 
+          } else {
+            rows[i].style.display = "none"; 
+          }
+        }
+      }
+    </script>
+  </body>
+</html>
