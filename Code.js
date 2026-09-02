@@ -3,7 +3,7 @@
  * ========================================== */
 
 function getAppVersion() {
-  return "1.1.0"; 
+  return "1.1.1"; 
 }
 
 /**
@@ -1163,3 +1163,4 @@ function getAdminPlayersByGroup(groupName) {
   players.sort((a,b) => a.name.localeCompare(b.name));
   return players;
 }
+
