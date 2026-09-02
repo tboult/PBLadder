@@ -49,6 +49,25 @@ function getGlobalConstants() {
   }, {});
 }
 
+function authorizeScript() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const file = DriveApp.getFileById(ss.getId());
+  
+  // 1. Check/create folder
+  const folderName = "SCPBLadder";
+  const folders = DriveApp.getFoldersByName(folderName);
+  let targetFolder = folders.hasNext() ? folders.next() : DriveApp.createFolder(folderName);
+
+  // 2. Force 'makeCopy' execution to trigger write scope approval
+  const tempCopy = file.makeCopy("DELETE_ME_AUTH_TEST", targetFolder);
+  tempCopy.setTrashed(true); // Automatically cleans up test file
+
+  // 3. Force UrlFetchApp execution to trigger external request scope approval
+  UrlFetchApp.fetch("https://www.google.com");
+
+  Logger.log("✅ FULL Drive, Spreadsheet, and UrlFetch Authorization Granted Successfully!");
+}
+
 /**
  * REST JSON API CONTROLLER FOR DECOUPLED PWA FRONTEND
  */
