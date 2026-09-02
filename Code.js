@@ -51,6 +51,7 @@ function getConstantsConfig() {
   return { groups, scheduleTabs, scoreTabs };
 }
 
+
 /** Dynamic replacement for global getValidScoreTabs() **/
 function getValidScoreTabs() {
   const config = getConstantsConfig();
@@ -142,15 +143,15 @@ function handleApiRequest(e) {
   lock.tryLock(10000);
   
   try {
-    let action = (e.parameter && e.parameter.action) ? e.parameter.action : "";
+    let action = (e && e.parameter && e.parameter.action) ? e.parameter.action : "";
     let payload = {};
 
-    if (e.postData && e.postData.contents) {
+    if (e && e.postData && e.postData.contents) {
       try {
         payload = JSON.parse(e.postData.contents);
         if (!action && payload.action) action = payload.action;
       } catch(ex) {}
-    } else if (e.parameter) {
+    } else if (e && e.parameter) {
       payload = e.parameter;
     }
 
@@ -163,10 +164,11 @@ function handleApiRequest(e) {
         result = getAvailableGroups();
         break;
       case 'getPlayersForCheckIn':
-        result = getPlayersForCheckIn(payload.sheet);
+        // Accepts .sheet, .schedSheetName, or .tab so frontend variants never break it
+        result = getPlayersForCheckIn(payload.sheet || payload.schedSheetName || payload.tab);
         break;
       case 'saveCheckIns':
-        result = saveCheckIns(payload.sheet, payload.checkedNames);
+        result = saveCheckIns(payload.sheet || payload.schedSheetName || payload.tab, payload.checkedNames);
         break;
       case 'findFoursomeByPhone':
         result = findFoursomeByPhone(payload.phone);
@@ -187,7 +189,7 @@ function handleApiRequest(e) {
         result = addNewUser(payload);
         break;
       case 'rescheduleFromCheckIns':
-        result = rescheduleFromCheckIns(payload.arg || payload.tab);
+        result = rescheduleFromCheckIns(payload.arg || payload.tab || payload.sheet);
         break;
       case 'menuSortActivePlayers':
         result = menuSortActivePlayers();
@@ -208,7 +210,7 @@ function handleApiRequest(e) {
         result = getAdminSheetUrl();
         break;
       case 'getAppVersion':
-        result = getAppVersion();
+        result = typeof getAppVersion === 'function' ? getAppVersion() : "1.0.0";
         break;
       case 'webExportSchedulePdf':
         result = webExportSchedulePdf();
@@ -221,10 +223,12 @@ function handleApiRequest(e) {
       .setMimeType(ContentService.MimeType.JSON);
 
   } catch(err) {
-    return ContentService.createTextOutput(JSON.stringify({ status: "error", message: err.message }))
+    return ContentService.createTextOutput(JSON.stringify({ status: "error", message: err.toString() }))
       .setMimeType(ContentService.MimeType.JSON);
   } finally {
-    lock.releaseLock();
+    try {
+      lock.releaseLock();
+    } catch(e) {}
   }
 }
 
