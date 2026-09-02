@@ -1,8 +1,9 @@
-const CACHE_NAME = 'scpb-ladder-v1.1.7; // Incremented to force update
+const CACHE_NAME = 'scpb-ladder-v1.1.20260902063427; // Incremented to force update
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
-  './manifest.json',
+  './manifest.json',es
+
   'https://raw.githubusercontent.com/tboult/RR/refs/heads/main/SunLadder.png'
 ];
 
