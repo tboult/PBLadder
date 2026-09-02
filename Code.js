@@ -1,9 +1,11 @@
 /* ==========================================
  * GLOBAL CONFIGURATION & HELPER DEFINITIONS
  * ========================================== */
-const MAX_MOVEMENT = 4;
+/*
+  const MAX_MOVEMENT = 4;
 const MAX_POINTS_PER_WEEK = 45;
-const VALID_SCORE_TABS = ["Score Womens", "Score Mens", "Score Mixed"];
+const getValidScoreTabs() = ["Score Womens", "Score Mens", "Score Mixed"];
+*/
 
 function getAppVersion() {
   return "1.1.1"; 
@@ -14,55 +16,111 @@ function getAppVersion() {
  * Cleans JS syntax like 'const', quotes, and semicolons automatically.
  * @returns {Object} Key-value mapping of your global configurations.
  */
-function getGlobalConstants() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Constants');
-  if (!sheet) throw new Error("Tab 'Constants' was not found.");
+/** Dynamic Config Loader **/
+function getConstantsConfig() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) return { groups: [], scheduleTabs: [], scoreTabs: [] };
 
-  const lastRow = sheet.getLastRow();
-  if (lastRow < 6) return {};
+  const constSheet = ss.getSheetByName('Constants');
+  
+  // Fallback: Scan sheet tabs dynamically if Constants tab is absent
+  if (!constSheet || constSheet.getLastRow() < 2) {
+    const allSheets = ss.getSheets().map(s => s.getName());
+    return {
+      groups: allSheets.filter(s => s.startsWith("Sched ")).map(s => s.replace(/^Sched\s+/i, "")),
+      scheduleTabs: allSheets.filter(s => s.startsWith("Sched ")),
+      scoreTabs: allSheets.filter(s => s.startsWith("Score "))
+    };
+  }
 
-  const rows = sheet.getRange(6, 1, lastRow - 5, 2).getValues();
+  const data = constSheet.getDataRange().getValues();
+  const headers = data[0].map(h => h.toString().toLowerCase().trim());
+  
+  const gCol = headers.indexOf("group");
+  const schedCol = headers.indexOf("schedule tab");
+  const scoreCol = headers.indexOf("score tab");
 
-  return rows.reduce((config, [colA, colB]) => {
-    if (!colA) return config;
+  let groups = [], scheduleTabs = [], scoreTabs = [];
 
-    const strA = colA.toString().trim();
+  for (let i = 1; i < data.length; i++) {
+    if (gCol !== -1 && data[i][gCol]) groups.push(data[i][gCol].toString().trim());
+    if (schedCol !== -1 && data[i][schedCol]) scheduleTabs.push(data[i][schedCol].toString().trim());
+    if (scoreCol !== -1 && data[i][scoreCol]) scoreTabs.push(data[i][scoreCol].toString().trim());
+  }
 
-    if (strA.includes('=')) {
-      let [rawKey, ...valParts] = strA.split('=');
-
-      // Remove 'const', 'let', or 'var' prefixes from the key
-      const key = rawKey.replace(/^(const|let|var)\s+/i, '').trim();
-
-      // Join value, remove trailing semicolons, and strip surrounding quotes
-      let val = valParts.join('=').trim().replace(/;$/, '').trim();
-      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-        val = val.slice(1, -1);
-      }
-
-      config[key] = val;
-    } else {
-      config[strA] = colB;
-    }
-
-    return config;
-  }, {});
+  return { groups, scheduleTabs, scoreTabs };
 }
 
-function authorizeScript() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const file = DriveApp.getFileById(ss.getId());
+/** Dynamic replacement for global getValidScoreTabs() **/
+function getValidScoreTabs() {
+  const config = getConstantsConfig();
+  if (config.scoreTabs.length > 0) return config.scoreTabs;
   
-  // 1. Check/create folder
+  // Fallback: derive score tab names from groups if scoreTab column was empty
+  return config.groups.map(g => g.startsWith("Score ") ? g : "Score " + g);
+}
+
+function getSchedTabNames() { 
+  const config = getConstantsConfig();
+  if (config.scheduleTabs.length > 0) return config.scheduleTabs;
+  return config.groups.map(g => g.startsWith("Sched ") ? g : "Sched " + g);
+}
+
+function getAvailableGroups() {
+  return getConstantsConfig().groups;
+}
+
+function getPlayersForCheckIn(schedSheetName) {
+  if (!schedSheetName) return [];
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) return [];
+  
+  // Dynamic resolution for sheet name
+  let sheet = ss.getSheetByName(schedSheetName);
+  if (!sheet && !schedSheetName.startsWith("Sched ")) {
+    sheet = ss.getSheetByName("Sched " + schedSheetName);
+  }
+  if (!sheet) return [];
+  
+  const data = sheet.getDataRange().getValues();
+  let result = [];
+  
+  for (let i = 0; i < data.length; i++) {
+    let name = data[i][0] ? data[i][0].toString().trim() : "";
+    let court = data[i][1] ? data[i][1].toString().trim() : "";
+    let status = data[i][5] ? data[i][5].toString().trim().toUpperCase() : ""; // Col F check indicator
+    
+    if (name && court && court !== "BYE" && !name.startsWith("---") && !name.startsWith("Time:") && !name.toLowerCase().startsWith("name")) {
+      result.push({ 
+        name: name, 
+        court: court, 
+        checked: status === "X" || status === "TRUE" || status === "CHECKED" 
+      });
+    }
+  }
+  return result;
+}
+function authorizeScript() {
+  // 1. Fallback to openById if getActiveSpreadsheet() is null in web context
+  // Replace 'YOUR_SPREADSHEET_ID' with your actual Google Sheet ID
+  const SPREADSHEET_ID = "YOUR_SPREADSHEET_ID_HERE"; 
+  const ss = SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID);
+  
+  // 2. Force explicit Spreadsheet Read/Write execution
+  const sheet = ss.getSheets()[0];
+  const testVal = sheet.getRange(1, 1).getValue(); // Forces Read Scope
+  sheet.getRange(1, 1).setValue(testVal);          // Forces Write Scope
+  
+  // 3. Force Drive Scope
+  const file = DriveApp.getFileById(ss.getId());
   const folderName = "SCPBLadder";
   const folders = DriveApp.getFoldersByName(folderName);
   let targetFolder = folders.hasNext() ? folders.next() : DriveApp.createFolder(folderName);
 
-  // 2. Force 'makeCopy' execution to trigger write scope approval
   const tempCopy = file.makeCopy("DELETE_ME_AUTH_TEST", targetFolder);
-  tempCopy.setTrashed(true); // Automatically cleans up test file
+  tempCopy.setTrashed(true);
 
-  // 3. Force UrlFetchApp execution to trigger external request scope approval
+  // 4. Force External Request Scope
   UrlFetchApp.fetch("https://www.google.com");
 
   Logger.log("✅ FULL Drive, Spreadsheet, and UrlFetch Authorization Granted Successfully!");
@@ -178,8 +236,8 @@ function getValidActiveScoreSheet() {
   const sheet = ss.getActiveSheet();
   const sheetName = sheet.getName();
   
-  if (!VALID_SCORE_TABS.includes(sheetName)) {
-    throw new Error(`⚠️ Action Cancelled: Current tab "${sheetName}" is not a valid score tab.\nPlease click on one of: ${VALID_SCORE_TABS.join(", ")} before running this function.`);
+  if (!getValidScoreTabs().includes(sheetName)) {
+    throw new Error(`⚠️ Action Cancelled: Current tab "${sheetName}" is not a valid score tab.\nPlease click on one of: ${getValidScoreTabs().join(", ")} before running this function.`);
   }
   return sheet;
 }
@@ -304,7 +362,7 @@ function menuCreateDriveBackup() {
 function getAdminSheetUrl() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const activeSheet = ss.getActiveSheet();
-  let targetSheet = VALID_SCORE_TABS.includes(activeSheet.getName()) ? activeSheet : ss.getSheetByName("Score Womens");
+  let targetSheet = getValidScoreTabs().includes(activeSheet.getName()) ? activeSheet : ss.getSheetByName("Score Womens");
   let url = ss.getUrl();
   if (targetSheet) {
     url += "#gid=" + targetSheet.getSheetId();
@@ -316,7 +374,7 @@ function startNewSeason() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let clearedCount = 0;
 
-  VALID_SCORE_TABS.forEach(tabName => {
+  getValidScoreTabs().forEach(tabName => {
     const scoreSheet = ss.getSheetByName(tabName);
     if (scoreSheet) {
       const data = scoreSheet.getDataRange().getValues();
@@ -577,7 +635,7 @@ function restoreFromSnapshotTab() {
   }
 
   let targetTabName = "Score Womens";
-  VALID_SCORE_TABS.forEach(t => {
+  getValidScoreTabs().forEach(t => {
     if (selectedSheet.getName().includes(t)) targetTabName = t;
   });
 
@@ -800,7 +858,7 @@ function generateScheduleTabs() {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     
-    VALID_SCORE_TABS.forEach(tabName => {
+    getValidScoreTabs().forEach(tabName => {
       let sheet = ss.getSheetByName(tabName);
       if (sheet && sheet.getLastRow() > 1) {
         sortActivePlayersForSheet(sheet);
@@ -826,7 +884,7 @@ function generateScheduleTabs() {
 
     let groups = {};
 
-    VALID_SCORE_TABS.forEach(tabName => {
+    getValidScoreTabs().forEach(tabName => {
       const sourceSheet = ss.getSheetByName(tabName);
       if (!sourceSheet || sourceSheet.getLastRow() <= 1) return;
       
@@ -1051,7 +1109,7 @@ function findFoursomeByPhone(rawPhone) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let matchedName = "", matchedGroup = "", playerStatus = "ACTIVE";
 
-  for (let tabName of VALID_SCORE_TABS) {
+  for (let tabName of getValidScoreTabs()) {
     let scoreSheet = ss.getSheetByName(tabName);
     if (!scoreSheet) continue;
     
@@ -1103,7 +1161,7 @@ function togglePlayerStatus(rawPhone) {
   let targetDigits = rawPhone.toString().replace(/\D/g, '').slice(-10);
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
-  for (let tabName of VALID_SCORE_TABS) {
+  for (let tabName of getValidScoreTabs()) {
     let scoreSheet = ss.getSheetByName(tabName);
     if (!scoreSheet) continue;
 
