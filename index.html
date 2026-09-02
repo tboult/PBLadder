@@ -367,34 +367,36 @@
     });
   }
 
-  // --- CENTRALIZED API CALL HELPER ---
   async function apiCall(action, payload = {}) {
-    const url = new URL(API_URL);
-    url.searchParams.set('action', action);
-    
-    const options = {
-      method: 'POST',
-      redirect: 'follow', // Ensures browser follows Google's 302 redirects
-      body: JSON.stringify(payload)
-    };
-    
-    try {
-      const res = await fetch(url.toString(), options);
-      
-      if (!res.ok) {
-        throw new Error(`HTTP error! Status: ${res.status}`);
-      }
-      
-      const json = await res.json();
-      if (json.status === "error") throw new Error(json.message);
-      
-      return json.data;
-    } catch (err) {
-      console.error("API Call Error:", err);
-      throw err;
-    }
+  // Explicitly reference window.API_URL to guarantee valid scope
+  if (!window.API_URL) {
+    throw new Error("window.API_URL is not defined. Check index.html configuration.");
   }
 
+  const url = new URL(window.API_URL);
+  url.searchParams.set('action', action);
+  
+  const options = {
+    method: 'POST',
+    // text/plain prevents browser CORS preflight (OPTIONS) requests
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    redirect: 'follow',
+    body: JSON.stringify(payload)
+  };
+  
+  try {
+    const res = await fetch(url.toString(), options);
+    if (!res.ok) throw new Error(`HTTP status ${res.status}`);
+    
+    const json = await res.json();
+    if (json.status === "error") throw new Error(json.message);
+    
+    return json.data;
+  } catch (err) {
+    console.error(`API Error on action "${action}":`, err);
+    throw err;
+  }
+}
   // --- LOCAL STORAGE CACHE HANDLERS ---
   function getSavedGroup() {
     try { return localStorage.getItem('scpb_selected_group') || ''; } catch(e) { return ''; }
