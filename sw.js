@@ -1,4 +1,4 @@
-const CACHE_NAME = 'scpb-ladder-v1.1.0';
+const CACHE_NAME = 'scpb-ladder-v1.1.2'; // Incremented to force update
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -27,10 +27,11 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
+  // Completely bypass Service Worker for Google API calls
   if (event.request.url.includes('script.google.com')) {
-    event.respondWith(fetch(event.request));
-    return;
+    return; // Omit event.respondWith entirely
   }
+
   event.respondWith(
     caches.match(event.request).then((response) => {
       return response || fetch(event.request);

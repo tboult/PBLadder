@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     
     <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">    
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Pickleball Ladder">
     <title>SunCity Pickleball Ladder</title>
@@ -361,26 +362,33 @@
       }
 
       // --- CENTRALIZED API CALL HELPER ---
-      async function apiCall(action, payload = {}) {
-        const url = new URL(API_URL);
-        url.searchParams.set('action', action);
-        
-        const options = {
-          method: 'POST',
-          body: JSON.stringify(payload)
-        };
-        
-        try {
-          const res = await fetch(url.toString(), options);
-          const json = await res.json();
-          if (json.status === "error") throw new Error(json.message);
-          return json.data;
-        } catch (err) {
-          console.error("API Call Error:", err);
-          throw err;
-        }
-      }
-
+async function apiCall(action, payload = {}) {
+  const url = new URL(API_URL);
+  url.searchParams.set('action', action);
+  
+  const options = {
+    method: 'POST',
+    redirect: 'follow', // Ensures browser follows Google's 302 redirects
+    body: JSON.stringify(payload)
+  };
+  
+  try {
+    const res = await fetch(url.toString(), options);
+    
+    if (!res.ok) {
+      throw new Error(`HTTP error! Status: ${res.status}`);
+    }
+    
+    const json = await res.json();
+    if (json.status === "error") throw new Error(json.message);
+    
+    return json.data;
+  } catch (err) {
+    console.error("API Call Error:", err);
+    throw err;
+  }
+}
+ 
       // --- LOCAL STORAGE CACHE HANDLERS ---
       function getSavedGroup() {
         try { return localStorage.getItem('scpb_selected_group') || ''; } catch(e) { return ''; }
