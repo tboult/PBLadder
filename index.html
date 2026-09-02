@@ -300,630 +300,668 @@
     </div>
 
     <!-- TAB 5: ADMIN -->
-    <div id="adminTab" class="tab-content">
-      <div class="card">
-        <h3 style="margin-top:0; color:var(--btn-danger-bg);">⚙️ Admin Controls</h3>
-        
-        <a id="adminSheetLink" href="#" target="_blank" class="btn-main" style="display:block; padding:0.75rem; margin-bottom:1rem; border-radius:0.5rem; text-align:center;">📝 Edit Score Data Sheet</a>
+<div id="adminTab" class="tab-content">
+  <div class="card">
+    <h3 style="margin-top:0; color:var(--btn-danger-bg);">⚙️ Admin Controls</h3>
 
-        <div class="card" style="margin-bottom:1rem; background: var(--bg-color);">
-          <h4 style="margin:0 0 0.5rem 0;">👥 Quick Active / Inactive Manager</h4>
-          
-          <label><b>Select Group:</b></label>
-          <select id="adminStatusGroupSelect" onchange="onGroupChange('adminStatusGroupSelect'); loadAdminPlayerStatus()" style="margin-bottom: 0.5rem;">
-            <option value="">-- Choose Group --</option>
-          </select>
-          
-          <input type="text" id="adminPlayerSearch" onkeyup="filterAdminPlayers()" placeholder="🔍 Search names..." style="width: 100%; padding: 0.5rem; margin-bottom: 0.75rem; border-radius: 0.25rem; border: 1px solid #ccc; box-sizing: border-box;">
-          
-          <div id="adminPlayerStatusList" style="margin-top:0.25rem; max-height:60vh; overflow-y:auto; border-radius:0.5rem; border:2px solid var(--row-border);">
-            <i>Select a group above...</i>
-          </div>
-        </div>
-        
-        <label style="font-size:1.1rem; font-weight:bold;">Reschedule Based on Check-Ins:</label>
-        <select id="adminSchedSelect" onchange="onGroupChange('adminSchedSelect')"><option value="">-- Select Schedule Tab --</option></select>
-        <button class="btn-main" onclick="runReschedule()">Rebuild Checked-In Courts</button>
-        <hr>
-        <button class="btn-sub" onclick="runAdmin('menuSortActivePlayers')">Sort Active Players (Current Tab)</button>
-        <button class="btn-sub" onclick="runAdmin('menuGenerateScheduleTabs')">Generate All Schedule Tabs</button>
-        <button class="btn-sub" onclick="runAdmin('menuUpdateStandingsWithShift')">End of Week (Shift Scores)</button>
-        <button class="btn-sub" onclick="runAdmin('menuCorrectScoresNoShift')">Correct Scores (No Shift)</button>
-        <button class="btn-sub" onclick="getAdminPdf()">Download PDF Schedules</button>
+    <!-- SINGLE GLOBAL GROUP SELECTOR -->
+    <div class="card" style="margin-bottom:1rem; background: var(--bg-color);">
+      <label><b>Select Admin Target Group:</b></label>
+      <select id="adminGlobalGroupSelect" onchange="onAdminGlobalGroupChange()" style="width: 100%; padding: 0.5rem; margin-top: 0.25rem; font-weight: bold;">
+        <option value="">-- Select Group --</option>
+      </select>
+    </div>
 
-        <div class="card" style="margin-top:1.5rem; margin-bottom:1rem; background: var(--bg-color);">
-          <h4 style="margin:0 0 0.5rem 0;">➕ Add New Player</h4>
-          <input type="text" id="adminRegFirst" placeholder="First Name">
-          <input type="text" id="adminRegLast" placeholder="Last Name">
-          <input type="tel" id="adminRegPhone" placeholder="Phone Number">
-          <input type="email" id="adminRegEmail" placeholder="Email">
-          <select id="adminRegGroup" onchange="onGroupChange('adminRegGroup')"><option value="">-- Select Group --</option></select>
-          <button class="btn-main" style="margin-top:0.75rem;" onclick="submitAdminRegistration()">Add Player</button>
-        </div>
-        
-        <button class="btn-danger desktop-only" style="margin-top:2rem;" onclick="if(confirm('🚨 WARNING: Are you sure you want to start a new season? This will permanently wipe all current scores across ALL groups.')) runAdmin('startNewSeason')">🚨 Start New Season</button>
+    <a id="adminSheetLink" href="#" target="_blank" class="btn-main" style="display:block; padding:0.75rem; margin-bottom:1rem; border-radius:0.5rem; text-align:center;">📝 Edit Score Data Sheet</a>
 
-        <div id="adminStatus" class="status-msg"></div>
+    <!-- QUICK ACTIVE/INACTIVE MANAGER -->
+    <div class="card" style="margin-bottom:1rem; background: var(--bg-color);">
+      <h4 style="margin:0 0 0.5rem 0;">👥 Quick Active / Inactive Manager</h4>
+      <input type="text" id="adminPlayerSearch" oninput="filterAdminPlayers()" placeholder="🔍 Type name to search..." style="width: 100%; padding: 0.5rem; margin-bottom: 0.75rem; border-radius: 0.25rem; border: 1px solid #ccc; box-sizing: border-box;">
+      
+      <div id="adminPlayerStatusList" style="margin-top:0.25rem; max-height:60vh; overflow-y:auto; border-radius:0.5rem; border:2px solid var(--row-border); padding:0.5rem;">
+        <i>Type in the search box above to display players...</i>
       </div>
     </div>
 
-    <script>
-      // ⚠️ REPLACE WITH YOUR DEPLOYED GOOGLE APPS SCRIPT WEB APP URL
-      const API_URL = "https://script.google.com/macros/s/AKfycbyFRhnaqDSGHlMBLdRbhBOdmyX-NJzK6qiTJkNnVCgdjEMLMONc6umMWed-N8nwCSsAPg/exec";
-      const CURRENT_APP_VERSION = "1.1.0";
+    <!-- RESCHEDULE & ACTIONS -->
+    <label style="font-size:1.1rem; font-weight:bold;">Reschedule Based on Check-Ins:</label>
+    <button class="btn-main" style="margin-top:0.25rem; margin-bottom:0.75rem;" onclick="runReschedule()">Rebuild Checked-In Courts</button>
+    <hr>
+    <button class="btn-sub" onclick="runAdmin('menuSortActivePlayers')">Sort Active Players (Current Group)</button>
+    <button class="btn-sub" onclick="runAdmin('menuGenerateScheduleTabs')">Generate All Schedule Tabs</button>
+    <button class="btn-sub" onclick="runAdmin('menuUpdateStandingsWithShift')">End of Week (Shift Scores)</button>
+    <button class="btn-sub" onclick="runAdmin('menuCorrectScoresNoShift')">Correct Scores (No Shift)</button>
+    <button class="btn-sub" onclick="getAdminPdf()">Download PDF Schedules</button>
 
-      // --- REGISTER SERVICE WORKER FOR PWA ---
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('./sw.js')
-            .then(reg => console.log('PWA Service Worker registered:', reg.scope))
-            .catch(err => console.warn('Service Worker registration failed:', err));
-        });
-      }
+    <!-- ADD NEW PLAYER (PENDING STATUS) -->
+    <div class="card" style="margin-top:1.5rem; margin-bottom:1rem; background: var(--bg-color);">
+      <h4 style="margin:0 0 0.5rem 0;">➕ Add New Player</h4>
+      <input type="text" id="adminRegFirst" placeholder="First Name">
+      <input type="text" id="adminRegLast" placeholder="Last Name">
+      <input type="tel" id="adminRegPhone" placeholder="Phone Number">
+      <input type="email" id="adminRegEmail" placeholder="Email">
+      <button class="btn-main" style="margin-top:0.75rem;" onclick="submitAdminRegistration()">Add Pending Player</button>
+    </div>
 
-      // --- CENTRALIZED API CALL HELPER ---
-async function apiCall(action, payload = {}) {
-  const url = new URL(API_URL);
-  url.searchParams.set('action', action);
-  
-  const options = {
-    method: 'POST',
-    redirect: 'follow', // Ensures browser follows Google's 302 redirects
-    body: JSON.stringify(payload)
-  };
-  
-  try {
-    const res = await fetch(url.toString(), options);
-    
-    if (!res.ok) {
-      throw new Error(`HTTP error! Status: ${res.status}`);
-    }
-    
-    const json = await res.json();
-    if (json.status === "error") throw new Error(json.message);
-    
-    return json.data;
-  } catch (err) {
-    console.error("API Call Error:", err);
-    throw err;
+    <button class="btn-danger desktop-only" style="margin-top:2rem;" onclick="if(confirm('🚨 WARNING: Are you sure you want to start a new season? This will permanently wipe all current scores across ALL groups.')) runAdmin('startNewSeason')">🚨 Start New Season</button>
+
+    <div id="adminStatus" class="status-msg"></div>
+  </div>
+</div>
+
+<script>
+  // ⚠️ REPLACE WITH YOUR DEPLOYED GOOGLE APPS SCRIPT WEB APP URL
+  const API_URL = "https://script.google.com/macros/s/AKfycbyFRhnaqDSGHlMBLdRbhBOdmyX-NJzK6qiTJkNnVCgdjEMLMONc6umMWed-N8nwCSsAPg/exec";
+  const CURRENT_APP_VERSION = "1.1.0";
+
+  let adminPlayersCache = []; // Global cache for admin player status search
+
+  // --- REGISTER SERVICE WORKER FOR PWA ---
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js')
+        .then(reg => console.log('PWA Service Worker registered:', reg.scope))
+        .catch(err => console.warn('Service Worker registration failed:', err));
+    });
   }
-}
- 
-      // --- LOCAL STORAGE CACHE HANDLERS ---
-      function getSavedGroup() {
-        try { return localStorage.getItem('scpb_selected_group') || ''; } catch(e) { return ''; }
-      }
 
-      function setSavedGroup(groupName) {
-        if (!groupName) return;
-        let cleanGroup = groupName.replace(/^Sched[\s_-]*/i, '').replace(/^Score[\s_-]*/i, '').trim();
-        try { localStorage.setItem('scpb_selected_group', cleanGroup); } catch(e) {}
-        syncAllGroupDropdowns(cleanGroup);
+  // --- CENTRALIZED API CALL HELPER ---
+  async function apiCall(action, payload = {}) {
+    const url = new URL(API_URL);
+    url.searchParams.set('action', action);
+    
+    const options = {
+      method: 'POST',
+      redirect: 'follow', // Ensures browser follows Google's 302 redirects
+      body: JSON.stringify(payload)
+    };
+    
+    try {
+      const res = await fetch(url.toString(), options);
+      
+      if (!res.ok) {
+        throw new Error(`HTTP error! Status: ${res.status}`);
       }
+      
+      const json = await res.json();
+      if (json.status === "error") throw new Error(json.message);
+      
+      return json.data;
+    } catch (err) {
+      console.error("API Call Error:", err);
+      throw err;
+    }
+  }
 
-      function syncAllGroupDropdowns(groupName) {
-        const selectIds = ['sheetSelect', 'groupViewerSelect', 'regGroup', 'adminRegGroup', 'adminStatusGroupSelect', 'adminSchedSelect'];
-        selectIds.forEach(id => {
-          const el = document.getElementById(id);
-          if (!el) return;
-          for (let i = 0; i < el.options.length; i++) {
-            let optVal = el.options[i].value.replace(/^Sched[\s_-]*/i, '').replace(/^Score[\s_-]*/i, '').trim();
-            if (optVal.toLowerCase() === groupName.toLowerCase()) {
-              el.selectedIndex = i;
-              break;
-            }
-          }
+  // --- LOCAL STORAGE CACHE HANDLERS ---
+  function getSavedGroup() {
+    try { return localStorage.getItem('scpb_selected_group') || ''; } catch(e) { return ''; }
+  }
+
+  function setSavedGroup(groupName) {
+    if (!groupName) return;
+    let cleanGroup = groupName.replace(/^Sched[\s_-]*/i, '').replace(/^Score[\s_-]*/i, '').trim();
+    try { localStorage.setItem('scpb_selected_group', cleanGroup); } catch(e) {}
+    syncAllGroupDropdowns(cleanGroup);
+    onGroupContextUpdated(cleanGroup);
+  }
+
+  function syncAllGroupDropdowns(groupName) {
+    const selectIds = [
+      'sheetSelect', 
+      'groupViewerSelect', 
+      'regGroup', 
+      'adminRegGroup', 
+      'adminStatusGroupSelect', 
+      'adminSchedSelect',
+      'adminGlobalGroupSelect'
+    ];
+    selectIds.forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      for (let i = 0; i < el.options.length; i++) {
+        let optVal = el.options[i].value.replace(/^Sched[\s_-]*/i, '').replace(/^Score[\s_-]*/i, '').trim();
+        if (optVal.toLowerCase() === groupName.toLowerCase()) {
+          el.selectedIndex = i;
+          break;
+        }
+      }
+    });
+  }
+
+  function onGroupChange(sourceSelectId) {
+    const el = document.getElementById(sourceSelectId);
+    if (el && el.value) setSavedGroup(el.value);
+  }
+
+  function onAdminGlobalGroupChange() {
+    const el = document.getElementById('adminGlobalGroupSelect');
+    if (el && el.value) setSavedGroup(el.value);
+  }
+
+  async function onGroupContextUpdated(groupName) {
+    if (!groupName) return;
+    
+    // Update Admin Sheet Link for selected group
+    try {
+      const url = await apiCall('getAdminSheetUrl', { group: groupName });
+      const link = document.getElementById('adminSheetLink');
+      if (link && url) link.href = url;
+    } catch(e) { console.warn("Failed to load group sheet URL."); }
+
+    // Pre-cache admin players for instant search
+    loadAdminPlayerStatusCache(groupName);
+  }
+
+  async function checkAppVersion() {
+    try {
+      const serverVersion = await apiCall('getAppVersion');
+      const savedVersion = localStorage.getItem('app_installed_version');
+      if (savedVersion !== serverVersion) {
+        localStorage.setItem('app_installed_version', serverVersion);
+        window.location.reload(true);
+      }
+    } catch (e) {
+      console.warn("Version check failed.");
+    }
+  }
+
+  async function forceResetApp() {
+    if (confirm("This will clear cached app data and force-download the latest version. Continue?")) {
+      try {
+        localStorage.clear();
+        sessionStorage.clear();
+      } catch(e) {}
+      if ('serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        for (let registration of registrations) { await registration.unregister(); }
+      }
+      if ('caches' in window) {
+        const cacheNames = await caches.keys();
+        for (let name of cacheNames) { await caches.delete(name); }
+      }
+      const currentUrl = new URL(window.location.href);
+      currentUrl.searchParams.set('reset_ts', Date.now());
+      window.location.href = currentUrl.toString();
+    }
+  }
+
+  window.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') checkAppVersion();
+  });
+
+  const htmlRoot = document.documentElement;
+  const sizeRatios = { normal: '150%', large: '200%', huge: '250%' };
+    
+  function applyTextSize(size) {
+    htmlRoot.style.fontSize = sizeRatios[size];
+    try { localStorage.setItem('pwa-text-size', size); } catch(e) {}
+    document.getElementById('btn-size-normal').classList.remove('active');
+    document.getElementById('btn-size-large').classList.remove('active');
+    document.getElementById('btn-size-huge').classList.remove('active');
+    document.getElementById('btn-size-' + size).classList.add('active');
+  }
+
+  function toggleContrast() {
+    const isHigh = document.body.classList.toggle('high-contrast');
+    try { localStorage.setItem('pwa-contrast', isHigh ? 'high' : 'normal'); } catch(e) {}
+    document.getElementById('btn-contrast-toggle').classList.toggle('active', isHigh);
+  }
+
+  function initAccessibility() {
+    let savedSize = 'normal';
+    let savedContrast = 'normal';
+    try {
+      savedSize = localStorage.getItem('pwa-text-size') || 'normal';
+      savedContrast = localStorage.getItem('pwa-contrast') || 'normal';
+    } catch(e) {}
+    applyTextSize(savedSize);
+    if (savedContrast === 'high') { document.body.classList.add('high-contrast'); document.getElementById('btn-contrast-toggle').classList.add('active'); }
+  }
+
+  let currentPlayerData = null;
+  let tapCount = 0;
+  let tapTimer = null;
+
+  window.onload = async function() {
+    checkAppVersion();
+    initAccessibility();
+    
+    try {
+      const sheets = await apiCall('getSchedTabNames');
+      populateSheets(sheets);
+      autoSelectStoredGroup();
+    } catch(e) {}
+
+    try {
+      const groups = await apiCall('getAvailableGroups');
+      populateGroups(groups);
+      autoSelectStoredGroup();
+    } catch(e) {}
+    
+    try {
+      const savedPhone = localStorage.getItem('foursome_phone');
+      if (savedPhone) {
+        document.getElementById('phoneInput').value = savedPhone;
+        lookupPhone();
+      }
+    } catch(e) {}
+  };
+
+  function autoSelectStoredGroup() {
+    const savedGroup = getSavedGroup();
+    if (savedGroup) {
+      syncAllGroupDropdowns(savedGroup);
+      onGroupContextUpdated(savedGroup);
+      if (document.getElementById('sheetSelect') && document.getElementById('sheetSelect').value) loadCheckInPlayers();
+      if (document.getElementById('groupViewerSelect') && document.getElementById('groupViewerSelect').value) loadRankingsAndSched();
+    }
+  }
+
+  function handleSecretTap(e) {
+    if (e && e.cancelable) e.preventDefault(); 
+    tapCount++;
+    clearTimeout(tapTimer);
+    if (tapCount >= 5) {
+        document.getElementById('tabAdminBtn').style.display = 'block';
+        document.getElementById('adminStatus').innerText = "Admin unlocked!";
+        tapCount = 0;
+    }
+    tapTimer = setTimeout(() => { tapCount = 0; }, 2000);
+  }          
+
+  function switchTab(tab) {
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
+    
+    document.getElementById(tab + 'Tab').classList.add('active');
+    let btnId = tab === 'ranksched' ? 'tab3Btn' : tab === 'checkin' ? 'tab1Btn' : tab === 'phone' ? 'tab2Btn' : tab === 'help' ? 'tab4Btn' : 'tabAdminBtn';
+    document.getElementById(btnId).classList.add('active');
+  }
+
+  function populateSheets(sheets) {
+    const sel1 = document.getElementById('sheetSelect');
+    const sel2 = document.getElementById('adminSchedSelect');
+    if (sel1) sel1.innerHTML = '<option value="">-- Choose Group --</option>';
+    if (sel2) sel2.innerHTML = '<option value="">-- Choose Group --</option>';
+    sheets.forEach(function(s) {
+      var cleanName = String(s).replace(/^Sched[\s_-]*/i, '').trim();
+      if (sel1) sel1.innerHTML += '<option value="' + s + '">' + cleanName + '</option>';
+      if (sel2) sel2.innerHTML += '<option value="' + s + '">' + cleanName + '</option>';
+    });
+  }
+    
+  function populateGroups(groups) {
+    const selectIds = ['groupViewerSelect', 'regGroup', 'adminRegGroup', 'adminStatusGroupSelect', 'adminGlobalGroupSelect'];
+    
+    selectIds.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.innerHTML = '<option value="">-- Select Group --</option>';
+        groups.forEach(g => {
+          el.innerHTML += '<option value="' + g + '">' + g + '</option>';
         });
       }
+    });
+  }
 
-      function onGroupChange(sourceSelectId) {
-        const val = document.getElementById(sourceSelectId).value;
-        if (val) setSavedGroup(val);
+  async function loadAdminPlayerStatusCache(group) {
+    if (!group) return;
+    try {
+      adminPlayersCache = await apiCall('getAdminPlayersByGroup', { group: group });
+      filterAdminPlayers(); 
+    } catch(e) {
+      console.warn("Could not cache admin players:", e.message);
+    }
+  }
+
+  function filterAdminPlayers() {
+    const input = document.getElementById('adminPlayerSearch');
+    const query = input ? input.value.trim().toLowerCase() : '';
+    const container = document.getElementById('adminPlayerStatusList');
+    if (!container) return;
+    
+    if (!query) {
+      container.innerHTML = "<i style='display:block; padding:0.75rem; text-align:center;'>Type in the search box above to display players...</i>";
+      return;
+    }
+
+    const matches = adminPlayersCache.filter(p => 
+      (p.name && p.name.toLowerCase().includes(query)) || 
+      (p.phone && String(p.phone).includes(query))
+    );
+
+    if (matches.length === 0) {
+      container.innerHTML = "<p style='padding:0.75rem; text-align:center;'>No matching players found.</p>";
+      return;
+    }
+
+    container.innerHTML = "";
+    matches.forEach(p => {
+      let div = document.createElement('div');
+      let isActive = (p.status === "ACTIVE");
+      div.className = "player-row " + (isActive ? "checked" : "");
+      let uiColor = isActive ? '#00c853' : '#9e9e9e';
+      let uiWeight = isActive ? 'bold' : 'normal';
+      
+      div.innerHTML = '<span class="player-name" style="color: ' + uiColor + '; font-weight: ' + uiWeight + ';">' + p.name + ' (' + p.status + ')</span>' +
+                      '<button class="btn-sub" ' +
+                      'style="min-width:auto; min-height:auto; padding:0.4rem 0.75rem; margin:0; background-color: ' + uiColor + '; border: none; color: white;" ' +
+                      'onclick="toggleAdminStatus(\'' + p.phone + '\', this)">' + 
+                      p.status + 
+                      '</button>';
+                      
+      container.appendChild(div);
+    });
+  }
+
+  async function toggleAdminStatus(phone, buttonElement) {
+    buttonElement.innerText = "...";
+    try {
+      const newStatus = await apiCall('togglePlayerStatus', { phone: phone });
+      buttonElement.innerText = newStatus;
+      
+      // Update cache
+      const cached = adminPlayersCache.find(p => String(p.phone) === String(phone));
+      if (cached) cached.status = newStatus;
+
+      const nameSpan = buttonElement.parentElement.querySelector('.player-name');
+      if(newStatus === "ACTIVE") {
+        buttonElement.parentElement.classList.add('checked');
+        buttonElement.style.backgroundColor = '#00c853';
+        if (nameSpan) { nameSpan.style.color = '#00c853'; nameSpan.style.fontWeight = 'bold'; }
+      } else {
+        buttonElement.parentElement.classList.remove('checked');
+        buttonElement.style.backgroundColor = '#9e9e9e';
+        if (nameSpan) { nameSpan.style.color = '#9e9e9e'; nameSpan.style.fontWeight = 'normal'; }
       }
+    } catch(e) { alert(e.message); }
+  }
 
-      async function checkAppVersion() {
-        try {
-          const serverVersion = await apiCall('getAppVersion');
-          const savedVersion = localStorage.getItem('app_installed_version');
-          if (savedVersion !== serverVersion) {
-            localStorage.setItem('app_installed_version', serverVersion);
-            window.location.reload(true);
-          }
-        } catch (e) {
-          console.warn("Version check failed.");
-        }
+  async function submitAdminRegistration() {
+    const currentGroup = getSavedGroup();
+    let data = {
+      first: document.getElementById('adminRegFirst').value.trim(),
+      last: document.getElementById('adminRegLast').value.trim(),
+      phone: document.getElementById('adminRegPhone').value.trim(),
+      email: document.getElementById('adminRegEmail').value.trim(),
+      group: currentGroup,
+      status: 'pending' // Enforces pending status
+    };
+    
+    if (!data.group) {
+      alert("Please select a group at the top of the Admin controls first.");
+      return;
+    }
+
+    if (!data.first || !data.last) {
+      alert("First and Last Name are required.");
+      return;
+    }
+
+    document.getElementById('adminStatus').innerText = "Adding player as pending...";
+    try {
+      const res = await apiCall('addNewUser', data);
+      document.getElementById('adminStatus').innerText = res || "Player added successfully!";
+      document.getElementById('adminRegFirst').value = "";
+      document.getElementById('adminRegLast').value = "";
+      document.getElementById('adminRegPhone').value = "";
+      document.getElementById('adminRegEmail').value = "";
+      
+      // Refresh admin players cache
+      loadAdminPlayerStatusCache(currentGroup);
+    } catch(e) {
+      document.getElementById('adminStatus').innerText = e.message;
+    }
+  }
+
+  async function loadCheckInPlayers() {
+    const sheet = document.getElementById('sheetSelect').value;
+    if (!sheet) return;
+    document.getElementById('checkInStatus').innerText = "Loading players...";
+    try {
+      const data = await apiCall('getPlayersForCheckIn', { sheet: sheet });
+      renderCheckInPlayers(data);
+    } catch(e) {
+      document.getElementById('checkInStatus').innerText = e.message;
+    }
+  }
+
+  function renderCheckInPlayers(data) {
+    document.getElementById('checkInStatus').innerText = "";
+    const container = document.getElementById('playerList');
+    container.innerHTML = "";
+    if (!data || data.length === 0) {
+      container.innerHTML = "<p style='text-align:center;'>No players found.</p>";
+      document.getElementById('saveCheckInBtn').disabled = true;
+      return;
+    }
+
+    let currentCourt = "";
+    data.forEach((p) => {
+      if (p.court !== currentCourt) {
+        currentCourt = p.court;
+        let ch = document.createElement('div');
+        ch.className = "court-header";
+        ch.innerText = "Court: " + currentCourt;
+        container.appendChild(ch);
       }
-
-      async function forceResetApp() {
-        if (confirm("This will clear cached app data and force-download the latest version. Continue?")) {
-          try {
-            localStorage.clear();
-            sessionStorage.clear();
-          } catch(e) {}
-          if ('serviceWorker' in navigator) {
-            const registrations = await navigator.serviceWorker.getRegistrations();
-            for (let registration of registrations) { await registration.unregister(); }
-          }
-          if ('caches' in window) {
-            const cacheNames = await caches.keys();
-            for (let name of cacheNames) { await caches.delete(name); }
-          }
-          const currentUrl = new URL(window.location.href);
-          currentUrl.searchParams.set('reset_ts', Date.now());
-          window.location.href = currentUrl.toString();
-        }
-      }
-
-      window.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') checkAppVersion();
-      });
-
-      const htmlRoot = document.documentElement;
-      const sizeRatios = { normal: '150%', large: '200%', huge: '250%' };
-        
-      function applyTextSize(size) {
-        htmlRoot.style.fontSize = sizeRatios[size];
-        try { localStorage.setItem('pwa-text-size', size); } catch(e) {}
-        document.getElementById('btn-size-normal').classList.remove('active');
-        document.getElementById('btn-size-large').classList.remove('active');
-        document.getElementById('btn-size-huge').classList.remove('active');
-        document.getElementById('btn-size-' + size).classList.add('active');
-      }
-
-      function toggleContrast() {
-        const isHigh = document.body.classList.toggle('high-contrast');
-        try { localStorage.setItem('pwa-contrast', isHigh ? 'high' : 'normal'); } catch(e) {}
-        document.getElementById('btn-contrast-toggle').classList.toggle('active', isHigh);
-      }
-
-      function initAccessibility() {
-        let savedSize = 'normal';
-        let savedContrast = 'normal';
-        try {
-          savedSize = localStorage.getItem('pwa-text-size') || 'normal';
-          savedContrast = localStorage.getItem('pwa-contrast') || 'normal';
-        } catch(e) {}
-        applyTextSize(savedSize);
-        if (savedContrast === 'high') { document.body.classList.add('high-contrast'); document.getElementById('btn-contrast-toggle').classList.add('active'); }
-      }
-
-      let currentPlayerData = null;
-      let tapCount = 0;
-      let tapTimer = null;
-
-      window.onload = async function() {
-        checkAppVersion();
-        initAccessibility();
-        
-        try {
-          const sheets = await apiCall('getSchedTabNames');
-          populateSheets(sheets);
-          autoSelectStoredGroup();
-        } catch(e) {}
-
-        try {
-          const groups = await apiCall('getAvailableGroups');
-          populateGroups(groups);
-          autoSelectStoredGroup();
-        } catch(e) {}
-
-        try {
-          const url = await apiCall('getAdminSheetUrl');
-          document.getElementById('adminSheetLink').href = url;
-        } catch(e) {}
-        
-        try {
-          const savedPhone = localStorage.getItem('foursome_phone');
-          if (savedPhone) {
-            document.getElementById('phoneInput').value = savedPhone;
-            lookupPhone();
-          }
-        } catch(e) {}
+      let div = document.createElement('div');
+      div.className = p.checked ? "player-row checked" : "player-row";
+      div.setAttribute('data-checked', p.checked ? "true" : "false");
+      div.setAttribute('data-name', p.name);
+      div.onclick = function() {
+        let isChecked = this.getAttribute('data-checked') === "true";
+        this.setAttribute('data-checked', !isChecked);
+        this.className = !isChecked ? "player-row checked" : "player-row";
+        this.querySelector('.check-icon').innerText = !isChecked ? "✅" : "❌";
       };
+      
+      div.innerHTML = `<span class="player-name">${p.name}</span>
+                       <span class="check-icon">${p.checked ? '✅' : '❌'}</span>`;
+      container.appendChild(div);
+    });
+    document.getElementById('saveCheckInBtn').disabled = false;
+  }
 
-      function autoSelectStoredGroup() {
-        const savedGroup = getSavedGroup();
-        if (savedGroup) {
-          syncAllGroupDropdowns(savedGroup);
-          if (document.getElementById('sheetSelect').value) loadCheckInPlayers();
-          if (document.getElementById('groupViewerSelect').value) loadRankingsAndSched();
-          if (document.getElementById('adminStatusGroupSelect').value) loadAdminPlayerStatus();
-        }
-      }
+  async function submitCheckIns() {
+    const sheetName = document.getElementById('sheetSelect').value;
+    const rows = document.querySelectorAll('#playerList .player-row');
+    let checkedNames = [];
+    rows.forEach(r => { if (r.getAttribute('data-checked') === "true") checkedNames.push(r.getAttribute('data-name')); });
+    
+    document.getElementById('checkInStatus').innerText = "Saving...";
+    document.getElementById('saveCheckInBtn').disabled = true;
+    try {
+      const res = await apiCall('saveCheckIns', { sheet: sheetName, checkedNames: checkedNames });
+      document.getElementById('checkInStatus').innerText = res;
+      setTimeout(loadCheckInPlayers, 1000);
+    } catch(e) {
+      document.getElementById('checkInStatus').innerText = e.message;
+    }
+  }
 
-      function handleSecretTap(e) {
-        if (e && e.cancelable) e.preventDefault(); 
-        tapCount++;
-        clearTimeout(tapTimer);
-        if (tapCount >= 5) {
-            document.getElementById('tabAdminBtn').style.display = 'block';
-            document.getElementById('adminStatus').innerText = "Admin unlocked!";
-            tapCount = 0;
-        }
-        tapTimer = setTimeout(() => { tapCount = 0; }, 2000);
-      }          
+  async function lookupPhone() {
+    const phone = document.getElementById('phoneInput').value;
+    document.getElementById('phoneStatus').innerText = "Searching player...";
+    
+    try {
+      const res = await apiCall('findFoursomeByPhone', { phone: phone });
+      document.getElementById('phoneStatus').innerText = "";
+      localStorage.setItem('foursome_phone', phone);
+      document.getElementById('phoneEntrySection').style.display = "none";
+      document.getElementById('lookupResult').style.display = "block";
+      
+      currentPlayerData = res;
+      document.getElementById('pNameDisplay').innerText = res.playerName;
+      document.getElementById('pGroupDisplay').innerText = res.groupName || "N/A";
+      document.getElementById('pCourtDisplay').innerText = res.court || "N/A";
+      
+      if (res.groupName) setSavedGroup(res.groupName);
+      
+      const statBadge = document.getElementById('pStatusDisplay');
+      statBadge.innerText = res.status;
+      statBadge.className = "status-badge " + (res.status === "ACTIVE" ? "status-active" : "status-inactive");
+      
+      const scoreContainer = document.getElementById('scoreInputsContainer');
+      scoreContainer.innerHTML = "";
 
-      function switchTab(tab) {
-        document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
-        document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
-        
-        document.getElementById(tab + 'Tab').classList.add('active');
-        let btnId = tab === 'ranksched' ? 'tab3Btn' : tab === 'checkin' ? 'tab1Btn' : tab === 'phone' ? 'tab2Btn' : tab === 'help' ? 'tab4Btn' : 'tabAdminBtn';
-        document.getElementById(btnId).classList.add('active');
-      }
-
-      function populateSheets(sheets) {
-        const sel1 = document.getElementById('sheetSelect');
-        const sel2 = document.getElementById('adminSchedSelect');
-        sel1.innerHTML = '<option value="">-- Choose Group --</option>';
-        sel2.innerHTML = '<option value="">-- Choose Group --</option>';
-        sheets.forEach(function(s) {
-          var cleanName = String(s).replace(/^Sched[\s_-]*/i, '').trim();
-          sel1.innerHTML += '<option value="' + s + '">' + cleanName + '</option>';
-          sel2.innerHTML += '<option value="' + s + '">' + cleanName + '</option>';
+      if (res.foursome && res.foursome.length > 0) {
+        document.getElementById('scoreEntrySection').style.display = "block";
+        scoreContainer.innerHTML = "<div class='score-grid' style='font-weight:bold; font-size:1rem;'><div>Player</div><div>G1</div><div>G2</div><div>G3</div></div>";
+        res.foursome.forEach(p => {
+          scoreContainer.innerHTML += `<div class="score-grid card">
+            <div><b>${p.name}</b></div>
+            <input type="number" id="g1_${p.name}" value="${p.g1}">
+            <input type="number" id="g2_${p.name}" value="${p.g2}">
+            <input type="number" id="g3_${p.name}" value="${p.g3}">
+          </div>`;
         });
+      } else {
+        document.getElementById('scoreEntrySection').style.display = "none";
       }
-        
-      function populateGroups(groups) {
-        const sel1 = document.getElementById('groupViewerSelect');
-        const sel2 = document.getElementById('regGroup');
-        const sel3 = document.getElementById('adminRegGroup');
-        const sel4 = document.getElementById('adminStatusGroupSelect');
-        
-        sel1.innerHTML = '<option value="">-- Choose Group --</option>';
-        if(sel2) sel2.innerHTML = '<option value="">-- Select Group --</option>';
-        if(sel3) sel3.innerHTML = '<option value="">-- Select Group --</option>';
-        if(sel4) sel4.innerHTML = '<option value="">-- Select Group --</option>';
-        
-        groups.forEach(function(g) {
-          sel1.innerHTML += '<option value="' + g + '">' + g + '</option>';
-          if (sel2) sel2.innerHTML += '<option value="' + g + '">' + g + '</option>';
-          if (sel3) sel3.innerHTML += '<option value="' + g + '">' + g + '</option>';
-          if (sel4) sel4.innerHTML += '<option value="' + g + '">' + g + '</option>';
-        });
-      }
+    } catch(err) {
+      document.getElementById('phoneStatus').innerText = err.message;
+    }
+  }
 
-      async function loadAdminPlayerStatus() {
-        const group = document.getElementById('adminStatusGroupSelect').value;
-        if(!group) return;
-        document.getElementById('adminStatus').innerText = "Loading players...";
-        try {
-          const players = await apiCall('getAdminPlayersByGroup', { group: group });
-          renderAdminPlayerStatus(players);
-        } catch(e) {
-          document.getElementById('adminStatus').innerText = e.message;
-        }
-      }
+  function clearPhoneCache() {
+    localStorage.removeItem('foursome_phone');
+    document.getElementById('phoneInput').value = "";
+    document.getElementById('lookupResult').style.display = "none";
+    document.getElementById('phoneEntrySection').style.display = "block";
+    currentPlayerData = null;
+  }
 
-      function renderAdminPlayerStatus(players) {
-        document.getElementById('adminStatus').innerText = "";
-        const container = document.getElementById('adminPlayerStatusList');
-        container.innerHTML = "";
-        
-        if(!players || players.length === 0) {
-          container.innerHTML = "<p style='padding:0.75rem; text-align:center;'>No players found.</p>";
-          return;
-        }
-        
-        players.forEach(p => {
-          let div = document.createElement('div');
-          div.className = "player-row " + (p.status === "ACTIVE" ? "checked" : "");
-          let isActive = (p.status === "ACTIVE");
-          let uiColor = isActive ? '#00c853' : '#9e9e9e';
-          let uiWeight = isActive ? 'bold' : 'normal';
-          
-          div.innerHTML = '<span class="player-name" style="color: ' + uiColor + '; font-weight: ' + uiWeight + ';">' + p.name + '</span>' +
-                          '<button class="btn-sub" ' +
-                          'style="min-width:auto; min-height:auto; padding:0.4rem 0.75rem; margin:0; background-color: ' + uiColor + '; border: none; color: white;" ' +
-                          'onclick="toggleAdminStatus(\'' + p.phone + '\', this)">' + 
-                          p.status + 
-                          '</button>';
-                          
-          container.appendChild(div);
-        });
-      }
+  async function toggleStatus() {
+    document.getElementById('phoneStatus').innerText = "Updating status...";
+    try {
+      await apiCall('togglePlayerStatus', { phone: document.getElementById('phoneInput').value });
+      lookupPhone();
+    } catch(e) {
+      document.getElementById('phoneStatus').innerText = e.message;
+    }
+  }
 
-      async function toggleAdminStatus(phone, buttonElement) {
-        buttonElement.innerText = "...";
-        try {
-          const newStatus = await apiCall('togglePlayerStatus', { phone: phone });
-          buttonElement.innerText = newStatus;
-          const nameSpan = buttonElement.parentElement.querySelector('.player-name');
-          if(newStatus === "ACTIVE") {
-            buttonElement.parentElement.classList.add('checked');
-            buttonElement.style.backgroundColor = '#00c853';
-            if (nameSpan) { nameSpan.style.color = '#00c853'; nameSpan.style.fontWeight = 'bold'; }
-          } else {
-            buttonElement.parentElement.classList.remove('checked');
-            buttonElement.style.backgroundColor = '#9e9e9e';
-            if (nameSpan) { nameSpan.style.color = '#9e9e9e'; nameSpan.style.fontWeight = 'normal'; }
-          }
-        } catch(e) { alert(e.message); }
-      }
+  async function saveScores() {
+    if (!currentPlayerData || !currentPlayerData.foursome) return;
+    let scoresMap = {};
+    currentPlayerData.foursome.forEach(p => {
+      scoresMap[p.name] = {
+        g1: document.getElementById('g1_' + p.name).value,
+        g2: document.getElementById('g2_' + p.name).value,
+        g3: document.getElementById('g3_' + p.name).value
+      };
+    });
+    
+    document.getElementById('phoneStatus').innerText = "Submitting scores...";
+    try {
+      const res = await apiCall('submitCourtScores', {
+        groupName: currentPlayerData.groupName,
+        court: currentPlayerData.court,
+        scores: scoresMap,
+        submitter: currentPlayerData.playerName
+      });
+      document.getElementById('phoneStatus').innerText = res;
+    } catch(e) {
+      document.getElementById('phoneStatus').innerText = e.message;
+    }
+  }
 
-      async function submitAdminRegistration() {
-        let data = {
-          first: document.getElementById('adminRegFirst').value,
-          last: document.getElementById('adminRegLast').value,
-          phone: document.getElementById('adminRegPhone').value,
-          email: document.getElementById('adminRegEmail').value,
-          group: document.getElementById('adminRegGroup').value
-        };
-        
-        document.getElementById('adminStatus').innerText = "Adding player...";
-        try {
-          const res = await apiCall('addNewUser', data);
-          document.getElementById('adminStatus').innerText = res;
-          document.getElementById('adminRegFirst').value = "";
-          document.getElementById('adminRegLast').value = "";
-          document.getElementById('adminRegPhone').value = "";
-          document.getElementById('adminRegEmail').value = "";
-        } catch(e) {
-          document.getElementById('adminStatus').innerText = e.message;
-        }
-      }
+  function cancelRegistration() {
+    document.getElementById('registrationSection').style.display = "none";
+    document.getElementById('phoneEntrySection').style.display = "block";
+  }
 
-      async function loadCheckInPlayers() {
-        const sheet = document.getElementById('sheetSelect').value;
-        if (!sheet) return;
-        document.getElementById('checkInStatus').innerText = "Loading players...";
-        try {
-          const data = await apiCall('getPlayersForCheckIn', { sheet: sheet });
-          renderCheckInPlayers(data);
-        } catch(e) {
-          document.getElementById('checkInStatus').innerText = e.message;
-        }
-      }
+  async function submitRegistration() {
+    let data = {
+      first: document.getElementById('regFirst').value,
+      last: document.getElementById('regLast').value,
+      phone: document.getElementById('regPhone').value,
+      email: document.getElementById('regEmail').value,
+      group: document.getElementById('regGroup').value,
+      status: 'pending'
+    };
+    
+    document.getElementById('phoneStatus').innerText = "Registering...";
+    try {
+      const res = await apiCall('addNewUser', data);
+      document.getElementById('phoneStatus').innerText = res;
+      setTimeout(cancelRegistration, 2000);
+    } catch(e) {
+      document.getElementById('phoneStatus').innerText = e.message;
+    }
+  }
 
-      function renderCheckInPlayers(data) {
-        document.getElementById('checkInStatus').innerText = "";
-        const container = document.getElementById('playerList');
-        container.innerHTML = "";
-        if (!data || data.length === 0) {
-          container.innerHTML = "<p style='text-align:center;'>No players found.</p>";
-          document.getElementById('saveCheckInBtn').disabled = true;
-          return;
-        }
+  async function loadRankingsAndSched() {
+    const group = document.getElementById('groupViewerSelect').value;
+    if (!group) return;
+    
+    document.getElementById('viewerStatus').innerText = "Loading schedule and rankings...";
+    try {
+      const data = await apiCall('getRankingsAndSchedData', { group: group });
+      renderRankingsAndSched(data);
+    } catch(e) {
+      document.getElementById('viewerStatus').innerText = e.message;
+    }
+  }
 
-        let currentCourt = "";
-        data.forEach((p) => {
-          if (p.court !== currentCourt) {
-            currentCourt = p.court;
-            let ch = document.createElement('div');
-            ch.className = "court-header";
-            ch.innerText = "Court: " + currentCourt;
-            container.appendChild(ch);
-          }
-          let div = document.createElement('div');
-          div.className = p.checked ? "player-row checked" : "player-row";
-          div.setAttribute('data-checked', p.checked ? "true" : "false");
-          div.setAttribute('data-name', p.name);
-          div.onclick = function() {
-            let isChecked = this.getAttribute('data-checked') === "true";
-            this.setAttribute('data-checked', !isChecked);
-            this.className = !isChecked ? "player-row checked" : "player-row";
-            this.querySelector('.check-icon').innerText = !isChecked ? "✅" : "❌";
-          };
-          
-          div.innerHTML = `<span class="player-name">${p.name}</span>
-                           <span class="check-icon">${p.checked ? '✅' : '❌'}</span>`;
-          container.appendChild(div);
-        });
-        document.getElementById('saveCheckInBtn').disabled = false;
-      }
-
-      async function submitCheckIns() {
-        const sheetName = document.getElementById('sheetSelect').value;
-        const rows = document.querySelectorAll('#playerList .player-row');
-        let checkedNames = [];
-        rows.forEach(r => { if (r.getAttribute('data-checked') === "true") checkedNames.push(r.getAttribute('data-name')); });
-        
-        document.getElementById('checkInStatus').innerText = "Saving...";
-        document.getElementById('saveCheckInBtn').disabled = true;
-        try {
-          const res = await apiCall('saveCheckIns', { sheet: sheetName, checkedNames: checkedNames });
-          document.getElementById('checkInStatus').innerText = res;
-          setTimeout(loadCheckInPlayers, 1000);
-        } catch(e) {
-          document.getElementById('checkInStatus').innerText = e.message;
-        }
-      }
-
-      async function lookupPhone() {
-        const phone = document.getElementById('phoneInput').value;
-        document.getElementById('phoneStatus').innerText = "Searching player...";
-        
-        try {
-          const res = await apiCall('findFoursomeByPhone', { phone: phone });
-          document.getElementById('phoneStatus').innerText = "";
-          localStorage.setItem('foursome_phone', phone);
-          document.getElementById('phoneEntrySection').style.display = "none";
-          document.getElementById('lookupResult').style.display = "block";
-          
-          currentPlayerData = res;
-          document.getElementById('pNameDisplay').innerText = res.playerName;
-          document.getElementById('pGroupDisplay').innerText = res.groupName || "N/A";
-          document.getElementById('pCourtDisplay').innerText = res.court || "N/A";
-          
-          if (res.groupName) setSavedGroup(res.groupName);
-          
-          const statBadge = document.getElementById('pStatusDisplay');
-          statBadge.innerText = res.status;
-          statBadge.className = "status-badge " + (res.status === "ACTIVE" ? "status-active" : "status-inactive");
-          
-          const scoreContainer = document.getElementById('scoreInputsContainer');
-          scoreContainer.innerHTML = "";
-
-          if (res.foursome && res.foursome.length > 0) {
-            document.getElementById('scoreEntrySection').style.display = "block";
-            scoreContainer.innerHTML = "<div class='score-grid' style='font-weight:bold; font-size:1rem;'><div>Player</div><div>G1</div><div>G2</div><div>G3</div></div>";
-            res.foursome.forEach(p => {
-              scoreContainer.innerHTML += `<div class="score-grid card">
-                <div><b>${p.name}</b></div>
-                <input type="number" id="g1_${p.name}" value="${p.g1}">
-                <input type="number" id="g2_${p.name}" value="${p.g2}">
-                <input type="number" id="g3_${p.name}" value="${p.g3}">
-              </div>`;
-            });
-          } else {
-            document.getElementById('scoreEntrySection').style.display = "none";
-          }
-        } catch(err) {
-          document.getElementById('phoneStatus').innerText = err.message;
-        }
-      }
-
-      function clearPhoneCache() {
-        localStorage.removeItem('foursome_phone');
-        document.getElementById('phoneInput').value = "";
-        document.getElementById('lookupResult').style.display = "none";
-        document.getElementById('phoneEntrySection').style.display = "block";
-        currentPlayerData = null;
-      }
-
-      async function toggleStatus() {
-        document.getElementById('phoneStatus').innerText = "Updating status...";
-        try {
-          await apiCall('togglePlayerStatus', { phone: document.getElementById('phoneInput').value });
-          lookupPhone();
-        } catch(e) {
-          document.getElementById('phoneStatus').innerText = e.message;
-        }
-      }
-
-      async function saveScores() {
-        if (!currentPlayerData || !currentPlayerData.foursome) return;
-        let scoresMap = {};
-        currentPlayerData.foursome.forEach(p => {
-          scoresMap[p.name] = {
-            g1: document.getElementById('g1_' + p.name).value,
-            g2: document.getElementById('g2_' + p.name).value,
-            g3: document.getElementById('g3_' + p.name).value
-          };
-        });
-        
-        document.getElementById('phoneStatus').innerText = "Submitting scores...";
-        try {
-          const res = await apiCall('submitCourtScores', {
-            groupName: currentPlayerData.groupName,
-            court: currentPlayerData.court,
-            scores: scoresMap,
-            submitter: currentPlayerData.playerName
-          });
-          document.getElementById('phoneStatus').innerText = res;
-        } catch(e) {
-          document.getElementById('phoneStatus').innerText = e.message;
-        }
-      }
-
-      function cancelRegistration() {
-        document.getElementById('registrationSection').style.display = "none";
-        document.getElementById('phoneEntrySection').style.display = "block";
-      }
-
-      async function submitRegistration() {
-        let data = {
-          first: document.getElementById('regFirst').value,
-          last: document.getElementById('regLast').value,
-          phone: document.getElementById('regPhone').value,
-          email: document.getElementById('regEmail').value,
-          group: document.getElementById('regGroup').value
-        };
-        
-        document.getElementById('phoneStatus').innerText = "Registering...";
-        try {
-          const res = await apiCall('addNewUser', data);
-          document.getElementById('phoneStatus').innerText = res;
-          setTimeout(cancelRegistration, 2000);
-        } catch(e) {
-          document.getElementById('phoneStatus').innerText = e.message;
-        }
-      }
-
-      async function loadRankingsAndSched() {
-        const group = document.getElementById('groupViewerSelect').value;
-        if (!group) return;
-        
-        document.getElementById('viewerStatus').innerText = "Loading schedule and rankings...";
-        try {
-          const data = await apiCall('getRankingsAndSchedData', { group: group });
-          renderRankingsAndSched(data);
-        } catch(e) {
-          document.getElementById('viewerStatus').innerText = e.message;
-        }
-      }
-
-      function renderRankingsAndSched(data) {
-        document.getElementById('viewerStatus').innerText = "";
-        let html = "";
-        let wLabel = data.weekNum; 
-        
-        if (data.sched && data.sched.length > 0) {
-          html += `<h4 style='margin:1rem 0 0.5rem 0;'>🎾 Week ${wLabel} Tentative Court Assignments</h4>`;
-          let currentCourt = "";
-          data.sched.forEach(row => {
-            if (row.court !== currentCourt) {
-              if (currentCourt !== "") html += "</div>";
-              currentCourt = row.court;
-              html += "<div class='card'><div class='court-header'>Court " + currentCourt + "</div>";
-            }
-            html += "<div style='padding:0.5rem 0; font-size:1.1rem; border-bottom:2px solid var(--row-border);'>" + row.name + "</div>";
-          });
+  function renderRankingsAndSched(data) {
+    document.getElementById('viewerStatus').innerText = "";
+    let html = "";
+    let wLabel = data.weekNum; 
+    
+    if (data.sched && data.sched.length > 0) {
+      html += `<h4 style='margin:1rem 0 0.5rem 0;'>🎾 Week ${wLabel} Tentative Court Assignments</h4>`;
+      let currentCourt = "";
+      data.sched.forEach(row => {
+        if (row.court !== currentCourt) {
           if (currentCourt !== "") html += "</div>";
+          currentCourt = row.court;
+          html += "<div class='card'><div class='court-header'>Court " + currentCourt + "</div>";
         }
+        html += "<div style='padding:0.5rem 0; font-size:1.1rem; border-bottom:2px solid var(--row-border);'>" + row.name + "</div>";
+      });
+      if (currentCourt !== "") html += "</div>";
+    }
 
-        if (data.rankings && data.rankings.length > 0) {
-          html += `<h4 style='margin:1.5rem 0 0.5rem 0;'>📊 Week ${wLabel} Group Rankings</h4>`;
-          html += "<table class='data-table'><thead><tr><th>#</th><th>Player</th><th>Win %</th><th>Pts</th></tr></thead><tbody>";
-          data.rankings.forEach(r => { html += `<tr><td><b>${r.rank}</b></td><td>${r.name}</td><td>${r.pct}</td><td>${r.pts}</td></tr>`; });
-          html += "</tbody></table>";
-        }
-        document.getElementById('viewerContent').innerHTML = html;
-      }
+    if (data.rankings && data.rankings.length > 0) {
+      html += `<h4 style='margin:1.5rem 0 0.5rem 0;'>📊 Week ${wLabel} Group Rankings</h4>`;
+      html += "<table class='data-table'><thead><tr><th>#</th><th>Player</th><th>Win %</th><th>Pts</th></tr></thead><tbody>";
+      data.rankings.forEach(r => { html += `<tr><td><b>${r.rank}</b></td><td>${r.name}</td><td>${r.pct}</td><td>${r.pts}</td></tr>`; });
+      html += "</tbody></table>";
+    }
+    document.getElementById('viewerContent').innerHTML = html;
+  }
 
-      async function runAdmin(funcName, arg) {
-        document.getElementById('adminStatus').innerText = "Processing...";
-        try {
-          const res = await apiCall(funcName, { arg: arg });
-          document.getElementById('adminStatus').innerText = res || "Done.";
-        } catch(e) {
-          document.getElementById('adminStatus').innerText = e.message;
-        }
-      }
+  async function runAdmin(funcName, arg) {
+    const group = getSavedGroup();
+    document.getElementById('adminStatus').innerText = "Processing...";
+    try {
+      const res = await apiCall(funcName, { arg: arg || group, group: group });
+      document.getElementById('adminStatus').innerText = res || "Done.";
+    } catch(e) {
+      document.getElementById('adminStatus').innerText = e.message;
+    }
+  }
 
-      function runReschedule() {
-        let tab = document.getElementById('adminSchedSelect').value;
-        if (!tab) return alert("Select a schedule tab");
-        runAdmin('rescheduleFromCheckIns', tab);
-      }
+  function runReschedule() {
+    let tab = document.getElementById('adminSchedSelect').value || getSavedGroup();
+    if (!tab) return alert("Select a target group or schedule tab first.");
+    runAdmin('rescheduleFromCheckIns', tab);
+  }
 
-      async function getAdminPdf() {
-        document.getElementById('adminStatus').innerText = "Generating PDF...";
-        try {
-          const b64 = await apiCall('webExportSchedulePdf');
-          document.getElementById('adminStatus').innerHTML = 
-            `<a download="Schedule.pdf" href="data:application/pdf;base64,${b64}" style="display:inline-block; margin-top:1rem; padding:0.75rem; background:var(--btn-main-bg); color:var(--btn-main-text); border-radius:0.5rem; text-decoration:none;">⬇ Download PDF Ready</a>`;
-        } catch(e) {
-          document.getElementById('adminStatus').innerText = e.message;
-        }
-      }
-
-      function filterAdminPlayers() {
-        const input = document.getElementById('adminPlayerSearch');
-        const filter = input.value.toLowerCase();
-        const list = document.getElementById('adminPlayerStatusList');
-        const rows = list.children; 
-        
-        for (let i = 0; i < rows.length; i++) {
-          if (rows[i].tagName === 'I') continue; 
-          const text = rows[i].textContent || rows[i].innerText;
-          if (text.toLowerCase().indexOf(filter) > -1) {
-            rows[i].style.display = ""; 
-          } else {
-            rows[i].style.display = "none"; 
-          }
-        }
-      }
-    </script>
-  </body>
+  async function getAdminPdf() {
+    document.getElementById('adminStatus').innerText = "Generating PDF...";
+    try {
+      const b64 = await apiCall('webExportSchedulePdf', { group: getSavedGroup() });
+      document.getElementById('adminStatus').innerHTML = 
+        `<a download="Schedule.pdf" href="data:application/pdf;base64,${b64}" style="display:inline-block; margin-top:1rem; padding:0.75rem; background:var(--btn-main-bg); color:var(--btn-main-text); border-radius:0.5rem; text-decoration:none;">⬇ Download PDF Ready</a>`;
+    } catch(e) {
+      document.getElementById('adminStatus').innerText = e.message;
+    }
+  }
+</script>
+</body>
 </html>
