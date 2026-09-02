@@ -1,6 +1,9 @@
 /* ==========================================
  * GLOBAL CONFIGURATION & HELPER DEFINITIONS
  * ========================================== */
+const MAX_MOVEMENT = 4;
+const MAX_POINTS_PER_WEEK = 45;
+const VALID_SCORE_TABS = ["Score Womens", "Score Mens", "Score Mixed"];
 
 function getAppVersion() {
   return "1.1.1"; 
