@@ -1,4 +1,4 @@
-const CACHE_NAME = 'scpb-ladder-v1.1.5'; // Incremented to force update
+const CACHE_NAME = 'scpb-ladder-v1.1.6; // Incremented to force update
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
