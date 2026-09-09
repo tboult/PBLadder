@@ -373,12 +373,11 @@ async function apiCall(action, payload = {}) {
     throw new Error("API_URL is not defined. Check index.html configuration.");
   }
 
-  // Include action inside the body payload so POST redirects keep it intact
   const requestBody = Object.assign({ action: action }, payload);
 
   const options = {
     method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    headers: { 'Content-Type': 'text/plain' },
     redirect: 'follow',
     body: JSON.stringify(requestBody)
   };
@@ -396,6 +395,8 @@ async function apiCall(action, payload = {}) {
     throw err;
   }
   }
+  
+
   
   // --- LOCAL STORAGE CACHE HANDLERS ---
   function getSavedGroup() {
