@@ -58,11 +58,6 @@ function getConstantsConfig() {
 }
 
 
-function getAppVersion() {
-  logDebug("getAppVersion", "Retrieving app version");
-  return "1.1.2"; 
-}
-
 function getValidScoreTabs() {
   logDebug("getValidScoreTabs", "Fetching valid score tabs");
   return SCORE_TABS;
