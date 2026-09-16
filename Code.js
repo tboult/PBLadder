@@ -14,10 +14,31 @@ function logDebug(fnName, msg, extra = "") {
 }
 
 const SPREADSHEET_ID = "14jmYyesfG9btWcIeptDwD6Bkxj8UZiQVlAOGc6BdM84";
-const VALID_SCORE_TABS = ["Score Womens", "Score Mens", "Score Mixed"];
+const SCORE_TABS = VALID_SCORE_TABS = ["Score Womens", "Score Mens", "Score Mixed"];
 const MAX_MOVEMENT = 4;
 const MAX_POINTS_PER_WEEK = 45;
 const ALWAYS_BYE_LOWEST = true;
+
+
+const GROUPS = ["Womens", "Mens", "Mixed"];
+const SCHEDULE_TABS = ["Sched Womens", "Sched Mens", "Sched Mixed"];
+
+
+/**
+ * Returns configuration directly from hardcoded constants.
+ * Bypasses all spreadsheet tab reads.
+ */
+function getConstantsConfig() {
+  logDebug("getConstantsConfig", "Serving raw code constants");
+  return {
+    groups: GROUPS,
+    scheduleTabs: SCHEDULE_TABS,
+    scoreTabs: SCORE_TABS,
+    maxMovement: MAX_MOVEMENT,
+    maxPointsPerWeek: MAX_POINTS_PER_WEEK,
+    alwaysByeLowest: ALWAYS_BYE_LOWEST
+  };
+}
 
 function getAppVersion() {
   logDebug("getAppVersion", "Retrieving app version");
@@ -25,64 +46,38 @@ function getAppVersion() {
 }
 
 function getConstantsConfig() {
-  logDebug("getConstantsConfig", "Loading constants from sheet or fallback");
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  logDebug("getConstantsConfig", "Serving raw code constants");
+  return {
+    groups: GROUPS,
+    scheduleTabs: SCHEDULE_TABS,
+    scoreTabs: SCORE_TABS,
+    maxMovement: MAX_MOVEMENT,
+    maxPointsPerWeek: MAX_POINTS_PER_WEEK,
+    alwaysByeLowest: ALWAYS_BYE_LOWEST
+  };
+}
 
-  if (!ss) {
-    logDebug("getConstantsConfig", "Spreadsheet unable to be opened by ID");
-    return { groups: [], scheduleTabs: [], scoreTabs: [] };
-  }
 
-  const constSheet = ss.getSheetByName('Constants');
-  
-  if (!constSheet || constSheet.getLastRow() < 2) {
-    logDebug("getConstantsConfig", "Constants sheet missing or empty. Scanning tabs dynamically");
-    const allSheets = ss.getSheets().map(s => s.getName());
-    return {
-      groups: allSheets.filter(s => s.startsWith("Sched ")).map(s => s.replace(/^Sched\s+/i, "")),
-      scheduleTabs: allSheets.filter(s => s.startsWith("Sched ")),
-      scoreTabs: allSheets.filter(s => s.startsWith("Score "))
-    };
-  }
-
-  const data = constSheet.getDataRange().getValues();
-  const headers = data[0].map(h => h.toString().toLowerCase().trim());
-  
-  const gCol = headers.indexOf("group");
-  const schedCol = headers.indexOf("schedule tab");
-  const scoreCol = headers.indexOf("score tab");
-
-  let groups = [], scheduleTabs = [], scoreTabs = [];
-
-  for (let i = 1; i < data.length; i++) {
-    if (gCol !== -1 && data[i][gCol]) groups.push(data[i][gCol].toString().trim());
-    if (schedCol !== -1 && data[i][schedCol]) scheduleTabs.push(data[i][schedCol].toString().trim());
-    if (scoreCol !== -1 && data[i][scoreCol]) scoreTabs.push(data[i][scoreCol].toString().trim());
-  }
-
-  logDebug("getConstantsConfig", "Loaded config successfully", { groups, scheduleTabs, scoreTabs });
-  return { groups, scheduleTabs, scoreTabs };
+function getAppVersion() {
+  logDebug("getAppVersion", "Retrieving app version");
+  return "1.1.2"; 
 }
 
 function getValidScoreTabs() {
   logDebug("getValidScoreTabs", "Fetching valid score tabs");
-  const config = getConstantsConfig();
-  if (config.scoreTabs.length > 0) return config.scoreTabs;
-  
-  return config.groups.map(g => g.startsWith("Score ") ? g : "Score " + g);
+  return SCORE_TABS;
 }
 
 function getSchedTabNames() { 
   logDebug("getSchedTabNames", "Fetching schedule tab names");
-  const config = getConstantsConfig();
-  if (config.scheduleTabs.length > 0) return config.scheduleTabs;
-  return config.groups.map(g => g.startsWith("Sched ") ? g : "Sched " + g);
+  return SCHEDULE_TABS;
 }
 
 function getAvailableGroups() {
   logDebug("getAvailableGroups", "Fetching available groups");
-  return getConstantsConfig().groups;
+  return GROUPS;
 }
+
 
 function getPlayersForCheckIn(schedSheetName) {
   logDebug("getPlayersForCheckIn", "Triggered for sheet", schedSheetName);
@@ -157,6 +152,18 @@ function saveCheckIns(schedSheetName, checkedPlayerNames) {
   return `✅ Check-ins saved successfully (${updatedCount} checked in)!`;
 }
 
+
+
+function doGet(e) {
+  logDebug("doGet", "HTTP GET Request received", e ? e.parameter : {});
+  return handleApiRequest(e);
+}
+
+function doPost(e) {
+  logDebug("doPost", "HTTP POST Request received", e ? e.postData : {});
+  return handleApiRequest(e);
+}
+
 function authorizeScript() {
   logDebug("authorizeScript", "Starting script authorization");
   const ss = SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -177,118 +184,27 @@ function authorizeScript() {
   logDebug("authorizeScript", "Authorization completed successfully");
 }
 
-function doGet(e) {
-  logDebug("doGet", "HTTP GET Request received", e ? e.parameter : {});
-  return handleApiRequest(e);
-}
 
-function doPost(e) {
-  logDebug("doPost", "HTTP POST Request received", e ? e.postData : {});
-  return handleApiRequest(e);
-}
-
-function handleApiRequest(e) {
-  logDebug("handleApiRequest", "Processing API Payload");
-  const lock = LockService.getScriptLock();
-  lock.tryLock(10000);
+function authorizeScript() {
+  logDebug("authorizeScript", "Starting script authorization");
+  const ss = SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID);
   
-  try {
-    let action = (e && e.parameter && e.parameter.action) ? e.parameter.action : "";
-    let payload = {};
+  const sheet = ss.getSheets()[0];
+  const testVal = sheet.getRange(1, 1).getValue();
+  sheet.getRange(1, 1).setValue(testVal);
+  
+  const file = DriveApp.getFileById(ss.getId());
+  const folderName = "SCPBLadder";
+  const folders = DriveApp.getFoldersByName(folderName);
+  let targetFolder = folders.hasNext() ? folders.next() : DriveApp.createFolder(folderName);
 
-    if (e && e.postData && e.postData.contents) {
-      try {
-        payload = JSON.parse(e.postData.contents);
-        if (!action && payload.action) action = payload.action;
-      } catch(ex) {
-        logDebug("handleApiRequest", "JSON parse error on postData", ex.toString());
-      }
-    } else if (e && e.parameter) {
-      payload = e.parameter;
-    }
+  const tempCopy = file.makeCopy("DELETE_ME_AUTH_TEST", targetFolder);
+  tempCopy.setTrashed(true);
 
-    logDebug("handleApiRequest", "Dispatching action", action);
-
-    let result;
-    switch(action) {
-      case 'getSchedTabNames':
-        result = getSchedTabNames();
-        break;
-      case 'getAvailableGroups':
-        result = getAvailableGroups();
-        break;
-      case 'getPlayersForCheckIn':
-        result = getPlayersForCheckIn(payload.sheet || payload.schedSheetName || payload.tab);
-        break;
-      case 'saveCheckIns':
-        result = saveCheckIns(payload.sheet || payload.schedSheetName || payload.tab, payload.checkedNames);
-        break;
-      case 'findFoursomeByPhone':
-        result = findFoursomeByPhone(payload.phone);
-        break;
-      case 'togglePlayerStatus':
-        result = togglePlayerStatus(payload.phone);
-        break;
-      case 'submitCourtScores':
-        result = submitCourtScores(payload);
-        break;
-      case 'getRankingsAndSchedData':
-        result = getRankingsAndSchedData(payload.group);
-        break;
-      case 'getAdminPlayersByGroup':
-        result = getAdminPlayersByGroup(payload.group);
-        break;
-      case 'addNewUser':
-        result = addNewUser(payload);
-        break;
-      case 'rescheduleFromCheckIns':
-        result = rescheduleFromCheckIns(payload.arg || payload.tab || payload.sheet || ("Sched " + payload.group));
-        break;
-      case 'generateScheduleTabs':
-        result = generateScheduleTabs(payload.arg || payload.tab || payload.sheet || ("Score " + payload.group));
-        break;
-      case 'menuSortActivePlayers':
-        result = menuSortActivePlayers();
-        break;
-      case 'menuGenerateScheduleTabs':
-        result = menuGenerateScheduleTabs();
-        break;
-      case 'menuUpdateStandingsWithShift':
-        result = menuUpdateStandingsWithShift();
-        break;
-      case 'menuCorrectScoresNoShift':
-        result = menuCorrectScoresNoShift();
-        break;
-      case 'startNewSeason':
-        result = startNewSeason();
-        break;
-      case 'getAdminSheetUrl':
-        result = getAdminSheetUrl();
-        break;
-      case 'getAppVersion':
-        result = typeof getAppVersion === 'function' ? getAppVersion() : "1.0.0";
-        break;
-      case 'webExportSchedulePdf':
-        result = webExportSchedulePdf();
-        break;
-      default:
-        throw new Error("Invalid or missing API action: " + action);
-    }
-
-    logDebug("handleApiRequest", "Action executed successfully", action);
-    return ContentService.createTextOutput(JSON.stringify({ status: "success", data: result }))
-      .setMimeType(ContentService.MimeType.JSON);
-
-  } catch(err) {
-    logDebug("handleApiRequest", "API Execution error", err.toString());
-    return ContentService.createTextOutput(JSON.stringify({ status: "error", message: err.toString() }))
-      .setMimeType(ContentService.MimeType.JSON);
-  } finally {
-    try {
-      lock.releaseLock();
-    } catch(e) {}
-  }
+  UrlFetchApp.fetch("https://www.google.com");
+  logDebug("authorizeScript", "Authorization completed successfully");
 }
+
 
 function getValidActiveScoreSheet(overrideTabName) {
   logDebug("getValidActiveScoreSheet", "Resolving target score sheet", overrideTabName);
@@ -309,14 +225,13 @@ function getValidActiveScoreSheet(overrideTabName) {
 
   try {
     let activeSheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-    if (activeSheet && getValidScoreTabs().includes(activeSheet.getName())) {
+    if (activeSheet && SCORE_TABS.includes(activeSheet.getName())) {
       logDebug("getValidActiveScoreSheet", "Resolved via active spreadsheet UI context", activeSheet.getName());
       return activeSheet;
     }
   } catch(e) {}
 
-  const validTabs = getValidScoreTabs();
-  for (let name of validTabs) {
+  for (let name of SCORE_TABS) {
     sheet = ss.getSheetByName(name);
     if (sheet) {
       logDebug("getValidActiveScoreSheet", "Resolved via fallback score tab", sheet.getName());
@@ -338,6 +253,8 @@ function getScoreSheetByGroup(groupName) {
   }
   return ss.getSheetByName(cleanName);
 }
+
+
 
 /* ==========================================
  * 1. CUSTOM MENU & ENTRY POINTS
@@ -366,7 +283,7 @@ function onOpen() {
     .addItem('🛠️ Maint: Generate Sched Tabs (All Groups)', 'menuGenerateScheduleTabs')
     .addToUi();
 
-  checkAndRunWeeklyBackup();
+ 
 }
 
 function menuGenerateScheduleCurrentTab() {
@@ -577,27 +494,39 @@ function addNewUser(info) {
   return `✅ Success: Added ${info.first} ${info.last} to tab '${targetSheet.getName()}'.`;
 }
 
+
+function getScoreSheetByGroup(groupName) {
+  logDebug("getScoreSheetByGroup", "Fetching score sheet for group", groupName);
+  if (!groupName) return null;
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let cleanName = groupName.toString().trim();
+  if (!cleanName.startsWith("Score ")) {
+    cleanName = "Score " + cleanName;
+  }
+  return ss.getSheetByName(cleanName);
+}
+
 function getTargetScoreSheet(groupOrTabName) {
   logDebug("getTargetScoreSheet", "Resolving target score sheet", groupOrTabName);
-  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  var sheet = null;
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let sheet = null;
 
   if (groupOrTabName) {
-    var targetName = groupOrTabName.startsWith("Score ") 
+    let targetName = groupOrTabName.startsWith("Score ") 
       ? groupOrTabName 
       : "Score " + groupOrTabName;
     sheet = ss.getSheetByName(targetName);
     if (sheet) return sheet;
   }
 
-  var validTabs = ["Score Womens", "Score Mens", "Score Mixed"];
-  for (var i = 0; i < validTabs.length; i++) {
-    sheet = ss.getSheetByName(validTabs[i]);
+  for (let name of SCORE_TABS) {
+    sheet = ss.getSheetByName(name);
     if (sheet) return sheet;
   }
 
   throw new Error('Action Cancelled: No valid Score tab found. Please select or pass "Score Womens", "Score Mens", or "Score Mixed".');
 }
+
 
 /* ==========================================
  * 3. BACKUP & RESTORE SYSTEM
