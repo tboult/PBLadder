@@ -757,6 +757,7 @@ async function apiCall(action, payload = {}) {
       document.getElementById('saveCheckInBtn').disabled = true;
       return;
     }
+    document.getElementById('saveCheckInBtn').disabled = false;
 
     let currentCourt = "";
     data.forEach((p) => {
@@ -782,7 +783,6 @@ async function apiCall(action, payload = {}) {
                        <span class="check-icon">${p.checked ? '✅' : '❌'}</span>`;
       container.appendChild(div);
     });
-    document.getElementById('saveCheckInBtn').disabled = false;
   }
 
   async function submitCheckIns() {
