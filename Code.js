@@ -163,7 +163,8 @@ function doPost(e) {
   logDebug("doPost", "HTTP POST Request received", e ? e.postData : {});
   return handleApiRequest(e);
 }
- function handleApiRequest(e) {
+
+function handleApiRequest(e) {
   logDebug("handleApiRequest", "Processing API Payload");
   const lock = LockService.getScriptLock();
   lock.tryLock(10000);
