@@ -1263,3 +1263,81 @@ function getAdminPlayersByGroup(groupName) {
   return players;
 }
 
+/**
+ * Filters the Schedule tab for checked-in players and re-allocates courts.
+ */
+function rescheduleFromCheckIns(schedTabName) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  
+  // Format target sheet name
+  let targetName = (schedTabName || "").toString().trim();
+  if (!targetName.startsWith("Sched ") && !targetName.startsWith("Score ")) {
+    targetName = "Sched " + targetName;
+  } else if (targetName.startsWith("Score ")) {
+    targetName = targetName.replace("Score ", "Sched ");
+  }
+  
+  let sheet = ss.getSheetByName(targetName);
+  if (!sheet) {
+    return `⚠️ Target sheet '${targetName}' was not found.`;
+  }
+
+  let data = sheet.getDataRange().getValues();
+  if (data.length <= 1) return `⚠️ No data found on ${targetName}`;
+
+  let headers = data[0].map(h => h.toString().toLowerCase().trim());
+  let nameIdx = headers.indexOf("name");
+  let checkInIdx = headers.indexOf("check-in");
+
+  if (nameIdx === -1 || checkInIdx === -1) {
+    return `⚠️ Required columns ("Name" and "Check-In") missing on ${targetName}`;
+  }
+
+  // Filter for checked-in players
+  let checkedInPlayers = [];
+  let seen = new Set();
+
+  for (let i = 1; i < data.length; i++) {
+    let row = data[i];
+    let pName = row[nameIdx] ? row[nameIdx].toString().trim() : "";
+    let checkVal = row[checkInIdx] ? row[checkInIdx].toString().trim().toLowerCase() : "";
+
+    // Match common check-in indicators
+    let isCheckedIn = ["yes", "true", "x", "checked in", "1"].includes(checkVal);
+
+    if (pName && isCheckedIn) {
+      let cleanKey = pName.toLowerCase();
+      if (!seen.has(cleanKey)) {
+        seen.add(cleanKey);
+        checkedInPlayers.push(pName);
+      }
+    }
+  }
+
+  if (checkedInPlayers.length === 0) {
+    return `⚠️ No players are currently marked as checked-in on ${targetName}.`;
+  }
+
+  // Build new 4-player court matrix
+  let schedOut = [["Name", "Court", "Game 1", "Game 2", "Game 3", "Check-In", "Entered By"]];
+  let courtNum = 1;
+
+  for (let i = 0; i < checkedInPlayers.length; i += 4) {
+    let courtName = "Court " + courtNum;
+    for (let j = 0; j < 4; j++) {
+      if (i + j < checkedInPlayers.length) {
+        schedOut.push([checkedInPlayers[i + j], courtName, "", "", "", "YES", ""]);
+      }
+    }
+    courtNum++;
+  }
+
+  // Overwrite schedule tab with updated court list
+  sheet.clearContents();
+  let sRange = sheet.getRange(1, 1, schedOut.length, 7);
+  sRange.setValues(schedOut);
+  sRange.setBorder(true, true, true, true, true, true, "black", SpreadsheetApp.BorderStyle.SOLID);
+  sheet.getRange(1, 1, 1, 7).setFontWeight("bold");
+
+  return `✅ Rescheduled ${checkedInPlayers.length} checked-in players across ${courtNum - 1} courts on '${targetName}'.`;
+}
