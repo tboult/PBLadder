@@ -163,25 +163,107 @@ function doPost(e) {
   logDebug("doPost", "HTTP POST Request received", e ? e.postData : {});
   return handleApiRequest(e);
 }
-
-function authorizeScript() {
-  logDebug("authorizeScript", "Starting script authorization");
-  const ss = SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID);
+ function handleApiRequest(e) {
+  logDebug("handleApiRequest", "Processing API Payload");
+  const lock = LockService.getScriptLock();
+  lock.tryLock(10000);
   
-  const sheet = ss.getSheets()[0];
-  const testVal = sheet.getRange(1, 1).getValue();
-  sheet.getRange(1, 1).setValue(testVal);
-  
-  const file = DriveApp.getFileById(ss.getId());
-  const folderName = "SCPBLadder";
-  const folders = DriveApp.getFoldersByName(folderName);
-  let targetFolder = folders.hasNext() ? folders.next() : DriveApp.createFolder(folderName);
+  try {
+    let action = (e && e.parameter && e.parameter.action) ? e.parameter.action : "";
+    let payload = {};
 
-  const tempCopy = file.makeCopy("DELETE_ME_AUTH_TEST", targetFolder);
-  tempCopy.setTrashed(true);
+    if (e && e.postData && e.postData.contents) {
+      try {
+        payload = JSON.parse(e.postData.contents);
+        if (!action && payload.action) action = payload.action;
+      } catch(ex) {
+        logDebug("handleApiRequest", "JSON parse error on postData", ex.toString());
+      }
+    } else if (e && e.parameter) {
+      payload = e.parameter;
+    }
 
-  UrlFetchApp.fetch("https://www.google.com");
-  logDebug("authorizeScript", "Authorization completed successfully");
+    logDebug("handleApiRequest", "Dispatching action", action);
+
+    let result;
+    switch(action) {
+      case 'getSchedTabNames':
+        result = getSchedTabNames();
+        break;
+      case 'getAvailableGroups':
+        result = getAvailableGroups();
+        break;
+      case 'getPlayersForCheckIn':
+        result = getPlayersForCheckIn(payload.sheet || payload.schedSheetName || payload.tab);
+        break;
+      case 'saveCheckIns':
+        result = saveCheckIns(payload.sheet || payload.schedSheetName || payload.tab, payload.checkedNames);
+        break;
+      case 'findFoursomeByPhone':
+        result = findFoursomeByPhone(payload.phone);
+        break;
+      case 'togglePlayerStatus':
+        result = togglePlayerStatus(payload.phone);
+        break;
+      case 'submitCourtScores':
+        result = submitCourtScores(payload);
+        break;
+      case 'getRankingsAndSchedData':
+        result = getRankingsAndSchedData(payload.group);
+        break;
+      case 'getAdminPlayersByGroup':
+        result = getAdminPlayersByGroup(payload.group);
+        break;
+      case 'addNewUser':
+        result = addNewUser(payload);
+        break;
+      case 'rescheduleFromCheckIns':
+        result = rescheduleFromCheckIns(payload.arg || payload.tab || payload.sheet || ("Sched " + payload.group));
+        break;
+      case 'generateScheduleTabs':
+        result = generateScheduleTabs(payload.arg || payload.tab || payload.sheet || ("Score " + payload.group));
+        break;
+      case 'menuSortActivePlayers':
+        result = menuSortActivePlayers();
+        break;
+      case 'menuGenerateScheduleTabs':
+        result = menuGenerateScheduleTabs();
+        break;
+      case 'menuUpdateStandingsWithShift':
+        result = menuUpdateStandingsWithShift();
+        break;
+      case 'menuCorrectScoresNoShift':
+        result = menuCorrectScoresNoShift();
+        break;
+      case 'startNewSeason':
+        result = startNewSeason();
+        break;
+      case 'getAdminSheetUrl':
+        result = getAdminSheetUrl();
+        break;
+      case 'getAppVersion':
+        result = typeof getAppVersion === 'function' ? getAppVersion() : "1.0.0";
+        break;
+      case 'webExportSchedulePdf':
+        result = webExportSchedulePdf();
+        break;
+      default:
+        throw new Error("Invalid or missing API action: " + action);
+    }
+
+    logDebug("handleApiRequest", "Action executed successfully", action);
+    return ContentService.createTextOutput(JSON.stringify({ status: "success", data: result }))
+      .setMimeType(ContentService.MimeType.JSON);
+
+  } catch(err) {
+    logDebug("handleApiRequest", "API Execution error", err.toString());
+    return ContentService.createTextOutput(JSON.stringify({ status: "error", message: err.toString() }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } finally {
+    try {
+      lock.releaseLock();
+    } catch(e) {}
+  }
 }
 
 
