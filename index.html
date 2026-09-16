@@ -993,11 +993,13 @@ function runRescheduleCheckedIn() {
 }
 
 function runRescheduleActive() {
-  let group = getSavedGroup();
-  if (!group) return alert("Please select an Admin Target Group first.");
+  let group = getSavedGroup(); // e.g. "Womens"
+  if (!group) return alert("Please select an Target Group first.");
   
+  // Format explicitly as "Score Womens"
   let targetTab = group.startsWith("Score ") ? group : "Score " + group;
-  document.getElementById('adminStatus').innerText = "Rebuilding schedule for all active players...";
+  
+  document.getElementById('adminStatus').innerText = "Generating schedule for " + targetTab + "...";
   
   runAdmin('generateScheduleTabs', targetTab);
 }
