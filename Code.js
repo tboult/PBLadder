@@ -196,8 +196,11 @@ function handleApiRequest(e) {
       case 'addNewUser':
         result = addNewUser(payload);
         break;
-      case 'rescheduleFromCheckIns':
-        result = rescheduleFromCheckIns(payload.arg || payload.tab || payload.sheet);
+       case 'rescheduleFromCheckIns':
+        result = rescheduleFromCheckIns(payload.arg || payload.tab || payload.sheet || ("Sched " + payload.group));
+        break;
+      case 'generateScheduleTabs':
+        result = generateScheduleTabs(payload.arg || payload.tab || payload.sheet || ("Score " + payload.group));
         break;
       case 'menuSortActivePlayers':
         result = menuSortActivePlayers();
@@ -222,15 +225,6 @@ function handleApiRequest(e) {
         break;
       case 'webExportSchedulePdf':
         result = webExportSchedulePdf();
-        break;
-    case "rescheduleFromCheckIns":
-        // Arg expects the schedule tab name (e.g., "Sched Womens")
-        result = rescheduleFromCheckIns(arg || ("Sched " + group));
-        break;
-
-      case "generateScheduleTabs":
-        // Target single score tab or run all
-        result = generateScheduleTabs(arg || ("Score " + group));
         break;
       default:
         throw new Error("Invalid or missing API action: " + action);
