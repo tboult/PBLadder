@@ -252,15 +252,39 @@ function handleApiRequest(e) {
 /**
  * Validates whether the active sheet is one of the designated group score tabs.
  */
-function getValidActiveScoreSheet() {
+/**
+ * Resolves the target score sheet safely across Web App API and Sheet Menu triggers.
+ */
+function getValidActiveScoreSheet(overrideTabName) {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const sheet = ss.getActiveSheet();
-  const sheetName = sheet.getName();
-  
-  if (!getValidScoreTabs().includes(sheetName)) {
-    throw new Error(`⚠️ Action Cancelled: Current tab "${sheetName}" is not a valid score tab.\nPlease click on one of: ${getValidScoreTabs().join(", ")} before running this function.`);
+  let sheet = null;
+
+  // 1. Explicit tab or group parameter passed from Web App API
+  if (overrideTabName) {
+    let target = overrideTabName.toString().trim();
+    if (!target.startsWith("Score ")) {
+      target = "Score " + target;
+    }
+    sheet = ss.getSheetByName(target);
+    if (sheet) return sheet;
   }
-  return sheet;
+
+  // 2. Spreadsheet UI context (runs when user clicks a menu item inside Google Sheets)
+  try {
+    let activeSheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+    if (activeSheet && getValidScoreTabs().includes(activeSheet.getName())) {
+      return activeSheet;
+    }
+  } catch(e) {}
+
+  // 3. Fail-safe: Fallback to the first available valid score tab
+  const validTabs = getValidScoreTabs();
+  for (let name of validTabs) {
+    sheet = ss.getSheetByName(name);
+    if (sheet) return sheet;
+  }
+
+  throw new Error("⚠️ Action Cancelled: Could not resolve a valid Score tab. Please specify 'Score Womens', 'Score Mens', or 'Score Mixed'.");
 }
 
 function getScoreSheetByGroup(groupName) {
@@ -912,32 +936,86 @@ function sortActivePlayersForSheet(sheet) {
   return `✅ Active players sorted by Rank in '${sheet.getName()}'.`;
 }
 
-function generateScheduleTabs(scoreTabName) {
-  var sheet = getTargetScoreSheet(scoreTabName);
-  var data = sheet.getDataRange().getValues();
+function generateScheduleTabs(scoreTabName = null) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   
-  var activePlayers = [];
-  var seenIds = {};
+  // Resolve target tab dynamically
+  let targetSheet = getValidActiveScoreSheet(scoreTabName);
+  let resolvedTabName = targetSheet.getName();
 
-  // Read active players starting past header row
-  for (var i = 1; i < data.length; i++) {
-    var status = data[i][0]; // Column A (Status)
-    var firstName = data[i][1]; // Column B
-    var lastName = data[i][2]; // Column C
-    var fullName = (firstName + " " + lastName).trim();
+  // Sort active roster on the target sheet
+  sortActivePlayersForSheet(targetSheet);
 
-    if (status === "ACTIVE" && fullName && !seenIds[fullName]) {
-      seenIds[fullName] = true; // Prevent duplicate entries
+  const data = targetSheet.getDataRange().getValues();
+  if (data.length <= 1) return "⚠️ No player data found on tab: " + resolvedTabName;
+
+  const col = buildColMap(data[0]);
+
+  let seenPlayers = new Set();
+  let activePlayers = [];
+
+  // Parse active players with deduplication
+  for (let i = 1; i < data.length; i++) {
+    let row = data[i];
+    let status = (col.status !== undefined && row[col.status] !== "") 
+      ? row[col.status].toString().toUpperCase().trim() 
+      : "ACTIVE";
+
+    if (status === "ACTIVE") {
+      let pName = (col.name !== undefined && row[col.name]) 
+        ? row[col.name].toString().trim() 
+        : ((row[col.first] || "") + " " + (row[col.last] || "")).trim();
+      
+      if (!pName) continue;
+
+      // Prevent duplicate player entries
+      let cleanKey = pName.toLowerCase();
+      if (seenPlayers.has(cleanKey)) continue;
+      seenPlayers.add(cleanKey);
+      
       activePlayers.push({
-        row: i + 1,
-        name: fullName,
-        phone: data[i][5]
+        name: pName,
+        phone: col.phone !== undefined ? row[col.phone] : ""
       });
     }
   }
 
-  return buildCourtsAndWrite(sheet, activePlayers);
+  if (activePlayers.length === 0) {
+    return "⚠️ No active players found on " + resolvedTabName;
+  }
+
+  // Determine Sched tab destination
+  let cleanGroupName = resolvedTabName.replace("Score ", "").trim();
+  let schedSheetName = "Sched " + cleanGroupName;
+  
+  let schedSheet = ss.getSheetByName(schedSheetName) || ss.insertSheet(schedSheetName);
+  schedSheet.clear();
+
+  let schedOut = [["Name", "Court", "Game 1", "Game 2", "Game 3", "Check-In", "Entered By"]];
+  let courtNum = 1;
+
+  // Build 4-player court assignments
+  for (let i = 0; i < activePlayers.length; i += 4) {
+    let courtName = "Court " + courtNum;
+    for (let j = 0; j < 4; j++) {
+      if (i + j < activePlayers.length) {
+        schedOut.push([activePlayers[i+j].name, courtName, "", "", "", "", ""]);
+      }
+    }
+    courtNum++;
+  }
+
+  // Write and format output table
+  let sRange = schedSheet.getRange(1, 1, schedOut.length, 7);
+  sRange.setValues(schedOut);
+  sRange.setBorder(true, true, true, true, true, true, "black", SpreadsheetApp.BorderStyle.SOLID);
+  schedSheet.getRange(1, 1, 1, 7).setFontWeight("bold");
+
+  return `✅ Schedule generated successfully for ${cleanGroupName} (${activePlayers.length} players, ${courtNum - 1} courts).`;
 }
+
+
+
 
 
 
