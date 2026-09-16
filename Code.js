@@ -1,38 +1,42 @@
 /* ==========================================
  * GLOBAL CONFIGURATION & HELPER DEFINITIONS
  * ========================================== */
-/*
-  const MAX_MOVEMENT = 4;
-const MAX_POINTS_PER_WEEK = 45;
-const getValidScoreTabs() = ["Score Womens", "Score Mens", "Score Mixed"];
-*/
 
+const ENABLE_LOGGING = true; // Toggle to true/false to enable or disable system logging
+
+/**
+ * Global Logger Helper
+ */
+function logDebug(fnName, msg, extra = "") {
+  if (!ENABLE_LOGGING) return;
+  const extraStr = extra ? (typeof extra === "object" ? JSON.stringify(extra) : String(extra)) : "";
+  Logger.log(`[${new Date().toISOString()}] [${fnName}] ${msg} ${extraStr}`.trim());
+}
+
+const SPREADSHEET_ID = "14jmYyesfG9btWcIeptDwD6Bkxj8UZiQVlAOGc6BdM84";
 const VALID_SCORE_TABS = ["Score Womens", "Score Mens", "Score Mixed"];
 const MAX_MOVEMENT = 4;
 const MAX_POINTS_PER_WEEK = 45;
 const ALWAYS_BYE_LOWEST = true;
 
 function getAppVersion() {
+  logDebug("getAppVersion", "Retrieving app version");
   return "1.1.2"; 
 }
 
-/**
- * Fetches dynamic configurations from the 'Constants' sheet starting at row 6.
- * Cleans JS syntax like 'const', quotes, and semicolons automatically.
- * @returns {Object} Key-value mapping of your global configurations.
- */
-/** Dynamic Config Loader **/
-const SPREADSHEET_ID = "14jmYyesfG9btWcIeptDwD6Bkxj8UZiQVlAOGc6BdM84";
-
 function getConstantsConfig() {
+  logDebug("getConstantsConfig", "Loading constants from sheet or fallback");
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
 
-  if (!ss) return { groups: [], scheduleTabs: [], scoreTabs: [] };
+  if (!ss) {
+    logDebug("getConstantsConfig", "Spreadsheet unable to be opened by ID");
+    return { groups: [], scheduleTabs: [], scoreTabs: [] };
+  }
 
   const constSheet = ss.getSheetByName('Constants');
   
-  // Fallback: Scan sheet tabs dynamically if Constants tab is absent
   if (!constSheet || constSheet.getLastRow() < 2) {
+    logDebug("getConstantsConfig", "Constants sheet missing or empty. Scanning tabs dynamically");
     const allSheets = ss.getSheets().map(s => s.getName());
     return {
       groups: allSheets.filter(s => s.startsWith("Sched ")).map(s => s.replace(/^Sched\s+/i, "")),
@@ -56,40 +60,44 @@ function getConstantsConfig() {
     if (scoreCol !== -1 && data[i][scoreCol]) scoreTabs.push(data[i][scoreCol].toString().trim());
   }
 
+  logDebug("getConstantsConfig", "Loaded config successfully", { groups, scheduleTabs, scoreTabs });
   return { groups, scheduleTabs, scoreTabs };
 }
 
-
-/** Dynamic replacement for global getValidScoreTabs() **/
 function getValidScoreTabs() {
+  logDebug("getValidScoreTabs", "Fetching valid score tabs");
   const config = getConstantsConfig();
   if (config.scoreTabs.length > 0) return config.scoreTabs;
   
-  // Fallback: derive score tab names from groups if scoreTab column was empty
   return config.groups.map(g => g.startsWith("Score ") ? g : "Score " + g);
 }
 
 function getSchedTabNames() { 
+  logDebug("getSchedTabNames", "Fetching schedule tab names");
   const config = getConstantsConfig();
   if (config.scheduleTabs.length > 0) return config.scheduleTabs;
   return config.groups.map(g => g.startsWith("Sched ") ? g : "Sched " + g);
 }
 
 function getAvailableGroups() {
+  logDebug("getAvailableGroups", "Fetching available groups");
   return getConstantsConfig().groups;
 }
 
 function getPlayersForCheckIn(schedSheetName) {
+  logDebug("getPlayersForCheckIn", "Triggered for sheet", schedSheetName);
   if (!schedSheetName) return [];
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   if (!ss) return [];
   
-  // Dynamic resolution for sheet name
   let sheet = ss.getSheetByName(schedSheetName);
   if (!sheet && !schedSheetName.startsWith("Sched ")) {
     sheet = ss.getSheetByName("Sched " + schedSheetName);
   }
-  if (!sheet) return [];
+  if (!sheet) {
+    logDebug("getPlayersForCheckIn", "Sheet not found", schedSheetName);
+    return [];
+  }
   
   const data = sheet.getDataRange().getValues();
   let result = [];
@@ -97,30 +105,66 @@ function getPlayersForCheckIn(schedSheetName) {
   for (let i = 0; i < data.length; i++) {
     let name = data[i][0] ? data[i][0].toString().trim() : "";
     let court = data[i][1] ? data[i][1].toString().trim() : "";
-    let status = data[i][5] ? data[i][5].toString().trim().toUpperCase() : ""; // Col F check indicator
+    let status = data[i][5] ? data[i][5].toString().trim().toUpperCase() : "";
     
     if (name && court && court !== "BYE" && !name.startsWith("---") && !name.startsWith("Time:") && !name.toLowerCase().startsWith("name")) {
       result.push({ 
         name: name, 
         court: court, 
-        checked: status === "X" || status === "TRUE" || status === "CHECKED" 
+        checked: status === "X" || status === "TRUE" || status === "CHECKED" || status === "YES" 
       });
     }
   }
+  logDebug("getPlayersForCheckIn", `Parsed ${result.length} players for check-in on '${sheet.getName()}'`);
   return result;
 }
+
+function saveCheckIns(schedSheetName, checkedPlayerNames) {
+  logDebug("saveCheckIns", "Saving check-ins for sheet", { schedSheetName, checkedPlayerNames });
+  if (!schedSheetName) return "⚠️ Error: No target sheet specified.";
+
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  
+  let targetName = schedSheetName.toString().trim();
+  if (!targetName.startsWith("Sched ")) {
+    targetName = "Sched " + targetName;
+  }
+
+  let sheet = ss.getSheetByName(targetName);
+  if (!sheet) {
+    logDebug("saveCheckIns", "Target sheet not found", targetName);
+    return `⚠️ Error: Sheet '${targetName}' not found.`;
+  }
+
+  const data = sheet.getDataRange().getValues();
+  const namesArray = Array.isArray(checkedPlayerNames) 
+    ? checkedPlayerNames 
+    : JSON.parse(checkedPlayerNames || "[]");
+  const checkedSet = new Set(namesArray.map(n => n.toString().trim().toLowerCase()));
+
+  let updatedCount = 0;
+  for (let i = 1; i < data.length; i++) {
+    let name = data[i][0] ? data[i][0].toString().trim() : "";
+    let court = data[i][1] ? data[i][1].toString().trim() : "";
+    if (name && court && court !== "BYE" && !name.startsWith("---") && !name.startsWith("Time:")) {
+      let isChecked = checkedSet.has(name.toLowerCase());
+      sheet.getRange(i + 1, 6).setValue(isChecked ? "X" : "");
+      if (isChecked) updatedCount++;
+    }
+  }
+
+  logDebug("saveCheckIns", `Successfully updated ${updatedCount} check-in markers on '${targetName}'`);
+  return `✅ Check-ins saved successfully (${updatedCount} checked in)!`;
+}
+
 function authorizeScript() {
-  // 1. Fallback to openById if getActiveSpreadsheet() is null in web context
-  // Replace 'YOUR_SPREADSHEET_ID' with your actual Google Sheet ID
-  const SPREADSHEET_ID = "YOUR_SPREADSHEET_ID_HERE"; 
+  logDebug("authorizeScript", "Starting script authorization");
   const ss = SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID);
   
-  // 2. Force explicit Spreadsheet Read/Write execution
   const sheet = ss.getSheets()[0];
-  const testVal = sheet.getRange(1, 1).getValue(); // Forces Read Scope
-  sheet.getRange(1, 1).setValue(testVal);          // Forces Write Scope
+  const testVal = sheet.getRange(1, 1).getValue();
+  sheet.getRange(1, 1).setValue(testVal);
   
-  // 3. Force Drive Scope
   const file = DriveApp.getFileById(ss.getId());
   const folderName = "SCPBLadder";
   const folders = DriveApp.getFoldersByName(folderName);
@@ -129,24 +173,22 @@ function authorizeScript() {
   const tempCopy = file.makeCopy("DELETE_ME_AUTH_TEST", targetFolder);
   tempCopy.setTrashed(true);
 
-  // 4. Force External Request Scope
   UrlFetchApp.fetch("https://www.google.com");
-
-  Logger.log("✅ FULL Drive, Spreadsheet, and UrlFetch Authorization Granted Successfully!");
+  logDebug("authorizeScript", "Authorization completed successfully");
 }
 
-/**
- * REST JSON API CONTROLLER FOR DECOUPLED PWA FRONTEND
- */
 function doGet(e) {
+  logDebug("doGet", "HTTP GET Request received", e ? e.parameter : {});
   return handleApiRequest(e);
 }
 
 function doPost(e) {
+  logDebug("doPost", "HTTP POST Request received", e ? e.postData : {});
   return handleApiRequest(e);
 }
 
 function handleApiRequest(e) {
+  logDebug("handleApiRequest", "Processing API Payload");
   const lock = LockService.getScriptLock();
   lock.tryLock(10000);
   
@@ -158,10 +200,14 @@ function handleApiRequest(e) {
       try {
         payload = JSON.parse(e.postData.contents);
         if (!action && payload.action) action = payload.action;
-      } catch(ex) {}
+      } catch(ex) {
+        logDebug("handleApiRequest", "JSON parse error on postData", ex.toString());
+      }
     } else if (e && e.parameter) {
       payload = e.parameter;
     }
+
+    logDebug("handleApiRequest", "Dispatching action", action);
 
     let result;
     switch(action) {
@@ -172,7 +218,6 @@ function handleApiRequest(e) {
         result = getAvailableGroups();
         break;
       case 'getPlayersForCheckIn':
-        // Accepts .sheet, .schedSheetName, or .tab so frontend variants never break it
         result = getPlayersForCheckIn(payload.sheet || payload.schedSheetName || payload.tab);
         break;
       case 'saveCheckIns':
@@ -196,7 +241,7 @@ function handleApiRequest(e) {
       case 'addNewUser':
         result = addNewUser(payload);
         break;
-       case 'rescheduleFromCheckIns':
+      case 'rescheduleFromCheckIns':
         result = rescheduleFromCheckIns(payload.arg || payload.tab || payload.sheet || ("Sched " + payload.group));
         break;
       case 'generateScheduleTabs':
@@ -230,10 +275,12 @@ function handleApiRequest(e) {
         throw new Error("Invalid or missing API action: " + action);
     }
 
+    logDebug("handleApiRequest", "Action executed successfully", action);
     return ContentService.createTextOutput(JSON.stringify({ status: "success", data: result }))
       .setMimeType(ContentService.MimeType.JSON);
 
   } catch(err) {
+    logDebug("handleApiRequest", "API Execution error", err.toString());
     return ContentService.createTextOutput(JSON.stringify({ status: "error", message: err.toString() }))
       .setMimeType(ContentService.MimeType.JSON);
   } finally {
@@ -243,59 +290,61 @@ function handleApiRequest(e) {
   }
 }
 
-/**
- * Validates whether the active sheet is one of the designated group score tabs.
- */
-/**
- * Resolves the target score sheet safely across Web App API and Sheet Menu triggers.
- */
 function getValidActiveScoreSheet(overrideTabName) {
+  logDebug("getValidActiveScoreSheet", "Resolving target score sheet", overrideTabName);
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   let sheet = null;
 
-  // 1. Explicit tab or group parameter passed from Web App API
   if (overrideTabName) {
     let target = overrideTabName.toString().trim();
     if (!target.startsWith("Score ")) {
       target = "Score " + target;
     }
     sheet = ss.getSheetByName(target);
-    if (sheet) return sheet;
+    if (sheet) {
+      logDebug("getValidActiveScoreSheet", "Resolved via parameter", sheet.getName());
+      return sheet;
+    }
   }
 
-  // 2. Spreadsheet UI context (runs when user clicks a menu item inside Google Sheets)
   try {
     let activeSheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
     if (activeSheet && getValidScoreTabs().includes(activeSheet.getName())) {
+      logDebug("getValidActiveScoreSheet", "Resolved via active spreadsheet UI context", activeSheet.getName());
       return activeSheet;
     }
   } catch(e) {}
 
-  // 3. Fail-safe: Fallback to the first available valid score tab
   const validTabs = getValidScoreTabs();
   for (let name of validTabs) {
     sheet = ss.getSheetByName(name);
-    if (sheet) return sheet;
+    if (sheet) {
+      logDebug("getValidActiveScoreSheet", "Resolved via fallback score tab", sheet.getName());
+      return sheet;
+    }
   }
 
+  logDebug("getValidActiveScoreSheet", "Failed to resolve score sheet");
   throw new Error("⚠️ Action Cancelled: Could not resolve a valid Score tab. Please specify 'Score Womens', 'Score Mens', or 'Score Mixed'.");
 }
 
 function getScoreSheetByGroup(groupName) {
+  logDebug("getScoreSheetByGroup", "Fetching score sheet for group", groupName);
   if (!groupName) return null;
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   let cleanName = groupName.toString().trim();
   if (!cleanName.startsWith("Score ")) {
     cleanName = "Score " + cleanName;
   }
-  return SpreadsheetApp.getActiveSpreadsheet().getSheetByName(cleanName);
+  return ss.getSheetByName(cleanName);
 }
 
-/** 
- * ==========================================
+/* ==========================================
  * 1. CUSTOM MENU & ENTRY POINTS
- * ==========================================
- */
+ * ========================================== */
+
 function onOpen() {
+  logDebug("onOpen", "Creating spreadsheet custom UI menus");
   SpreadsheetApp.getUi()
     .createMenu('🏆 Ladder Tools')
     .addItem('1. Sort Active Players (Current Tab)', 'menuSortActivePlayers')
@@ -321,34 +370,36 @@ function onOpen() {
 }
 
 function menuGenerateScheduleCurrentTab() {
+  logDebug("menuGenerateScheduleCurrentTab", "Executing menu item");
   try {
-    // This strictly enforces being on a Score tab
     const sheet = getValidActiveScoreSheet(); 
     let res = generateScheduleTabs(sheet.getName());
     if (SpreadsheetApp.getUi()) SpreadsheetApp.getUi().alert(res);
     return res;
   } catch(e) {
+    logDebug("menuGenerateScheduleCurrentTab", "Error", e.message);
     if (SpreadsheetApp.getUi()) SpreadsheetApp.getUi().alert(e.message);
     throw e;
   }
 }
 
 function menuGenerateScheduleCheckedIn() {
+  logDebug("menuGenerateScheduleCheckedIn", "Executing menu item");
   try {
-    // This strictly enforces being on a Score tab
     const sheet = getValidActiveScoreSheet(); 
     const schedTabName = sheet.getName().replace("Score ", "Sched ");
     let res = rescheduleFromCheckIns(schedTabName);
     if (SpreadsheetApp.getUi()) SpreadsheetApp.getUi().alert(res);
     return res;
   } catch(e) {
+    logDebug("menuGenerateScheduleCheckedIn", "Error", e.message);
     if (SpreadsheetApp.getUi()) SpreadsheetApp.getUi().alert(e.message);
     throw e;
   }
 }
 
-
 function showAddPlayerDialog() {
+  logDebug("showAddPlayerDialog", "Opening modal dialog");
   const html = HtmlService.createHtmlOutput(`
     <style>body{font-family:sans-serif; padding:20px;} input,select,button{width:100%; padding:14px; margin-top:10px; box-sizing:border-box; min-height:54px; border-radius:6px; font-size:16px;} .btn{background:#2d6a4f;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:bold;} </style>
     <h3>Add New Player</h3>
@@ -376,63 +427,73 @@ function showAddPlayerDialog() {
 }
 
 function menuSortActivePlayers() {
+  logDebug("menuSortActivePlayers", "Triggered");
   try {
     const sheet = getValidActiveScoreSheet();
     let res = sortActivePlayersForSheet(sheet);
     if (SpreadsheetApp.getUi()) SpreadsheetApp.getUi().alert(res);
     return res;
   } catch(e) {
+    logDebug("menuSortActivePlayers", "Error", e.message);
     if (SpreadsheetApp.getUi()) SpreadsheetApp.getUi().alert(e.message);
     throw e;
   }
 }
 
 function menuGenerateScheduleTabs() {
+  logDebug("menuGenerateScheduleTabs", "Triggered");
   let res = generateScheduleTabs();
   if (SpreadsheetApp.getUi()) SpreadsheetApp.getUi().alert(res);
   return res;
 }
 
 function menuUpdateStandingsWithShift() {
+  logDebug("menuUpdateStandingsWithShift", "Triggered");
   try {
     const sheet = getValidActiveScoreSheet();
     let res = processWeeklyScoresForSheet(sheet, "W10", true);
     if (SpreadsheetApp.getUi()) SpreadsheetApp.getUi().alert(res);
     return res;
   } catch(e) {
+    logDebug("menuUpdateStandingsWithShift", "Error", e.message);
     if (SpreadsheetApp.getUi()) SpreadsheetApp.getUi().alert(e.message);
     throw e;
   }
 }
 
 function menuCorrectScoresNoShift() {
+  logDebug("menuCorrectScoresNoShift", "Triggered");
   try {
     const sheet = getValidActiveScoreSheet();
     let res = processWeeklyScoresForSheet(sheet, "W10", false);
     if (SpreadsheetApp.getUi()) SpreadsheetApp.getUi().alert(res);
     return res;
   } catch(e) {
+    logDebug("menuCorrectScoresNoShift", "Error", e.message);
     if (SpreadsheetApp.getUi()) SpreadsheetApp.getUi().alert(e.message);
     throw e;
   }
 }
 
 function menuCreateDriveBackup() { 
+  logDebug("menuCreateDriveBackup", "Triggered");
   try {
     let name = executeDriveBackup("Manual");
     SpreadsheetApp.getUi().alert("Backup Created", `Saved: ${name}`, SpreadsheetApp.getUi().ButtonSet.OK);
-  } catch(e) { SpreadsheetApp.getUi().alert("Error", e.message, SpreadsheetApp.getUi().ButtonSet.OK); }
+  } catch(e) { 
+    logDebug("menuCreateDriveBackup", "Error", e.message);
+    SpreadsheetApp.getUi().alert("Error", e.message, SpreadsheetApp.getUi().ButtonSet.OK); 
+  }
 }
 
-/** 
- * ==========================================
+/* ==========================================
  * URL, WEEK CALC & SEASON CONTROLS
- * ==========================================
- */
+ * ========================================== */
+
 function getAdminSheetUrl() {
+  logDebug("getAdminSheetUrl", "Retrieving Admin Sheet URL");
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const activeSheet = ss.getActiveSheet();
-  let targetSheet = getValidScoreTabs().includes(activeSheet.getName()) ? activeSheet : ss.getSheetByName("Score Womens");
+  let targetSheet = ss.getSheetByName("Score Womens");
   let url = ss.getUrl();
   if (targetSheet) {
     url += "#gid=" + targetSheet.getSheetId();
@@ -441,6 +502,7 @@ function getAdminSheetUrl() {
 }
 
 function startNewSeason() {
+  logDebug("startNewSeason", "Wiping weekly score data across tabs");
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   let clearedCount = 0;
 
@@ -465,11 +527,12 @@ function startNewSeason() {
 
   let year = new Date().getFullYear();
   PropertiesService.getDocumentProperties().setProperty('SEASON_START_DATE', year + '-10-04T00:00:00');
-  
+  logDebug("startNewSeason", `New season configured. Cleared ${clearedCount} tabs.`);
   return `✅ New season started across ${clearedCount} score tabs! All weekly scores wiped. Week 1 is configured to begin Oct 4th.`;
 }
 
 function calculateCurrentWeekNumber() {
+  logDebug("calculateCurrentWeekNumber", "Calculating current week index");
   const props = PropertiesService.getDocumentProperties();
   const startStr = props.getProperty('SEASON_START_DATE');
   if (!startStr) return 10;
@@ -483,12 +546,12 @@ function calculateCurrentWeekNumber() {
   return Math.floor(diffDays / 7) + 1;
 }
 
-/** 
- * ==========================================
+/* ==========================================
  * USER REGISTRATION & RESCHEDULE
- * ==========================================
- */
+ * ========================================== */
+
 function addNewUser(info) {
+  logDebug("addNewUser", "Adding new user", info);
   if (!info.first || !info.last || !info.phone || !info.group) {
     return "Error: First, Last, Phone, and Group are required.";
   }
@@ -510,22 +573,15 @@ function addNewUser(info) {
   if (col.status !== undefined) newRow[col.status] = "ACTIVE";
   
   targetSheet.appendRow(newRow);
+  logDebug("addNewUser", "User successfully added");
   return `✅ Success: Added ${info.first} ${info.last} to tab '${targetSheet.getName()}'.`;
 }
 
 function getTargetScoreSheet(groupOrTabName) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  logDebug("getTargetScoreSheet", "Resolving target score sheet", groupOrTabName);
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = null;
 
-  // 1. Check if the active tab in the Google Sheet is already a valid Score tab
-  var activeSheet = ss.getActiveSheet();
-  var activeName = activeSheet ? activeSheet.getName() : "";
-  
-  if (activeName.startsWith("Score ")) {
-    return activeSheet;
-  }
-
-  // 2. If a group or tab name was passed in from the frontend, construct the sheet name
   if (groupOrTabName) {
     var targetName = groupOrTabName.startsWith("Score ") 
       ? groupOrTabName 
@@ -534,7 +590,6 @@ function getTargetScoreSheet(groupOrTabName) {
     if (sheet) return sheet;
   }
 
-  // 3. Fail-safe: Search explicitly for the first available valid Score tab instead of defaulting to Sheet(0)/INSTRUCTIONS
   var validTabs = ["Score Womens", "Score Mens", "Score Mixed"];
   for (var i = 0; i < validTabs.length; i++) {
     sheet = ss.getSheetByName(validTabs[i]);
@@ -544,72 +599,19 @@ function getTargetScoreSheet(groupOrTabName) {
   throw new Error('Action Cancelled: No valid Score tab found. Please select or pass "Score Womens", "Score Mens", or "Score Mixed".');
 }
 
-
-
-
-function generateScheduleForTab(scoreTabName) {
-  var sheet = getTargetScoreSheet(scoreTabName);
-  var players = getActivePlayersFromSheet(sheet); // Retrieves unique active players
-  
-  // 1. Deduplicate active players list by Unique ID / Name
-  var uniquePlayers = [];
-  var seenIds = {};
-  
-  players.forEach(function(player) {
-    var id = player.id || player.name;
-    if (id && !seenIds[id]) {
-      seenIds[id] = true;
-      uniquePlayers.push(player);
-    }
-  });
-
-  var assignedInCurrentRound = {};
-  var schedule = [];
-  var currentCourt = 1;
-  var courtBuffer = [];
-
-  // 2. Build courts ensuring no player is reused in the same round
-  for (var i = 0; i < uniquePlayers.length; i++) {
-    var p = uniquePlayers[i];
-    var pId = p.id || p.name;
-
-    if (assignedInCurrentRound[pId]) {
-      continue; // Skip if already assigned in this schedule pass
-    }
-
-    courtBuffer.push(p);
-    assignedInCurrentRound[pId] = true;
-
-    // Once 4 unique players are collected, assign to court
-    if (courtBuffer.length === 4) {
-      schedule.push({
-        court: currentCourt,
-        players: courtBuffer
-      });
-      currentCourt++;
-      courtBuffer = []; // Reset for next court
-    }
-  }
-
-  // Handle remaining players (byes)
-  return writeScheduleToSheet(sheet, schedule, courtBuffer);
-}
-
-
-
-
-/** 
- * ==========================================
+/* ==========================================
  * 3. BACKUP & RESTORE SYSTEM
- * ==========================================
- */
+ * ========================================== */
+
 function getSCPBLadderFolder() {
+  logDebug("getSCPBLadderFolder", "Locating or creating Drive folder");
   const folderName = "SCPBLadder";
   const folders = DriveApp.getFoldersByName(folderName);
   return folders.hasNext() ? folders.next() : DriveApp.createFolder(folderName);
 }
 
 function executeDriveBackup(label) {
+  logDebug("executeDriveBackup", "Creating drive backup file", label);
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const file = DriveApp.getFileById(ss.getId());
   const timestamp = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "yyyy-MM-dd_HHmm");
@@ -617,10 +619,12 @@ function executeDriveBackup(label) {
   const targetFolder = getSCPBLadderFolder();
   const backupFile = file.makeCopy(backupName, targetFolder);
   PropertiesService.getDocumentProperties().setProperty('LAST_AUTO_BACKUP_TIME', new Date().toISOString());
+  logDebug("executeDriveBackup", "Backup completed", backupFile.getName());
   return backupFile.getName();
 }
 
 function restoreFullFileFromDrive() {
+  logDebug("restoreFullFileFromDrive", "Starting restore process from Drive");
   const ui = SpreadsheetApp.getUi();
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const targetFolder = getSCPBLadderFolder();
@@ -663,10 +667,12 @@ function restoreFullFileFromDrive() {
   }
 
   for (let i = 0; i < importedSheets.length; i++) { importedSheets[i].sheetObj.setName(importedSheets[i].finalName); }
+  logDebug("restoreFullFileFromDrive", "Restore finished successfully");
   ui.alert("Restored ⏪", "Tabs restored successfully.", ui.ButtonSet.OK);
 }
 
 function createPreWorkSnapshotTab() {
+  logDebug("createPreWorkSnapshotTab", "Creating snapshot tab");
   const ui = SpreadsheetApp.getUi();
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   let scoreSheet;
@@ -691,10 +697,12 @@ function createPreWorkSnapshotTab() {
   ss.setActiveSheet(backupSheet);
   ss.moveActiveSheet(scoreSheet.getIndex() + 1);
   ss.setActiveSheet(scoreSheet);
+  logDebug("createPreWorkSnapshotTab", "Snapshot created", backupTabName);
   ui.alert("Backup Tab Created! 📸", `'${backupTabName}' is ready.`, ui.ButtonSet.OK);
 }
 
 function restoreFromSnapshotTab() {
+  logDebug("restoreFromSnapshotTab", "Restoring tab from snapshot");
   const ui = SpreadsheetApp.getUi();
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const backupSheets = ss.getSheets().filter(s => s.getName().startsWith("Backup - "));
@@ -721,24 +729,27 @@ function restoreFromSnapshotTab() {
   scoreSheet.clear();
   const sourceRange = selectedSheet.getDataRange();
   sourceRange.copyTo(scoreSheet.getRange(1, 1, sourceRange.getNumRows(), sourceRange.getNumColumns()));
+  logDebug("restoreFromSnapshotTab", "Restored target tab", targetTabName);
   ui.alert("Restored Successfully ⏪", `${targetTabName} restored.`, ui.ButtonSet.OK);
 }
 
 function checkAndRunWeeklyBackup() {
+  logDebug("checkAndRunWeeklyBackup", "Checking backup timeline");
   try {
     const props = PropertiesService.getDocumentProperties();
     const lastBackupStr = props.getProperty('LAST_AUTO_BACKUP_TIME');
     if (!lastBackupStr || (new Date().getTime() - new Date(lastBackupStr).getTime()) / 86400000 >= 7) {
       executeDriveBackup("Auto-7Day");
     }
-  } catch (err) {}
+  } catch (err) {
+    logDebug("checkAndRunWeeklyBackup", "Weekly backup check failed", err.toString());
+  }
 }
 
-/** 
- * ==========================================
+/* ==========================================
  * 4. SHARED HELPERS & MAPPING
- * ==========================================
- */
+ * ========================================== */
+
 function buildColMap(header) {
   let col = {};
   if (!header) return col;
@@ -772,17 +783,18 @@ function parseAndSortCourts(cStr) {
   return courts.length > 0 ? courts : [1, 2, 3, 4, 5, 6, 7, 8];
 }
 
-/** 
- * ==========================================
+/* ==========================================
  * 5. MAIN SCORE PROCESSING & RANKING
- * ==========================================
- */
+ * ========================================== */
+
 function processWeeklyScores(forcedWeek, shouldShift = true) {
+  logDebug("processWeeklyScores", "Processing weekly scores wrapper");
   const sheet = getValidActiveScoreSheet();
   return processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift);
 }
 
 function processWeeklyScoresForSheet(scoreSheet, forcedWeek, shouldShift = true) {
+  logDebug("processWeeklyScoresForSheet", `Processing sheet '${scoreSheet.getName()}'`, { forcedWeek, shouldShift });
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   let scoreData = scoreSheet.getDataRange().getValues();
   const header = scoreData[0];
@@ -864,10 +876,12 @@ function processWeeklyScoresForSheet(scoreSheet, forcedWeek, shouldShift = true)
   });
 
   scoreSheet.getRange(1, 1, scoreData.length, header.length).setValues(scoreData);
+  logDebug("processWeeklyScoresForSheet", "Standings updated for tab", scoreSheet.getName());
   return `✅ Scores harvested & standings updated for tab '${scoreSheet.getName()}'.`;
 }
 
 function harvestScoresFromSchedules(ss, scoreData, col, w10Idx) {
+  logDebug("harvestScoresFromSchedules", "Harvesting scores from schedule tabs");
   const schedSheets = ss.getSheets().filter(s => s.getName().toLowerCase().startsWith("sched"));
   let playerMap = {};
   for (let i = 1; i < scoreData.length; i++) {
@@ -909,17 +923,18 @@ function calculateStats(row, weeks, maxPoints) {
   return { pct: possible > 0 ? (totalPoints / possible) * 100 : 0, tot: totalPoints, games: gamesPlayed };
 }
 
-/** 
- * ==========================================
+/* ==========================================
  * 6. SORTING & SCHEDULE GENERATION
- * ==========================================
- */
+ * ========================================== */
+
 function sortActivePlayers() {
+  logDebug("sortActivePlayers", "Triggered sort wrapper");
   const sheet = getValidActiveScoreSheet();
   return sortActivePlayersForSheet(sheet);
 }
 
 function sortActivePlayersForSheet(sheet) {
+  logDebug("sortActivePlayersForSheet", "Sorting active roster for tab", sheet.getName());
   const col = buildColMap(sheet.getDataRange().getValues()[0]);
   sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).sort([
     {column: col.status + 1, ascending: true}, 
@@ -931,13 +946,12 @@ function sortActivePlayersForSheet(sheet) {
 }
 
 function generateScheduleTabs(scoreTabName = null) {
+  logDebug("generateScheduleTabs", "Generating schedule for score tab", scoreTabName);
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   
-  // Resolve target tab dynamically
   let targetSheet = getValidActiveScoreSheet(scoreTabName);
   let resolvedTabName = targetSheet.getName();
 
-  // Sort active roster on the target sheet
   sortActivePlayersForSheet(targetSheet);
 
   const data = targetSheet.getDataRange().getValues();
@@ -948,7 +962,6 @@ function generateScheduleTabs(scoreTabName = null) {
   let seenPlayers = new Set();
   let activePlayers = [];
 
-  // Parse active players with deduplication
   for (let i = 1; i < data.length; i++) {
     let row = data[i];
     let status = (col.status !== undefined && row[col.status] !== "") 
@@ -962,7 +975,6 @@ function generateScheduleTabs(scoreTabName = null) {
       
       if (!pName) continue;
 
-      // Prevent duplicate player entries
       let cleanKey = pName.toLowerCase();
       if (seenPlayers.has(cleanKey)) continue;
       seenPlayers.add(cleanKey);
@@ -978,7 +990,6 @@ function generateScheduleTabs(scoreTabName = null) {
     return "⚠️ No active players found on " + resolvedTabName;
   }
 
-  // Determine Sched tab destination
   let cleanGroupName = resolvedTabName.replace("Score ", "").trim();
   let schedSheetName = "Sched " + cleanGroupName;
   
@@ -988,7 +999,6 @@ function generateScheduleTabs(scoreTabName = null) {
   let schedOut = [["Name", "Court", "Game 1", "Game 2", "Game 3", "Check-In", "Entered By"]];
   let courtNum = 1;
 
-  // Build 4-player court assignments
   for (let i = 0; i < activePlayers.length; i += 4) {
     let courtName = "Court " + courtNum;
     for (let j = 0; j < 4; j++) {
@@ -999,26 +1009,96 @@ function generateScheduleTabs(scoreTabName = null) {
     courtNum++;
   }
 
-  // Write and format output table
   let sRange = schedSheet.getRange(1, 1, schedOut.length, 7);
   sRange.setValues(schedOut);
   sRange.setBorder(true, true, true, true, true, true, "black", SpreadsheetApp.BorderStyle.SOLID);
   schedSheet.getRange(1, 1, 1, 7).setFontWeight("bold");
 
+  logDebug("generateScheduleTabs", "Schedule tab successfully updated", schedSheetName);
   return `✅ Schedule generated successfully for ${cleanGroupName} (${activePlayers.length} players, ${courtNum - 1} courts).`;
 }
 
+function rescheduleFromCheckIns(schedTabName) {
+  logDebug("rescheduleFromCheckIns", "Rescheduling based on check-ins for tab", schedTabName);
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  
+  let targetName = (schedTabName || "").toString().trim();
+  if (!targetName.startsWith("Sched ") && !targetName.startsWith("Score ")) {
+    targetName = "Sched " + targetName;
+  } else if (targetName.startsWith("Score ")) {
+    targetName = targetName.replace("Score ", "Sched ");
+  }
+  
+  let sheet = ss.getSheetByName(targetName);
+  if (!sheet) {
+    logDebug("rescheduleFromCheckIns", "Target sheet not found", targetName);
+    return `⚠️ Target sheet '${targetName}' was not found.`;
+  }
 
+  let data = sheet.getDataRange().getValues();
+  if (data.length <= 1) return `⚠️ No data found on ${targetName}`;
 
+  let headers = data[0].map(h => h.toString().toLowerCase().trim());
+  let nameIdx = headers.indexOf("name");
+  let checkInIdx = headers.indexOf("check-in");
 
+  if (nameIdx === -1 || checkInIdx === -1) {
+    return `⚠️ Required columns ("Name" and "Check-In") missing on ${targetName}`;
+  }
 
+  let checkedInPlayers = [];
+  let seen = new Set();
 
-/** 
- * ==========================================
+  for (let i = 1; i < data.length; i++) {
+    let row = data[i];
+    let pName = row[nameIdx] ? row[nameIdx].toString().trim() : "";
+    let checkVal = row[checkInIdx] ? row[checkInIdx].toString().trim().toLowerCase() : "";
+
+    let isCheckedIn = ["yes", "true", "x", "checked in", "1"].includes(checkVal);
+
+    if (pName && isCheckedIn) {
+      let cleanKey = pName.toLowerCase();
+      if (!seen.has(cleanKey)) {
+        seen.add(cleanKey);
+        checkedInPlayers.push(pName);
+      }
+    }
+  }
+
+  if (checkedInPlayers.length === 0) {
+    logDebug("rescheduleFromCheckIns", "No checked-in players found on tab", targetName);
+    return `⚠️ No players are currently marked as checked-in on ${targetName}.`;
+  }
+
+  let schedOut = [["Name", "Court", "Game 1", "Game 2", "Game 3", "Check-In", "Entered By"]];
+  let courtNum = 1;
+
+  for (let i = 0; i < checkedInPlayers.length; i += 4) {
+    let courtName = "Court " + courtNum;
+    for (let j = 0; j < 4; j++) {
+      if (i + j < checkedInPlayers.length) {
+        schedOut.push([checkedInPlayers[i + j], courtName, "", "", "", "YES", ""]);
+      }
+    }
+    courtNum++;
+  }
+
+  sheet.clearContents();
+  let sRange = sheet.getRange(1, 1, schedOut.length, 7);
+  sRange.setValues(schedOut);
+  sRange.setBorder(true, true, true, true, true, true, "black", SpreadsheetApp.BorderStyle.SOLID);
+  sheet.getRange(1, 1, 1, 7).setFontWeight("bold");
+
+  logDebug("rescheduleFromCheckIns", `Rescheduled ${checkedInPlayers.length} players across ${courtNum - 1} courts`);
+  return `✅ Rescheduled ${checkedInPlayers.length} checked-in players across ${courtNum - 1} courts on '${targetName}'.`;
+}
+
+/* ==========================================
  * 7. PDF GENERATION
- * ==========================================
- */
+ * ========================================== */
+
 function buildScheduleSheet() {
+  logDebug("buildScheduleSheet", "Building combined schedule sheet for export");
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const instr = ss.getSheetByName("Instructions");
   const league = instr ? instr.getRange("B2").getValue().toString().trim() : "Ladders";
@@ -1058,8 +1138,10 @@ function buildScheduleSheet() {
 }
 
 function showPdfDownloadDialog() {
+  logDebug("showPdfDownloadDialog", "Opening PDF download modal");
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const built = buildScheduleSheet();
-  const b64 = Utilities.base64Encode(exportSheetAsPDF(SpreadsheetApp.getActiveSpreadsheet(), built.sheet, built.fileName).getBytes());
+  const b64 = Utilities.base64Encode(exportSheetAsPDF(ss, built.sheet, built.fileName).getBytes());
   const html = HtmlService.createHtmlOutput(
     `<div style="font-family:sans-serif;text-align:center;padding:20px;"><h3>PDF Ready</h3><a download="${built.fileName}" href="data:application/pdf;base64,${b64}" style="padding:12px 24px;background:#2d6a4f;color:white;text-decoration:none;border-radius:8px;font-weight:bold;">⬇ Download PDF</a></div>`
   ).setWidth(400).setHeight(150);
@@ -1067,60 +1149,25 @@ function showPdfDownloadDialog() {
 }
 
 function webExportSchedulePdf() {
+  logDebug("webExportSchedulePdf", "Exporting schedule PDF via Web API");
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const built = buildScheduleSheet();
-  return Utilities.base64Encode(exportSheetAsPDF(SpreadsheetApp.getActiveSpreadsheet(), built.sheet, built.fileName).getBytes());
+  return Utilities.base64Encode(exportSheetAsPDF(ss, built.sheet, built.fileName).getBytes());
 }
 
 function exportSheetAsPDF(ss, sheet, fileName) {
+  logDebug("exportSheetAsPDF", "Generating PDF Blob", fileName);
   const url = "https://docs.google.com/spreadsheets/d/" + ss.getId() + "/export?format=pdf&gid=" + sheet.getSheetId() +
     "&portrait=true&size=letter&fitw=true&gridlines=false&printtitle=false&pagenumbers=false";
   return UrlFetchApp.fetch(url, { headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() } }).getBlob().setName(fileName);
 }
 
-/** 
- * ==========================================
+/* ==========================================
  * 8. WEB APP BACKEND HANDLERS
- * ==========================================
- */
-function getSchedTabNames() { return SpreadsheetApp.getActiveSpreadsheet().getSheets().map(s => s.getName()).filter(name => name.startsWith("Sched ")); }
-
-function getAvailableGroups() {
-  return ["Womens", "Mens", "Mixed"];
-}
-
-function getPlayersForCheckIn(schedSheetName) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(schedSheetName);
-  if (!sheet) return [];
-  const data = sheet.getDataRange().getValues();
-  let result = [];
-  
-  for (let i = 0; i < data.length; i++) {
-    let name = data[i][0] ? data[i][0].toString().trim() : "";
-    let court = data[i][1] ? data[i][1].toString().trim() : "";
-    if (name && court && court !== "BYE" && !name.startsWith("---") && !name.startsWith("Time:") && !name.startsWith("Name")) {
-      result.push({ name: name, court: court, checked: (data[i][5] || "").toString().trim().toUpperCase() === "X" });
-    }
-  }
-  return result;
-}
-
-function saveCheckIns(schedSheetName, checkedPlayerNames) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(schedSheetName);
-  const data = sheet.getDataRange().getValues();
-  const namesArray = Array.isArray(checkedPlayerNames) ? checkedPlayerNames : JSON.parse(checkedPlayerNames || "[]");
-  const checkedSet = new Set(namesArray);
-
-  for (let i = 0; i < data.length; i++) {
-    let name = data[i][0] ? data[i][0].toString().trim() : "";
-    let court = data[i][1] ? data[i][1].toString().trim() : "";
-    if (name && court && court !== "BYE" && !name.startsWith("---") && !name.startsWith("Time:")) {
-      sheet.getRange(i + 1, 6).setValue(checkedSet.has(name) ? "X" : "");
-    }
-  }
-  return "✅ Check-ins saved successfully!";
-}
+ * ========================================== */
 
 function findFoursomeByPhone(rawPhone) {
+  logDebug("findFoursomeByPhone", "Searching for foursome by phone", rawPhone);
   if (!rawPhone) throw new Error("Please enter a phone number.");
   let targetDigits = rawPhone.toString().replace(/\D/g, '').slice(-10);
   if (targetDigits.length < 7) throw new Error("Please enter a valid phone number.");
@@ -1173,10 +1220,12 @@ function findFoursomeByPhone(rawPhone) {
     }
   }
 
+  logDebug("findFoursomeByPhone", "Match results found", { matchedName, userCourt });
   return { found: true, playerName: matchedName, groupName: safeGroup, status: playerStatus, court: userCourt, foursome: foursome };
 }
 
 function togglePlayerStatus(rawPhone) {
+  logDebug("togglePlayerStatus", "Toggling status for phone number", rawPhone);
   let targetDigits = rawPhone.toString().replace(/\D/g, '').slice(-10);
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
 
@@ -1196,15 +1245,19 @@ function togglePlayerStatus(rawPhone) {
         cell.setBackground(updatedStatus === "ACTIVE" ? "#d8f3dc" : "#fff3bf")
             .setFontColor(updatedStatus === "ACTIVE" ? "#1b4332" : "#856404")
             .setFontWeight("bold");
+        logDebug("togglePlayerStatus", "Updated player status to", updatedStatus);
         return updatedStatus;
       }
     }
   }
+  logDebug("togglePlayerStatus", "Player phone not found");
   return "INACTIVE";
 }
 
 function submitCourtScores(payload) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Sched " + payload.groupName);
+  logDebug("submitCourtScores", "Submitting court scores payload", payload);
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName("Sched " + payload.groupName);
   if (!sheet) return "Error: Schedule sheet not found.";
   
   const data = sheet.getDataRange().getValues();
@@ -1217,10 +1270,12 @@ function submitCourtScores(payload) {
       sheet.getRange(i + 1, 3, 1, 5).setValues([[g1, g2, g3, g1 + g2 + g3, payload.submitter]]);
     }
   }
+  logDebug("submitCourtScores", "Submitted court scores successfully");
   return "✅ Scores submitted successfully!";
 }
 
 function getRankingsAndSchedData(groupName) {
+  logDebug("getRankingsAndSchedData", "Fetching rankings & schedule data for group", groupName);
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   let schedList = [], rankingList = [];
   const currentWeek = calculateCurrentWeekNumber();
@@ -1245,6 +1300,7 @@ function getRankingsAndSchedData(groupName) {
 }
 
 function getAdminPlayersByGroup(groupName) {
+  logDebug("getAdminPlayersByGroup", "Fetching admin players list for group", groupName);
   const scoreSheet = getScoreSheetByGroup(groupName);
   if (!scoreSheet) return [];
 
@@ -1261,83 +1317,4 @@ function getAdminPlayersByGroup(groupName) {
   }
   players.sort((a,b) => a.name.localeCompare(b.name));
   return players;
-}
-
-/**
- * Filters the Schedule tab for checked-in players and re-allocates courts.
- */
-function rescheduleFromCheckIns(schedTabName) {
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  
-  // Format target sheet name
-  let targetName = (schedTabName || "").toString().trim();
-  if (!targetName.startsWith("Sched ") && !targetName.startsWith("Score ")) {
-    targetName = "Sched " + targetName;
-  } else if (targetName.startsWith("Score ")) {
-    targetName = targetName.replace("Score ", "Sched ");
-  }
-  
-  let sheet = ss.getSheetByName(targetName);
-  if (!sheet) {
-    return `⚠️ Target sheet '${targetName}' was not found.`;
-  }
-
-  let data = sheet.getDataRange().getValues();
-  if (data.length <= 1) return `⚠️ No data found on ${targetName}`;
-
-  let headers = data[0].map(h => h.toString().toLowerCase().trim());
-  let nameIdx = headers.indexOf("name");
-  let checkInIdx = headers.indexOf("check-in");
-
-  if (nameIdx === -1 || checkInIdx === -1) {
-    return `⚠️ Required columns ("Name" and "Check-In") missing on ${targetName}`;
-  }
-
-  // Filter for checked-in players
-  let checkedInPlayers = [];
-  let seen = new Set();
-
-  for (let i = 1; i < data.length; i++) {
-    let row = data[i];
-    let pName = row[nameIdx] ? row[nameIdx].toString().trim() : "";
-    let checkVal = row[checkInIdx] ? row[checkInIdx].toString().trim().toLowerCase() : "";
-
-    // Match common check-in indicators
-    let isCheckedIn = ["yes", "true", "x", "checked in", "1"].includes(checkVal);
-
-    if (pName && isCheckedIn) {
-      let cleanKey = pName.toLowerCase();
-      if (!seen.has(cleanKey)) {
-        seen.add(cleanKey);
-        checkedInPlayers.push(pName);
-      }
-    }
-  }
-
-  if (checkedInPlayers.length === 0) {
-    return `⚠️ No players are currently marked as checked-in on ${targetName}.`;
-  }
-
-  // Build new 4-player court matrix
-  let schedOut = [["Name", "Court", "Game 1", "Game 2", "Game 3", "Check-In", "Entered By"]];
-  let courtNum = 1;
-
-  for (let i = 0; i < checkedInPlayers.length; i += 4) {
-    let courtName = "Court " + courtNum;
-    for (let j = 0; j < 4; j++) {
-      if (i + j < checkedInPlayers.length) {
-        schedOut.push([checkedInPlayers[i + j], courtName, "", "", "", "YES", ""]);
-      }
-    }
-    courtNum++;
-  }
-
-  // Overwrite schedule tab with updated court list
-  sheet.clearContents();
-  let sRange = sheet.getRange(1, 1, schedOut.length, 7);
-  sRange.setValues(schedOut);
-  sRange.setBorder(true, true, true, true, true, true, "black", SpreadsheetApp.BorderStyle.SOLID);
-  sheet.getRange(1, 1, 1, 7).setFontWeight("bold");
-
-  return `✅ Rescheduled ${checkedInPlayers.length} checked-in players across ${courtNum - 1} courts on '${targetName}'.`;
 }
