@@ -7,10 +7,10 @@ const MAX_POINTS_PER_WEEK = 45;
 const getValidScoreTabs() = ["Score Womens", "Score Mens", "Score Mixed"];
 */
 
-MAX_MOVEMENT = 4;
-MAX_POINTS_PER_WEEK = 45;
-VALID_SCORE_TABS = ["Score Womens", "Score Mens", "Score Mixed"]
-ALWAYS_BYE_LOWEST = true;
+const VALID_SCORE_TABS = ["Score Womens", "Score Mens", "Score Mixed"];
+const MAX_MOVEMENT = 4;
+const MAX_POINTS_PER_WEEK = 45;
+const ALWAYS_BYE_LOWEST = true;
 
 function getAppVersion() {
   return "1.1.2"; 
@@ -222,6 +222,15 @@ function handleApiRequest(e) {
         break;
       case 'webExportSchedulePdf':
         result = webExportSchedulePdf();
+        break;
+    case "rescheduleFromCheckIns":
+        // Arg expects the schedule tab name (e.g., "Sched Womens")
+        result = rescheduleFromCheckIns(arg || ("Sched " + group));
+        break;
+
+      case "generateScheduleTabs":
+        // Target single score tab or run all
+        result = generateScheduleTabs(arg || ("Score " + group));
         break;
       default:
         throw new Error("Invalid or missing API action: " + action);

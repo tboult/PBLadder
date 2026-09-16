@@ -324,15 +324,30 @@
       </div>
     </div>
 
+
+
     <!-- RESCHEDULE & ACTIONS -->
-    <label style="font-size:1.1rem; font-weight:bold;">Reschedule Based on Check-Ins:</label>
-    <button class="btn-main" style="margin-top:0.25rem; margin-bottom:0.75rem;" onclick="runReschedule()">Rebuild Checked-In Courts</button>
+<!-- RESCHEDULE & ACTIONS -->
+<div class="card" style="margin-bottom:1rem; background: var(--bg-color);">
+  <h4 style="margin:0 0 0.5rem 0;">🗓️ Schedule Controls</h4>
+  
+  <label style="font-size:0.95rem; font-weight:bold;">1. Checked-In Players Only:</label>
+  <button class="btn-main" style="margin-top:0.25rem; margin-bottom:0.75rem;" onclick="runRescheduleCheckedIn()">
+    🔄 Reschedule Checked-In Only
+  </button>
+
+  <label style="font-size:0.95rem; font-weight:bold;">2. All Active Players in Group:</label>
+  <button class="btn-sub" style="margin-top:0.25rem; margin-bottom:0.75rem; background-color: #2d6a4f; color: white;" onclick="runRescheduleActive()">
+    ⚡ Reschedule All Active
+  </button>
+
     <hr>
     <button class="btn-sub" onclick="runAdmin('menuSortActivePlayers')">Sort Active Players (Current Group)</button>
     <button class="btn-sub" onclick="runAdmin('menuGenerateScheduleTabs')">Generate All Schedule Tabs</button>
     <button class="btn-sub" onclick="runAdmin('menuUpdateStandingsWithShift')">End of Week (Shift Scores)</button>
     <button class="btn-sub" onclick="runAdmin('menuCorrectScoresNoShift')">Correct Scores (No Shift)</button>
     <button class="btn-sub" onclick="getAdminPdf()">Download PDF Schedules</button>
+</div>
 
     <!-- ADD NEW PLAYER (PENDING STATUS) -->
     <div class="card" style="margin-top:1.5rem; margin-bottom:1rem; background: var(--bg-color);">
@@ -967,6 +982,25 @@ async function apiCall(action, payload = {}) {
       document.getElementById('adminStatus').innerText = e.message;
     }
   }
+function runRescheduleCheckedIn() {
+  let group = getSavedGroup();
+  if (!group) return alert("Please select an Admin Target Group first.");
+  
+  let tabName = group.startsWith("Sched ") ? group : "Sched " + group;
+  document.getElementById('adminStatus').innerText = "Rebuilding schedule for checked-in players...";
+  
+  runAdmin('rescheduleFromCheckIns', tabName);
+}
+
+function runRescheduleActive() {
+  let group = getSavedGroup();
+  if (!group) return alert("Please select an Admin Target Group first.");
+  
+  let targetTab = group.startsWith("Score ") ? group : "Score " + group;
+  document.getElementById('adminStatus').innerText = "Rebuilding schedule for all active players...";
+  
+  runAdmin('generateScheduleTabs', targetTab);
+}
 </script>
 </body>
 </html>
