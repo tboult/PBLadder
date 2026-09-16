@@ -495,33 +495,38 @@ function addNewUser(info) {
   return `✅ Success: Added ${info.first} ${info.last} to tab '${targetSheet.getName()}'.`;
 }
 
-
-function getTargetScoreSheet(sheetName) {
+function getTargetScoreSheet(groupOrTabName) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  
-  // If a specific tab name was passed, try to get it
-  if (sheetName) {
-    var namedSheet = ss.getSheetByName(sheetName);
-    if (namedSheet) return namedSheet;
-  }
-  
-  // Otherwise check the currently active sheet
+  var sheet = null;
+
+  // 1. Check if the active tab in the Google Sheet is already a valid Score tab
   var activeSheet = ss.getActiveSheet();
-  var activeName = activeSheet.getName();
+  var activeName = activeSheet ? activeSheet.getName() : "";
   
   if (activeName.startsWith("Score ")) {
     return activeSheet;
   }
-  
-  // Fallback: search explicitly for a valid Score tab instead of defaulting to Sheet(0) / Instructions
-  var validTabs = ["Score Womens", "Score Mens", "Score Mixed"];
-  for (var i = 0; i < validTabs.length; i++) {
-    var sheet = ss.getSheetByName(validTabs[i]);
+
+  // 2. If a group or tab name was passed in from the frontend, construct the sheet name
+  if (groupOrTabName) {
+    var targetName = groupOrTabName.startsWith("Score ") 
+      ? groupOrTabName 
+      : "Score " + groupOrTabName;
+    sheet = ss.getSheetByName(targetName);
     if (sheet) return sheet;
   }
-  
-  throw new Error("Please select a valid Score tab (e.g., 'Score Womens') before running this script.");
+
+  // 3. Fail-safe: Search explicitly for the first available valid Score tab instead of defaulting to Sheet(0)/INSTRUCTIONS
+  var validTabs = ["Score Womens", "Score Mens", "Score Mixed"];
+  for (var i = 0; i < validTabs.length; i++) {
+    sheet = ss.getSheetByName(validTabs[i]);
+    if (sheet) return sheet;
+  }
+
+  throw new Error('Action Cancelled: No valid Score tab found. Please select or pass "Score Womens", "Score Mens", or "Score Mixed".');
 }
+
+
 
 
 function generateScheduleForTab(scoreTabName) {
@@ -907,160 +912,31 @@ function sortActivePlayersForSheet(sheet) {
   return `✅ Active players sorted by Rank in '${sheet.getName()}'.`;
 }
 
-function generateScheduleTabs(targetTabName = null) {
-  try {
-    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-    
-    // Determine which tabs to process (All vs Single Tab)
-    let tabsToProcess = getValidScoreTabs();
-    if (targetTabName) {
-      if (!tabsToProcess.includes(targetTabName)) {
-          throw new Error(`⚠️ Tab '${targetTabName}' is not a valid score tab.`);
-      }
-      tabsToProcess = [targetTabName];
+function generateScheduleTabs(scoreTabName) {
+  var sheet = getTargetScoreSheet(scoreTabName);
+  var data = sheet.getDataRange().getValues();
+  
+  var activePlayers = [];
+  var seenIds = {};
+
+  // Read active players starting past header row
+  for (var i = 1; i < data.length; i++) {
+    var status = data[i][0]; // Column A (Status)
+    var firstName = data[i][1]; // Column B
+    var lastName = data[i][2]; // Column C
+    var fullName = (firstName + " " + lastName).trim();
+
+    if (status === "ACTIVE" && fullName && !seenIds[fullName]) {
+      seenIds[fullName] = true; // Prevent duplicate entries
+      activePlayers.push({
+        row: i + 1,
+        name: fullName,
+        phone: data[i][5]
+      });
     }
+  }
 
-    tabsToProcess.forEach(tabName => {
-      let sheet = ss.getSheetByName(tabName);
-      if (sheet && sheet.getLastRow() > 1) {
-        sortActivePlayersForSheet(sheet);
-      }
-    });
-
-    const constSheet = ss.getSheetByName("Constants");
-    let groupConfig = {};
-    if (constSheet) {
-      const constData = constSheet.getDataRange().getValues();
-      let constCol = {};
-      constData[0].forEach((h, i) => { constCol[h.toString().toLowerCase().replace(/[\s\-\/]/g, '')] = i; });
-      for (let i = 1; i < constData.length; i++) {
-        let gName = constData[i][constCol.group || 0];
-        if (gName) {
-          groupConfig[gName.toString().trim().toLowerCase()] = {
-            time: constData[i][constCol.datetime !== undefined ? constCol.datetime : 1] || "",
-            courts: parseAndSortCourts(constData[i][constCol.courtlist !== undefined ? constCol.courtlist : 2])
-          };
-        }
-      }
-    }
-
-    let groups = {};
-
-    tabsToProcess.forEach(tabName => {
-      const sourceSheet = ss.getSheetByName(tabName);
-      if (!sourceSheet || sourceSheet.getLastRow() <= 1) return;
-      
-      const data = sourceSheet.getDataRange().getValues();
-      const col = buildColMap(data[0]);
-
-      let activePrevCol = -1;
-      for (let cName of ["w10", "w9", "w8", "w7"]) {
-        if (col[cName] !== undefined) {
-          let hasData = false;
-          for (let r = 1; r < data.length; r++) { if (parseFloat(data[r][col[cName]]) > 0) { hasData = true; break; } }
-          if (hasData) { activePrevCol = col[cName]; break; }
-        }
-      }
-
-      let seenPlayers = new Set(); // DEDUPLICATION FIX: Tracks names to prevent assigning same person twice
-
-      for (let i = 1; i < data.length; i++) {
-        let row = data[i];
-        let status = (col.status !== undefined && row[col.status] !== "") ? row[col.status].toString().toUpperCase().trim() : "ACTIVE";
-
-        if (status === "ACTIVE") {
-          let g = (col.group !== undefined && row[col.group] !== "") ? row[col.group].toString().trim() : tabName.replace("Score ", "");
-          if (!g || g.toLowerCase() === "default") continue; 
-
-          let safeGroupName = g.replace(/[\\\/*?\[\]:]/g, "").substring(0, 25); 
-          if (!groups[safeGroupName]) groups[safeGroupName] = [];
-
-          let pName = (col.name !== undefined && row[col.name]) ? row[col.name] : ((row[col.first] || "") + " " + (row[col.last] || "")).trim();
-          
-          // Stop duplicates right here
-          if (seenPlayers.has(pName)) continue;
-          seenPlayers.add(pName);
-
-          let playedLast = true;
-          if (activePrevCol !== -1 && (isNaN(parseFloat(row[activePrevCol])) || parseFloat(row[activePrevCol]) <= 0)) playedLast = false; 
-
-          groups[safeGroupName].push({
-            name: pName,
-            rank: col.rNum !== undefined ? parseInt(row[col.rNum]) || 999 : 999,
-            winPct: col.winPct !== undefined ? row[col.winPct] : "",
-            totalPts: col.total !== undefined ? row[col.total] : "",
-            playedLastWeek: playedLast
-          });
-        }
-      }
-    });
-
-    let tabsCreated = 0;
-    Object.keys(groups).forEach(gName => {
-      let players = groups[gName].sort((a,b) => a.rank - b.rank);
-      let numByes = players.length % 4;
-      let playingRoster = [], byePlayers = [];
-
-      if (numByes > 0 && ALWAYS_BYE_LOWEST) {
-        let byesAssigned = 0, tempRoster = [];
-        for (let i = players.length - 1; i >= 0; i--) {
-          if (byesAssigned < numByes) {
-            if (players[i].playedLastWeek) { byePlayers.push(players[i]); byesAssigned++; } 
-            else tempRoster.unshift(players[i]);
-          } else { tempRoster.unshift(players[i]); }
-        }
-        while (byesAssigned < numByes && tempRoster.length > 0) { byePlayers.push(tempRoster.pop()); byesAssigned++; }
-        playingRoster = tempRoster;
-      } else {
-        for (let i = 0; i < numByes; i++) byePlayers.push(players.pop());
-        playingRoster = players;
-      }
-
-      let configMatch = groupConfig[gName.toLowerCase()];
-      let timeStr = configMatch ? configMatch.time : "";
-      let availCourts = configMatch ? configMatch.courts : [1,2,3,4,5,6,7,8];
-
-      let schedSheet = ss.getSheetByName("Sched " + gName) || ss.insertSheet("Sched " + gName);
-      schedSheet.clear();
-
-      let schedOut = [];
-      if (timeStr) schedOut.push([`Time: ${timeStr}`, "", "", "", "", "", ""]);
-      schedOut.push(["Name", "Court", "Game 1", "Game 2", "Game 3", "Check-In", "Entered By"]);
-
-      let courtIdx = 0;
-      for (let i = 0; i < playingRoster.length; i += 4) {
-        let currentCourt = availCourts[courtIdx] !== undefined ? availCourts[courtIdx] : ("Extra " + (courtIdx + 1));
-        for (let j = 0; j < 4; j++) { if (i + j < playingRoster.length) schedOut.push([playingRoster[i+j].name, currentCourt, "", "", "", "", ""]); }
-        courtIdx++;
-      }
-
-      if (byePlayers.length > 0) {
-        schedOut.push(["", "", "", "", "", "", ""]);
-        schedOut.push(["--- PLAYERS ON BYE ---", "", "", "", "", "", ""]);
-        byePlayers.forEach(p => schedOut.push([p.name, "BYE", "-", "-", "-", "-", "-"]));
-      }
-
-      let sRange = schedSheet.getRange(1, 1, schedOut.length, 7);
-      sRange.setValues(schedOut);
-      sRange.setBorder(true, true, true, true, true, true, "black", SpreadsheetApp.BorderStyle.SOLID);
-      schedSheet.getRange(timeStr ? 2 : 1, 1, 1, 7).setFontWeight("bold");
-      if (timeStr) schedSheet.getRange(1, 1, 1, 1).setFontWeight("bold");
-      
-      let rankSheet = ss.getSheetByName("Rankings " + gName) || ss.insertSheet("Rankings " + gName);
-      rankSheet.clear();
-      let rankOut = [["Rank", "Name", "Win %", "Total Pts"]];
-      players.forEach(p => rankOut.push([p.rank === 999 ? "UR" : p.rank, p.name, p.winPct, p.totalPts]));
-      
-      let rRange = rankSheet.getRange(1, 1, rankOut.length, 4);
-      rRange.setValues(rankOut);
-      rRange.setBorder(true, true, true, true, true, true, "black", SpreadsheetApp.BorderStyle.SOLID);
-      rankSheet.getRange(1, 1, 1, 4).setFontWeight("bold");
-      
-      tabsCreated += 2;
-    });
-
-    return tabsCreated > 0 ? `✅ Success: Generated schedule/ranking tabs.` : "⚠️ No active players found.";
-  } catch (error) { return `❌ ERROR: ${error.message}`; }
+  return buildCourtsAndWrite(sheet, activePlayers);
 }
 
 

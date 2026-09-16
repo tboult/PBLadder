@@ -993,16 +993,24 @@ function runRescheduleCheckedIn() {
 }
 
 function runRescheduleActive() {
-  let group = getSavedGroup(); // e.g. "Womens"
-  if (!group) return alert("Please select an Target Group first.");
-  
-  // Format explicitly as "Score Womens"
+  let group = getSavedGroup(); // e.g., "Womens"
+  if (!group) {
+    alert("Please select a target group first.");
+    return;
+  }
+
+  // Formats explicitly to "Score Womens"
   let targetTab = group.startsWith("Score ") ? group : "Score " + group;
   
-  document.getElementById('adminStatus').innerText = "Generating schedule for " + targetTab + "...";
-  
-  runAdmin('generateScheduleTabs', targetTab);
-}
+  document.getElementById('adminStatus').innerText = "Processing " + targetTab + "...";
+
+  // Send targetTab as the second parameter to Code.gs
+  google.script.run
+    .withSuccessHandler(onAdminSuccess)
+    .withFailureHandler(onAdminFailure)
+    .generateScheduleTabs(targetTab);
+    }
+
 </script>
 </body>
 </html>
