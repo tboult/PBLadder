@@ -1129,6 +1129,7 @@ function generateScheduleTabs(scoreTabName = null) {
     courtNum++;
   }
 
+
   let sRange = schedSheet.getRange(1, 1, schedOut.length, 8);
   sRange.setValues(schedOut);
   sRange.setBorder(true, true, true, true, true, true, "black", SpreadsheetApp.BorderStyle.SOLID);
@@ -1546,3 +1547,4 @@ function submitCourtScores(payload) {
   logDebug("submitCourtScores", "Updated incremental court scores successfully");
   return "✅ Game scores updated successfully!";
 }
+
