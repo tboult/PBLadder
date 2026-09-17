@@ -271,106 +271,129 @@ function handleApiRequest(e) {
 
     let result;
 
+       case 'sortActivePlayers':
+        {
+          let targetGroup = payload.arg || payload.group;
+          let sheet = getValidActiveScoreSheet(targetGroup);
+          result = sortActivePlayersForSheet(sheet);
+        }
+        break;
 
-switch(action) {
-                case 'sortActivePlayers':
-                {
-                 let sheet = getTargetSheetDynamic(payload, "Score ");
-                 result = sortActivePlayersForSheet(sheet);
-                 }
-                break;
+      case 'generateScheduleTabs':
+        {
+          let genTarget = payload.arg || payload.tab || payload.sheet || (payload.group ? "Score " + payload.group : null);
+          result = generateScheduleTabs(genTarget);
+        }
+        break;
 
-                case 'generateScheduleTabs':
-                {
-                 let sheetName = resolveSheetName(payload.arg || payload.tab || payload.sheet || payload.group, "Score ");
-                 result = generateScheduleTabs(sheetName);
-                 }
-                break;
+      case 'updateStandingsWithShift':
+        {
+          let targetGroup = payload.arg || payload.group;
+          let sheet = getValidActiveScoreSheet(targetGroup);
+          result = processWeeklyScoresForSheet(sheet, "W10", true);
+        }
+        break;
 
-                case 'updateStandingsWithShift':
-                {
-                 let sheet = getTargetSheetDynamic(payload, "Score ");
-                 let week = payload.week || payload.weekNumber || "W1"; // Dynamic week resolution
-                 result = processWeeklyScoresForSheet(sheet, week, true);
-                 }
-                break;
+      case 'correctScoresNoShift':
+        {
+          let targetGroup = payload.arg || payload.group;
+          let sheet = getValidActiveScoreSheet(targetGroup);
+          result = processWeeklyScoresForSheet(sheet, "W10", false);
+        }
+        break;
 
-                case 'correctScoresNoShift':
-                {
-                 let sheet = getTargetSheetDynamic(payload, "Score ");
-                 let week = payload.week || payload.weekNumber || "W1"; // Dynamic week resolution
-                 result = processWeeklyScoresForSheet(sheet, week, false);
-                 }
-                break;
+      case 'getSchedTabNames':
+        result = getSchedTabNames();
+        break;
 
-                case 'getPlayersForCheckIn':
-                {
-                 let sheetName = resolveSheetName(payload.sheet || payload.schedSheetName || payload.tab || payload.group, "Sched ");
-                 result = getPlayersForCheckIn(sheetName);
-                 }
-                break;
+      case 'getAvailableGroups':
+        result = getAvailableGroups();
+        break;
 
-                case 'toggleSingleCheckIn':
-                {
-                 let sheetName = resolveSheetName(payload.sheet || payload.schedSheetName || payload.tab || payload.group, "Sched ");
-                 result = toggleSingleCheckIn(
-                                              sheetName,
-                                              payload.playerName || payload.name,
-                                              payload.isCheckedIn !== undefined ? payload.isCheckedIn : payload.checkedIn
-                                              );
-                 }
-                break;
+      case 'getPlayersForCheckIn':
+        let sheetName = payload.sheet || payload.schedSheetName || payload.tab || payload.groupName || payload.group || "";
+        result = getPlayersForCheckIn(sheetName);
+        break;
 
-                case 'saveCheckIns':
-                {
-                 let sheetName = resolveSheetName(payload.sheet || payload.schedSheetName || payload.tab || payload.group, "Sched ");
-                 result = saveCheckIns(sheetName, payload.checkedNames);
-                 }
-                break;
+      case 'toggleSingleCheckIn':
+        result = toggleSingleCheckIn(
+          payload.sheet || payload.schedSheetName || payload.tab || payload.group,
+          payload.playerName || payload.name,
+          payload.isCheckedIn !== undefined ? payload.isCheckedIn : payload.checkedIn
+        );
+        break;
 
-                case 'rescheduleFromCheckIns':
-                {
-                 let sheetName = resolveSheetName(payload.arg || payload.tab || payload.sheet || payload.group, "Sched ");
-                 result = rescheduleFromCheckIns(sheetName);
-                 }
-                break;
+      case 'saveCheckIns':
+        result = saveCheckIns(payload.sheet || payload.schedSheetName || payload.tab, payload.checkedNames);
+        break;
 
-                // Macro functions now dynamically execute on whatever tab is currently open in Google Sheets
-                case 'menuSortActivePlayers':
-                result = sortActivePlayersForSheet(SpreadsheetApp.getActiveSheet());
-                break;
+      case 'findFoursomeByPhone':
+        result = findFoursomeByPhone(payload.phone);
+        break;
 
-                case 'menuGenerateScheduleTabs':
-                result = generateScheduleTabs(SpreadsheetApp.getActiveSheet().getName());
-                break;
+      case 'togglePlayerStatus':
+        result = togglePlayerStatus(payload.phone);
+        break;
 
-                case 'menuUpdateStandingsWithShift':
-                result = processWeeklyScoresForSheet(SpreadsheetApp.getActiveSheet(), payload.week || "W1", true);
-                break;
+      case 'submitCourtScores':
+        result = submitCourtScores(payload);
+        break;
 
-                case 'menuCorrectScoresNoShift':
-                result = processWeeklyScoresForSheet(SpreadsheetApp.getActiveSheet(), payload.week || "W1", false);
-                break;
+      case 'getRankingsAndSchedData':
+        if (!payload.group) throw new Error('Missing "group" parameter for getRankingsAndSchedData.');
+        result = getRankingsAndSchedData(payload.group);
+        break;
 
-                case 'startNewSeason':
-                result = startNewSeason();
-                break;
+      case 'getAdminPlayersByGroup':
+        if (!payload.group) throw new Error('Missing "group" parameter for getAdminPlayersByGroup.');
+        result = getAdminPlayersByGroup(payload.group);
+        break;
 
-                case 'getAdminSheetUrl':
-                result = getAdminSheetUrl();
-                break;
+      case 'addNewUser':
+        result = addNewUser(payload);
+        break;
 
-                case 'getAppVersion':
-                result = typeof getAppVersion === 'function' ? getAppVersion() : "1.1.2";
-                break;
+      case 'rescheduleFromCheckIns':
+        // Safely construct tab name only if group/sheet parameters exist
+        let reschedTarget = payload.arg || payload.tab || payload.sheet || (payload.group ? "Sched " + payload.group : null);
+        result = rescheduleFromCheckIns(reschedTarget);
+        break;
 
-                case 'webExportSchedulePdf':
-                result = webExportSchedulePdf();
-                break;
+      case 'menuSortActivePlayers':
+        result = menuSortActivePlayers();
+        break;
 
-                default:
-                throw new Error("Invalid or missing API action: " + action);
-                }
+      case 'menuGenerateScheduleTabs':
+        result = menuGenerateScheduleTabs();
+        break;
+
+      case 'menuUpdateStandingsWithShift':
+        result = menuUpdateStandingsWithShift();
+        break;
+
+      case 'menuCorrectScoresNoShift':
+        result = menuCorrectScoresNoShift();
+        break;
+
+      case 'startNewSeason':
+        result = startNewSeason();
+        break;
+
+      case 'getAdminSheetUrl':
+        result = getAdminSheetUrl();
+        break;
+
+      case 'getAppVersion':
+        result = typeof getAppVersion === 'function' ? getAppVersion() : "1.1.2";
+        break;
+
+      case 'webExportSchedulePdf':
+        result = webExportSchedulePdf();
+        break;
+
+      default:
+      throw new Error("Invalid or missing API action: " + action);
+  }
 
     logDebug("handleApiRequest", "Action executed successfully", action);
     return ContentService.createTextOutput(JSON.stringify({ status: "success", data: result }))
