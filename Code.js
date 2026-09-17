@@ -168,25 +168,114 @@ function handleApiRequest(e) {
       payload = e.parameter;
     }
 
-
     logDebug("handleApiRequest", "Dispatching action", action);
 
-      if (!payload || typeof payload !== 'object') {
-          return ContentService.createTextOutput(JSON.stringify({
-              status: 'error',
-              message: 'Invalid payload provided.'
-          })).setMimeType(ContentService.MimeType.JSON);
-      }
+    let result;
+    switch(action) {
+      case 'getSchedTabNames':
+        result = getSchedTabNames();
+        break;
 
-      // Guard against missing 'group' property
-      if (!payload.group || String(payload.group).trim() === '') {
-          return ContentService.createTextOutput(JSON.stringify({
-              status: 'error',
-              message: 'Missing or empty "group" property in payload.'
-          })).setMimeType(ContentService.MimeType.JSON);
-      }      
+      case 'getAvailableGroups':
+        result = getAvailableGroups();
+        break;
 
+      case 'getPlayersForCheckIn':
+        result = getPlayersForCheckIn(payload.sheet || payload.schedSheetName || payload.tab);
+        break;
 
+      case 'saveCheckIns':
+        result = saveCheckIns(payload.sheet || payload.schedSheetName || payload.tab, payload.checkedNames);
+        break;
+
+      case 'findFoursomeByPhone':
+        result = findFoursomeByPhone(payload.phone);
+        break;
+
+      case 'togglePlayerStatus':
+        result = togglePlayerStatus(payload.phone);
+        break;
+
+      case 'submitCourtScores':
+        result = submitCourtScores(payload);
+        break;
+
+      case 'getRankingsAndSchedData':
+        if (!payload.group) throw new Error('Missing "group" parameter for getRankingsAndSchedData.');
+        result = getRankingsAndSchedData(payload.group);
+        break;
+
+      case 'getAdminPlayersByGroup':
+        if (!payload.group) throw new Error('Missing "group" parameter for getAdminPlayersByGroup.');
+        result = getAdminPlayersByGroup(payload.group);
+        break;
+
+      case 'addNewUser':
+        result = addNewUser(payload);
+        break;
+
+      case 'rescheduleFromCheckIns':
+        // Safely construct tab name only if group/sheet parameters exist
+        let reschedTarget = payload.arg || payload.tab || payload.sheet || (payload.group ? "Sched " + payload.group : null);
+        result = rescheduleFromCheckIns(reschedTarget);
+        break;
+
+      case 'generateScheduleTabs':
+        // Safely construct tab name only if group/sheet parameters exist
+        let genTarget = payload.arg || payload.tab || payload.sheet || (payload.group ? "Score " + payload.group : null);
+        result = generateScheduleTabs(genTarget);
+        break;
+
+      case 'menuSortActivePlayers':
+        result = menuSortActivePlayers();
+        break;
+
+      case 'menuGenerateScheduleTabs':
+        result = menuGenerateScheduleTabs();
+        break;
+
+      case 'menuUpdateStandingsWithShift':
+        result = menuUpdateStandingsWithShift();
+        break;
+
+      case 'menuCorrectScoresNoShift':
+        result = menuCorrectScoresNoShift();
+        break;
+
+      case 'startNewSeason':
+        result = startNewSeason();
+        break;
+
+      case 'getAdminSheetUrl':
+        result = getAdminSheetUrl();
+        break;
+
+      case 'getAppVersion':
+        result = typeof getAppVersion === 'function' ? getAppVersion() : "1.1.2";
+        break;
+
+      case 'webExportSchedulePdf':
+        result = webExportSchedulePdf();
+        break;
+
+      default:
+        throw new Error("Invalid or missing API action: " + action);
+    }
+
+    logDebug("handleApiRequest", "Action executed successfully", action);
+    return ContentService.createTextOutput(JSON.stringify({ status: "success", data: result }))
+      .setMimeType(ContentService.MimeType.JSON);
+
+  } catch(err) {
+    logDebug("handleApiRequest", "API Execution error", err.toString());
+    return ContentService.createTextOutput(JSON.stringify({ status: "error", message: err.toString() }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } finally {
+    try {
+      lock.releaseLock();
+    } catch(e) {}
+  }
+}
 
 
 function authorizeScript() {
