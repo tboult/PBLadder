@@ -189,6 +189,36 @@ function handleApiRequest(e) {
 
     let result;
     switch(action) {
+       case 'sortActivePlayers':
+        {
+          let targetGroup = payload.arg || payload.group;
+          let sheet = getValidActiveScoreSheet(targetGroup);
+          result = sortActivePlayersForSheet(sheet);
+        }
+        break;
+
+      case 'generateScheduleTabs':
+        {
+          let genTarget = payload.arg || payload.tab || payload.sheet || (payload.group ? "Score " + payload.group : null);
+          result = generateScheduleTabs(genTarget);
+        }
+        break;
+
+      case 'updateStandingsWithShift':
+        {
+          let targetGroup = payload.arg || payload.group;
+          let sheet = getValidActiveScoreSheet(targetGroup);
+          result = processWeeklyScoresForSheet(sheet, "W10", true);
+        }
+        break;
+
+      case 'correctScoresNoShift':
+        {
+          let targetGroup = payload.arg || payload.group;
+          let sheet = getValidActiveScoreSheet(targetGroup);
+          result = processWeeklyScoresForSheet(sheet, "W10", false);
+        }
+        break;
       case 'getSchedTabNames':
         result = getSchedTabNames();
         break;

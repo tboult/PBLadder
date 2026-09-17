@@ -350,19 +350,20 @@
           <button id="reschedCheckedInBtn" class="btn-main" style="margin-top:0.25rem; margin-bottom:0.75rem;" onclick="runRescheduleCheckedIn()">
             🔄 Reschedule Checked-In Only
           </button>
-
+          
           <label style="font-size:0.95rem; font-weight:bold;">2. All Active Players in Group:</label>
           <button id="reschedActiveBtn" class="btn-sub" style="margin-top:0.25rem; margin-bottom:0.75rem; background-color: #2d6a4f; color: white;" onclick="runRescheduleActive()">
             ⚡ Reschedule All Active
           </button>
-
+          
           <hr>
-          <button class="btn-sub" onclick="runAdmin('menuSortActivePlayers')">Sort Active Players (Current Group)</button>
-          <button class="btn-sub" onclick="runAdmin('menuGenerateScheduleTabs')">Generate All Schedule Tabs</button>
-          <button class="btn-sub" onclick="runAdmin('menuUpdateStandingsWithShift')">End of Week (Shift Scores)</button>
-          <button class="btn-sub" onclick="runAdmin('menuCorrectScoresNoShift')">Correct Scores (No Shift)</button>
+          <button class="btn-sub" onclick="runAdmin('sortActivePlayers')">Sort Active Players (Current Group)</button>
+          <button class="btn-sub" onclick="runAdmin('generateScheduleTabs')">Generate Schedule (Current Group)</button>
+          <button class="btn-sub" onclick="runAdmin('updateStandingsWithShift')">End of Week (Shift Scores)</button>
+          <button class="btn-sub" onclick="runAdmin('correctScoresNoShift')">Correct Scores (No Shift)</button>
           <button class="btn-sub" onclick="getAdminPdf()">Download PDF Schedules</button>
         </div>
+
 
         <!-- ADD NEW PLAYER (PENDING STATUS) -->
         <div class="card" style="margin-top:1.5rem; margin-bottom:1rem; background: var(--bg-color);">
@@ -383,6 +384,7 @@
 <script>
 
   window.API_URL = "https://script.google.com/macros/s/AKfycbweTOjVcY0R1sxXrYfbN2S9jqMz4yr5b1alVoz0gjVy3P3ty42rtHlfgfpdjtFnF4nFaQ/exec";
+  // to test access append something action to above  ?action=getAppVersion
   const API_URL = window.API_URL;
   const CURRENT_APP_VERSION = "1.1.3";
 
@@ -1083,7 +1085,7 @@ async function apiCall(action, payload = {}) {
     statusEl.innerHTML = '<span class="loading-spinner"></span><b>Rescheduling all active players... Please wait.</b>';
 
     try {
-      const res = await apiCall('menuGenerateScheduleTabs', { arg: targetTab, group: group });
+      const res = await apiCall('generateScheduleTabs', { arg: targetTab, group: group });
       statusEl.innerHTML = '<span class="loading-spinner"></span>Fetching fresh schedule data...';
 
       // Flush and reload fresh schedule & check-in data
