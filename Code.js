@@ -8,11 +8,25 @@ const ENABLE_LOGGING = true; // Toggle to true/false to enable or disable system
  * Global Logger Helper
  */
 function logDebug(fnName, msg, extra = "") {
-  if (!ENABLE_LOGGING) return;
-  const extraStr = extra ? (typeof extra === "object" ? JSON.stringify(extra) : String(extra)) : "";
-  Logger.log(`[${new Date().toISOString()}] [${fnName}] ${msg} ${extraStr}`.trim());
-}
+  // Safely check if ENABLE_LOGGING is declared without throwing a ReferenceError
+  if (typeof ENABLE_LOGGING !== 'undefined' && !ENABLE_LOGGING) return;
 
+  let extraStr = "";
+  if (extra !== undefined && extra !== null && extra !== "") {
+    if (typeof extra === "object") {
+      try {
+        extraStr = JSON.stringify(extra);
+      } catch (err) {
+        extraStr = `[Object/Error: ${String(extra)}]`; // Safe fallback for circular references
+      }
+    } else {
+      extraStr = String(extra);
+    }
+  }
+
+  // console.log is preferred over Logger.log for Apps Script Web Apps & Stackdriver
+  console.log(`[${new Date().toISOString()}] [${fnName}] ${msg} ${extraStr}`.trim());
+}
 const SPREADSHEET_ID = "14jmYyesfG9btWcIeptDwD6Bkxj8UZiQVlAOGc6BdM84";
 const VALID_SCORE_TABS = ["Score Womens", "Score Mens", "Score Mixed"];
 const SCORE_TABS = VALID_SCORE_TABS;
