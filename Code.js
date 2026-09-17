@@ -1130,10 +1130,10 @@ function generateScheduleTabs(scoreTabName = null) {
   }
 
 
-  let sRange = schedSheet.getRange(1, 1, schedOut.length, 8);
+  let sRange = schedSheet.getRange(1, 1, schedOut.length, 7);
   sRange.setValues(schedOut);
   sRange.setBorder(true, true, true, true, true, true, "black", SpreadsheetApp.BorderStyle.SOLID);
-  schedSheet.getRange(1, 1, 1, 8).setFontWeight("bold");
+  schedSheet.getRange(1, 1, 1, 7).setFontWeight("bold");
 
   return `✅ Schedule generated successfully for ${cleanGroupName} (${activePlayers.length} players, ${courtNum - 1} courts).`;
 }
