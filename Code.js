@@ -1439,7 +1439,7 @@ function generateScheduleTabs(scoreTabName = null) {
     courtNum++;
   }
 
-  let sRange = schedSheet.getRange(1, 1, schedOut.length, 7);
+  let sRange = schedSheet.getRange(1, 1, schedOut.length, 8);
   sRange.setValues(schedOut);
   sRange.setBorder(true, true, true, true, true, true, "black", SpreadsheetApp.BorderStyle.SOLID);
   schedSheet.getRange(1, 1, 1, 8).setFontWeight("bold");
