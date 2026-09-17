@@ -91,15 +91,15 @@ function getAvailableGroups() {
 /**
  * Fetches players and their current check-in state dynamically.
  */
+/**
+ * Fetches players and their current check-in state with flexible column matching.
+ */
 function getPlayersForCheckIn(inputName) {
   if (!inputName) return { error: "No sheet or group name provided." };
 
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  
-  // Strip prefixes to isolate core group name
   let cleanGroupName = inputName.replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
 
-  // Check possible tab naming patterns
   let sheet = ss.getSheetByName("Sched " + cleanGroupName) || 
               ss.getSheetByName("Score " + cleanGroupName) || 
               ss.getSheetByName(inputName);
@@ -109,20 +109,31 @@ function getPlayersForCheckIn(inputName) {
   const data = sheet.getDataRange().getValues();
   if (data.length <= 1) return [];
 
-  const headers = data[0].map(h => h.toString().toLowerCase().trim());
-  const nameIdx = headers.indexOf("name") !== -1 ? headers.indexOf("name") : 0;
-  const checkInIdx = headers.indexOf("check-in");
+  // Clean headers for matching
+  const headers = data[0].map(h => h.toString().toLowerCase().replace(/[\s\-_]/g, "").trim());
+  
+  // Look for Name column (default to col 0)
+  let nameIdx = headers.findIndex(h => h.includes("name") || h.includes("player"));
+  if (nameIdx === -1) nameIdx = 0;
+
+  // Flexible Check-In column lookup with fallback to Column 7 (Column G)
+  let checkInIdx = headers.findIndex(h => h.includes("checkin") || h.includes("checkedin") || h === "x");
+  if (checkInIdx === -1 && data[0].length >= 7) {
+    checkInIdx = 6; // Fallback to 7th column (index 6)
+  }
 
   let players = [];
   for (let r = 1; r < data.length; r++) {
     let pName = (data[r][nameIdx] || "").toString().trim();
-    if (!pName || pName.startsWith("---") || pName.startsWith("time:")) continue;
+    if (!pName || pName.startsWith("---") || pName.toLowerCase().startsWith("time:")) continue;
 
-    let isCheckedIn = checkInIdx !== -1 ? isCheckInTrue(data[r][checkInIdx]) : false;
+    let checkVal = checkInIdx !== -1 ? data[r][checkInIdx] : false;
+    let isCheckedIn = isCheckInTrue(checkVal);
+
     players.push({ name: pName, checkedIn: isCheckedIn });
   }
 
-  logDebug("getPlayersForCheckIn", `Parsed ${players.length} players for check-in on '${sheet.getName()}'`); 
+  logDebug("getPlayersForCheckIn", `Parsed ${players.length} players for '${sheet.getName()}' (Check-In Col Index: ${checkInIdx})`); 
   return players;
 }
 
