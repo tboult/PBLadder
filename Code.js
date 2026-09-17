@@ -57,7 +57,6 @@ function getConstantsConfig() {
   };
 }
 
-
 function getValidScoreTabs() {
   logDebug("getValidScoreTabs", "Fetching valid score tabs");
   return SCORE_TABS;
