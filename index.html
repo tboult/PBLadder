@@ -231,7 +231,6 @@
       <label><b>Select Group:</b></label>
       <select id="sheetSelect" onchange="onGroupChange('sheetSelect'); loadCheckInPlayers()"><option value="">-- Choose Ladder --</option></select>
       
-      <button id="saveCheckInBtn" class="btn-main" onclick="submitCheckIns()" disabled style="margin-top:0.75rem; margin-bottom:0.25rem;">Save Check-Ins</button>
       <div id="checkInStatus" class="status-msg" style="margin-top:0.25rem; margin-bottom:0.5rem;"></div>
 
       <div id="playerList"><i>Select a group above...</i></div>
@@ -1100,6 +1099,91 @@ async function apiCall(action, payload = {}) {
     }
   }
 
+// Example frontend listener for tab switches
+function onSwitchToTab(tabName) {
+  if (tabName === 'checkInTab') {
+    let currentGroup = getCurrentSelectedGroup(); // e.g. "Womens"
+    fetchPlayersForCheckIn(currentGroup);
+  }
+}
+
+function fetchPlayersForCheckIn(groupName) {
+  // Call Google Apps Script backend
+  google.script.run
+    .withSuccessHandler(renderCheckInList)
+    .getPlayersForCheckIn(groupName);
+    }
+
+function onPlayerCheckInToggle(playerName, isChecked) {
+  let currentGroup = getCurrentSelectedGroup();
+  
+  // Instant Auto-Save to Google Sheets
+  google.script.run
+    .withSuccessHandler(res => {
+      console.log('Auto-saved check-in status:', res);
+    })
+    .toggleSingleCheckIn(currentGroup, playerName, isChecked);
+}    
+// Trigger fresh fetch whenever navigating to the Check-In tab
+  function switchTab(tabId) {
+    document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
+    document.getElementById(tabId).style.display = 'block';
+
+    if (tabId === 'checkinTab') {
+      refreshCheckInList();
+    }
+  }
+
+  // Pull latest data from backend
+  function refreshCheckInList() {
+    const currentGroup = document.getElementById('groupSelect')?.value || 'Womens';
+    
+    google.script.run
+      .withSuccessHandler(renderPlayerList)
+      .getPlayersForCheckIn(currentGroup);
+  }
+
+// Helper to safely escape HTML special characters and quotes
+  function escapeHtml(str) {
+    return String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function renderPlayerList(players) {
+    const container = document.getElementById('playerList');
+    if (!players || players.error) {
+      container.innerHTML = '<p>Error loading players.</p>';
+      return;
+    }
+
+    container.innerHTML = players.map(p => `
+      <label class="checkin-row">
+        <input 
+          type="checkbox" 
+          data-player-name="${escapeHtml(p.name)}" 
+          ${p.checkedIn ? 'checked' : ''} 
+          onchange="handleAutoSave(this)"
+        />
+        <span>${escapeHtml(p.name)}</span>
+      </label>
+    `).join('');
+  }
+
+  function handleAutoSave(checkbox) {
+    const playerName = checkbox.getAttribute('data-player-name');
+    const isChecked = checkbox.checked;
+    const currentGroup = document.getElementById('groupSelect')?.value || 'Womens';
+
+    google.script.run
+      .withSuccessHandler(res => {
+        if (res && res.error) console.error('Save failed:', res.error);
+      })
+      .toggleSingleCheckIn(currentGroup, playerName, isChecked);
+  }
 </script>
 </body>
 </html>

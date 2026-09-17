@@ -27,6 +27,18 @@ function logDebug(fnName, msg, extra = "") {
   // console.log is preferred over Logger.log for Apps Script Web Apps & Stackdriver
   console.log(`[${new Date().toISOString()}] [${fnName}] ${msg} ${extraStr}`.trim());
 }
+
+/**
+ * Universal Check-In Value Normalizer
+ * Standardizes boolean values, string representations, and cell markers.
+ */
+function isCheckInTrue(val) {
+  if (val === true) return true;
+  if (!val) return false;
+  let str = val.toString().trim().toLowerCase();
+  return ["yes", "true", "x", "checked in", "1"].includes(str);
+}
+
 const SPREADSHEET_ID = "14jmYyesfG9btWcIeptDwD6Bkxj8UZiQVlAOGc6BdM84";
 const VALID_SCORE_TABS = ["Score Womens", "Score Mens", "Score Mixed"];
 const SCORE_TABS = VALID_SCORE_TABS;
@@ -57,7 +69,7 @@ function getConstantsConfig() {
 
 function getAppVersion() {
   logDebug("getAppVersion", "Retrieving app version");
-  return "1.1.3"; 
+  return "1.1.4"; 
 }
 
 
@@ -76,7 +88,9 @@ function getAvailableGroups() {
   return GROUPS;
 }
 
-
+/**
+ * Fetches players and their current check-in state dynamically.
+ */
 function getPlayersForCheckIn(inputName) {
   if (!inputName) return { error: "No sheet or group name provided." };
 
@@ -104,7 +118,7 @@ function getPlayersForCheckIn(inputName) {
     let pName = (data[r][nameIdx] || "").toString().trim();
     if (!pName || pName.startsWith("---") || pName.startsWith("time:")) continue;
 
-    let isCheckedIn = checkInIdx !== -1 ? Boolean(data[r][checkInIdx]) : false;
+    let isCheckedIn = checkInIdx !== -1 ? isCheckInTrue(data[r][checkInIdx]) : false;
     players.push({ name: pName, checkedIn: isCheckedIn });
   }
 
@@ -112,8 +126,53 @@ function getPlayersForCheckIn(inputName) {
   return players;
 }
 
+/**
+ * Instant Single Player Check-In Toggle (Auto-Save on Click)
+ */
+function toggleSingleCheckIn(schedSheetName, playerName, isCheckedIn) {
+  logDebug("toggleSingleCheckIn", "Auto-saving single check-in", { schedSheetName, playerName, isCheckedIn });
+  if (!schedSheetName || !playerName) return { error: "Missing required parameters." };
+
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let targetName = schedSheetName.toString().trim();
+  if (!targetName.startsWith("Sched ") && !targetName.startsWith("Score ")) {
+    targetName = "Sched " + targetName;
+  } else if (targetName.startsWith("Score ")) {
+    targetName = targetName.replace("Score ", "Sched ");
+  }
+
+  let sheet = ss.getSheetByName(targetName);
+  if (!sheet) return { error: `Sheet '${targetName}' not found.` };
+
+  let data = sheet.getDataRange().getValues();
+  if (data.length <= 1) return { error: "No data found on target sheet." };
 
 
+  if (nameIdx === -1 || checkInIdx === -1) {
+    return { error: `Required columns ("Name" and "Check-In") missing on ${targetName}` };
+  }
+
+  let targetRow = -1;
+  let cleanTargetPlayer = playerName.toString().trim().toLowerCase();
+
+  for (let i = 1; i < data.length; i++) {
+    let rowName = data[i][nameIdx] ? data[i][nameIdx].toString().trim().toLowerCase() : "";
+    if (rowName === cleanTargetPlayer) {
+      targetRow = i + 1;
+      break;
+    }
+  }
+
+  if (targetRow === -1) {
+    return { error: `Player '${playerName}' not found on ${targetName}.` };
+  }
+
+  let marker = isCheckedIn ? "X" : "";
+  sheet.getRange(targetRow, checkInIdx + 1).setValue(marker);
+
+  logDebug("toggleSingleCheckIn", `Successfully updated ${playerName} to check-in: '${marker}' on row ${targetRow}`);
+  return { success: true, playerName: playerName, checkedIn: isCheckedIn, row: targetRow };
+}
 
 function saveCheckIns(schedSheetName, checkedPlayerNames) {
   logDebug("saveCheckIns", "Saving check-ins for sheet", { schedSheetName, checkedPlayerNames });
@@ -140,7 +199,7 @@ function saveCheckIns(schedSheetName, checkedPlayerNames) {
 
   let headers = data[0].map(h => h.toString().toLowerCase().trim());
   let checkInIdx = headers.indexOf("check-in");
-  let targetCol = checkInIdx !== -1 ? checkInIdx + 1 : 7; // Dynamically find Check-In column
+  let targetCol = checkInIdx !== -1 ? checkInIdx + 1 : 7;
 
   let updatedCount = 0;
   for (let i = 1; i < data.length; i++) {
@@ -234,6 +293,14 @@ function handleApiRequest(e) {
       case 'getPlayersForCheckIn':
         let sheetName = payload.sheet || payload.schedSheetName || payload.tab || payload.groupName || payload.group || "";
         result = getPlayersForCheckIn(sheetName);
+        break;
+
+      case 'toggleSingleCheckIn':
+        result = toggleSingleCheckIn(
+          payload.sheet || payload.schedSheetName || payload.tab || payload.group,
+          payload.playerName || payload.name,
+          payload.isCheckedIn !== undefined ? payload.isCheckedIn : payload.checkedIn
+        );
         break;
 
       case 'saveCheckIns':
@@ -1375,8 +1442,7 @@ function findFoursomeByPhone(phone) {
     if (rowName.toLowerCase() === foundPlayer.toLowerCase()) {
       userCourt = schedData[i][1] ? schedData[i][1].toString().trim() : null;
       if (checkInIdx !== -1) {
-        let cVal = schedData[i][checkInIdx] ? schedData[i][checkInIdx].toString().trim().toLowerCase() : "";
-        isCheckedIn = ["yes", "true", "x", "checked in", "1"].includes(cVal);
+        isCheckedIn = isCheckInTrue(schedData[i][checkInIdx]);
       }
       break;
     }
