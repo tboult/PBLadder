@@ -1426,7 +1426,7 @@ function generateScheduleTabs(scoreTabName = null) {
   let schedSheet = ss.getSheetByName(schedSheetName) || ss.insertSheet(schedSheetName);
   schedSheet.clear();
 
-  let schedOut = [["Name", "Court", "Game 1", "Game 2", "Game 3", "Check-In", "Entered By"]];
+  let schedOut = [["Name", "Court", "Game 1", "Game 2", "Game 3", "Total", "Check-In", "Entered By"]];
   let courtNum = 1;
 
   for (let i = 0; i < activePlayers.length; i += 4) {
