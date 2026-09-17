@@ -14,7 +14,8 @@ function logDebug(fnName, msg, extra = "") {
 }
 
 const SPREADSHEET_ID = "14jmYyesfG9btWcIeptDwD6Bkxj8UZiQVlAOGc6BdM84";
-const SCORE_TABS = VALID_SCORE_TABS = ["Score Womens", "Score Mens", "Score Mixed"];
+const VALID_SCORE_TABS = ["Score Womens", "Score Mens", "Score Mixed"];
+const SCORE_TABS = VALID_SCORE_TABS;
 const MAX_MOVEMENT = 4;
 const MAX_POINTS_PER_WEEK = 45;
 const ALWAYS_BYE_LOWEST = true;
@@ -42,20 +43,9 @@ function getConstantsConfig() {
 
 function getAppVersion() {
   logDebug("getAppVersion", "Retrieving app version");
-  return "1.1.2"; 
+  return "1.1.3"; 
 }
 
-function getConstantsConfig() {
-  logDebug("getConstantsConfig", "Serving raw code constants");
-  return {
-    groups: GROUPS,
-    scheduleTabs: SCHEDULE_TABS,
-    scoreTabs: SCORE_TABS,
-    maxMovement: MAX_MOVEMENT,
-    maxPointsPerWeek: MAX_POINTS_PER_WEEK,
-    alwaysByeLowest: ALWAYS_BYE_LOWEST
-  };
-}
 
 function getValidScoreTabs() {
   logDebug("getValidScoreTabs", "Fetching valid score tabs");
@@ -178,7 +168,23 @@ function handleApiRequest(e) {
       payload = e.parameter;
     }
 
+
     logDebug("handleApiRequest", "Dispatching action", action);
+
+      if (!payload || typeof payload !== 'object') {
+          return ContentService.createTextOutput(JSON.stringify({
+              status: 'error',
+              message: 'Invalid payload provided.'
+          })).setMimeType(ContentService.MimeType.JSON);
+      }
+
+      // Guard against missing 'group' property
+      if (!payload.group || String(payload.group).trim() === '') {
+          return ContentService.createTextOutput(JSON.stringify({
+              status: 'error',
+              message: 'Missing or empty "group" property in payload.'
+          })).setMimeType(ContentService.MimeType.JSON);
+      }      
 
     let result;
     switch(action) {
@@ -572,16 +578,6 @@ function addNewUser(info) {
 }
 
 
-function getScoreSheetByGroup(groupName) {
-  logDebug("getScoreSheetByGroup", "Fetching score sheet for group", groupName);
-  if (!groupName) return null;
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  let cleanName = groupName.toString().trim();
-  if (!cleanName.startsWith("Score ")) {
-    cleanName = "Score " + cleanName;
-  }
-  return ss.getSheetByName(cleanName);
-}
 
 function getTargetScoreSheet(groupOrTabName) {
   logDebug("getTargetScoreSheet", "Resolving target score sheet", groupOrTabName);
@@ -799,6 +795,7 @@ function processWeeklyScores(forcedWeek, shouldShift = true) {
   return processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift);
 }
 
+
 function processWeeklyScoresForSheet(scoreSheet, forcedWeek, shouldShift = true) {
   logDebug("processWeeklyScoresForSheet", `Processing sheet '${scoreSheet.getName()}'`, { forcedWeek, shouldShift });
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -885,6 +882,9 @@ function processWeeklyScoresForSheet(scoreSheet, forcedWeek, shouldShift = true)
   logDebug("processWeeklyScoresForSheet", "Standings updated for tab", scoreSheet.getName());
   return `✅ Scores harvested & standings updated for tab '${scoreSheet.getName()}'.`;
 }
+
+
+
 
 function harvestScoresFromSchedules(ss, scoreData, col, w10Idx) {
   logDebug("harvestScoresFromSchedules", "Harvesting scores from schedule tabs");
