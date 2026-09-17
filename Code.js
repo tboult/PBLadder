@@ -819,17 +819,84 @@ function processWeeklyScores(forcedWeek, shouldShift = true) {
   return processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift);
 }
 
+function harvestScoresFromSchedules(ss, scoreData, col, targetWeekIdx, groupName) {
+  logDebug("harvestScoresFromSchedules", `Harvesting scores for group '${groupName}'`);
+  
+  // Look only for the schedule sheet corresponding to this specific group
+  const schedSheet = ss.getSheetByName("Sched " + groupName) || 
+                     ss.getSheetByName("Schedule " + groupName);
+  
+  if (!schedSheet) {
+    logDebug("harvestScoresFromSchedules", `No matching schedule sheet found for group '${groupName}'`);
+    return;
+  }
+
+  const data = schedSheet.getDataRange().getValues();
+  if (data.length <= 1) return;
+
+  // Build player lookup map for this sheet's players
+  let playerMap = {};
+  for (let i = 1; i < scoreData.length; i++) {
+    let fName = (scoreData[i][col.first] || "").toString().trim().toLowerCase();
+    let lName = (scoreData[i][col.last] || "").toString().trim().toLowerCase();
+    let phone = (scoreData[i][col.phone] || "").toString().replace(/\D/g, "");
+    let fullName = (scoreData[i][col.name] || "").toString().trim().toLowerCase();
+
+    if (phone) playerMap[phone] = i;
+    if (fName && lName) playerMap[fName + "|" + lName] = i;
+    if (fullName) playerMap[fullName] = i;
+  }
+
+  let headers = data[0].map(h => h.toString().toLowerCase().trim());
+  let nameIdx = headers.indexOf("name");
+  let g1Idx = headers.indexOf("game 1");
+  let g2Idx = headers.indexOf("game 2");
+  let g3Idx = headers.indexOf("game 3");
+
+  if (nameIdx === -1) return;
+
+  for (let r = 1; r < data.length; r++) {
+    let row = data[r];
+    let pName = (row[nameIdx] || "").toString().trim().toLowerCase();
+    if (!pName || pName.startsWith("---") || pName.startsWith("time:")) continue;
+
+    let g1 = g1Idx !== -1 ? (parseFloat(row[g1Idx]) || 0) : 0;
+    let g2 = g2Idx !== -1 ? (parseFloat(row[g2Idx]) || 0) : 0;
+    let g3 = g3Idx !== -1 ? (parseFloat(row[g3Idx]) || 0) : 0;
+    
+    let hasScores = (g1Idx !== -1 && row[g1Idx] !== "") || 
+                    (g2Idx !== -1 && row[g2Idx] !== "") || 
+                    (g3Idx !== -1 && row[g3Idx] !== "");
+    if (!hasScores) continue;
+
+    let totalSum = g1 + g2 + g3;
+    let matchIdx = playerMap[pName];
+    if (matchIdx !== undefined && targetWeekIdx !== undefined) {
+      scoreData[matchIdx][targetWeekIdx] = totalSum;
+    }
+  }
+}
 
 function processWeeklyScoresForSheet(scoreSheet, forcedWeek, shouldShift = true) {
-  logDebug("processWeeklyScoresForSheet", `Processing sheet '${scoreSheet.getName()}'`, { forcedWeek, shouldShift });
+  logDebug("processWeeklyScoresForSheet", `Processing single sheet '${scoreSheet.getName()}'`, { forcedWeek, shouldShift });
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   let scoreData = scoreSheet.getDataRange().getValues();
   const header = scoreData[0];
   
+  // Extract group name directly from current sheet tab (e.g. "Score Womens" -> "Womens")
+  let groupCleanName = scoreSheet.getName().replace(/^Score\s*/i, "").trim();
+
   let col = buildColMap(header);
   col.rankStr = getColIdx(col, ["Rank"]);
   col.lastR = getColIdx(col, ["LASTR", "LastR", "Last Rank"]);
   let w10Idx = getColIdx(col, ["W10"]);
+
+  let targetWeekIdx = w10Idx;
+  if (forcedWeek) {
+    const parsedWeek = String(forcedWeek).toUpperCase().startsWith("W") ? String(forcedWeek).toUpperCase() : "W" + forcedWeek;
+    const resolvedIdx = getColIdx(col, [parsedWeek]);
+    if (resolvedIdx !== undefined) targetWeekIdx = resolvedIdx;
+  }
 
   if (shouldShift) {
     for (let i = 1; i < scoreData.length; i++) {
@@ -842,7 +909,8 @@ function processWeeklyScoresForSheet(scoreSheet, forcedWeek, shouldShift = true)
     }
   }
 
-  harvestScoresFromSchedules(ss, scoreData, col, w10Idx);
+  // Harvest ONLY from the schedule sheet matching groupCleanName
+  harvestScoresFromSchedules(ss, scoreData, col, targetWeekIdx, groupCleanName);
 
   const WEEKS = [];
   for (let w = 1; w <= 10; w++) {
@@ -854,94 +922,80 @@ function processWeeklyScoresForSheet(scoreSheet, forcedWeek, shouldShift = true)
   for (let i = 1; i < scoreData.length; i++) {
     let row = scoreData[i];
     let status = (col.status !== undefined ? row[col.status] : "ACTIVE").toString().toUpperCase();
-    
+    if (status !== "ACTIVE") continue;
+
     let stats = calculateStats(row, WEEKS, MAX_POINTS_PER_WEEK);
     if (col.total !== undefined) row[col.total] = stats.tot;
-    let pos = stats.games * MAX_POINTS_PER_WEEK;
 
     let pRank = 0;
     if (col.lastR !== undefined && !isNaN(parseFloat(row[col.lastR]))) pRank = parseFloat(row[col.lastR]);
     else if (col.rankStr !== undefined) pRank = parseInt(row[col.rankStr].toString().match(/\d+/)) || 0;
 
     players.push({
-      rowIndex: i, rowData: row, status: status, prevRank: pRank, pct: stats.pct, latest: parseFloat(row[w10Idx]) || 0,
-      groupKey: (col.group !== undefined ? row[col.group] : "Default").toString().trim().toUpperCase(),
-      isNew: pos <= 45 
+      rowIndex: i,
+      rowData: row,
+      prevRank: pRank,
+      pct: stats.pct,
+      latest: parseFloat(row[targetWeekIdx]) || 0,
+      isNew: stats.games === 0
     });
   }
 
-  let groups = {};
-  players.forEach(p => {
-    if (p.status === "ACTIVE") { (groups[p.groupKey] = groups[p.groupKey] || []).push(p); }
+  let total = players.length;
+  players.sort((a, b) => b.pct - a.pct || b.latest - a.latest);
+
+  players.forEach((p, i) => {
+    p.rawRank = i + 1;
+    p.effPrev = p.isNew ? total : (p.prevRank || total);
+    p.newLeft = Math.max(1, Math.min(total, Math.max(p.effPrev - MAX_MOVEMENT, Math.min(p.effPrev + MAX_MOVEMENT, p.rawRank))));
+    p.isRestricted = Math.abs(p.rawRank - p.effPrev) > MAX_MOVEMENT || p.isNew;
   });
 
-  Object.keys(groups).forEach(gk => {
-    let gp = groups[gk];
-    let total = gp.length;
-    gp.sort((a, b) => b.pct - a.pct || b.latest - a.latest);
-    
-    gp.forEach((p, i) => {
-        p.rawRank = i + 1;
-        p.effPrev = p.isNew ? total : p.prevRank;
-        p.newLeft = Math.max(1, Math.min(total, Math.max(p.effPrev - MAX_MOVEMENT, Math.min(p.effPrev + MAX_MOVEMENT, p.rawRank))));
-        p.isRestricted = Math.abs(p.rawRank - p.effPrev) > MAX_MOVEMENT || p.isNew;
-    });
-
-    gp.sort((a, b) => {
-      if (a.isNew !== b.isNew) return a.isNew ? 1 : -1; 
-      if (!a.isNew) return a.newLeft - b.newLeft || b.pct - a.pct; 
-      return a.rawRank - b.rawRank;
-    });
-
-    gp.forEach((p, i) => {
-      let rSuffix = p.isRestricted ? "R" : "";
-      if (col.rNum !== undefined) p.rowData[col.rNum] = i + 1;
-      if (col.rankStr !== undefined) p.rowData[col.rankStr] = p.isNew ? (Math.max(1, total - MAX_MOVEMENT) + "R" + total) : (p.newLeft + rSuffix + "/" + total);
-      if (col.rawRankCol !== undefined) p.rowData[col.rawRankCol] = p.rawRank + "/" + total;
-      if (col.winPct !== undefined) p.rowData[col.winPct] = p.pct > 0 ? p.pct.toFixed(2) + rSuffix : "";
-    });
+  players.sort((a, b) => {
+    if (a.isNew !== b.isNew) return a.isNew ? 1 : -1;
+    if (!a.isNew) return a.newLeft - b.newLeft || b.pct - a.pct;
+    return a.rawRank - b.rawRank;
   });
 
+  players.forEach((p, i) => {
+    let rSuffix = p.isRestricted ? "R" : "";
+    let newRank = i + 1;
+    if (col.rNum !== undefined) p.rowData[col.rNum] = newRank;
+    if (col.lastR !== undefined) p.rowData[col.lastR] = newRank;
+    if (col.rankStr !== undefined) p.rowData[col.rankStr] = p.isNew ? (Math.max(1, total - MAX_MOVEMENT) + "R" + total) : (p.newLeft + rSuffix + "/" + total);
+    if (col.rawRankCol !== undefined) p.rowData[col.rawRankCol] = p.rawRank + "/" + total;
+    if (col.winPct !== undefined) p.rowData[col.winPct] = p.pct > 0 ? p.pct.toFixed(2) + rSuffix : "";
+  });
+
+  // Write standings back to scoreSheet
   scoreSheet.getRange(1, 1, scoreData.length, header.length).setValues(scoreData);
-  logDebug("processWeeklyScoresForSheet", "Standings updated for tab", scoreSheet.getName());
-  return `✅ Scores harvested & standings updated for tab '${scoreSheet.getName()}'.`;
-}
 
+  // Write rankings ONLY to the single paired Rankings tab (e.g., Rankings Womens)
+  let rankTabName = "Rankings " + groupCleanName;
+  let rankSheet = ss.getSheetByName(rankTabName) || ss.insertSheet(rankTabName);
 
+  rankSheet.clear();
+  let rankOutput = [["Rank", "Name", "Win %", "Total Pts"]];
+  players.forEach(p => {
+    let pName = (col.name !== undefined && p.rowData[col.name]) 
+      ? p.rowData[col.name] 
+      : ((p.rowData[col.first] || "") + " " + (p.rowData[col.last] || "")).trim();
 
-
-function harvestScoresFromSchedules(ss, scoreData, col, w10Idx) {
-  logDebug("harvestScoresFromSchedules", "Harvesting scores from schedule tabs");
-  const schedSheets = ss.getSheets().filter(s => s.getName().toLowerCase().startsWith("sched"));
-  let playerMap = {};
-  for (let i = 1; i < scoreData.length; i++) {
-    let fName = (scoreData[i][col.first] || "").toString().trim().toLowerCase();
-    let lName = (scoreData[i][col.last] || "").toString().trim().toLowerCase();
-    let phone = (scoreData[i][col.phone] || "").toString().replace(/\D/g, "");
-    if (phone) playerMap[phone] = i;
-    if (fName && lName) playerMap[fName + "|" + lName] = i;
-  }
-
-  schedSheets.forEach(sheet => {
-    let data = sheet.getDataRange().getValues();
-    let sCol = buildColMap(data[0]);
-    let ptsCol = getColIdx(sCol, ["Pts", "Points", "Score", "Total"]);
-    
-    if (ptsCol !== undefined) {
-      for (let r = 1; r < data.length; r++) {
-        let score = parseFloat(data[r][ptsCol]);
-        if (isNaN(score)) continue;
-
-        let sPhone = (data[r][sCol.phone] || "").toString().replace(/\D/g, "");
-        let sFName = (data[r][sCol.first] || "").toString().trim().toLowerCase();
-        let sLName = (data[r][sCol.last] || "").toString().trim().toLowerCase();
-
-        let matchIdx = playerMap[sPhone] || playerMap[sFName + "|" + sLName];
-        if (matchIdx !== undefined && w10Idx !== undefined) scoreData[matchIdx][w10Idx] = score;
-      }
-    }
+    rankOutput.push([
+      p.rawRank,
+      pName,
+      p.pct > 0 ? p.pct.toFixed(2) + "%" : "0.00%",
+      p.rowData[col.total] || 0
+    ]);
   });
+
+  rankSheet.getRange(1, 1, rankOutput.length, 4).setValues(rankOutput);
+  rankSheet.getRange(1, 1, 1, 4).setFontWeight("bold");
+
+  return `✅ Single sheet '${scoreSheet.getName()}' processed. Scores summed from 'Sched ${groupCleanName}' and results saved to '${rankTabName}'.`;
 }
+
+
 
 function calculateStats(row, weeks, maxPoints) {
   let totalPoints = 0, gamesPlayed = 0;
