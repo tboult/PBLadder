@@ -129,8 +129,9 @@ function getPlayersForCheckIn(inputName) {
 
     let checkVal = checkInIdx !== -1 ? data[r][checkInIdx] : false;
     let isCheckedIn = isCheckInTrue(checkVal);
+    let courtVal = data[r][1] ? data[r][1].toString().trim() : "BYE";
 
-    players.push({ name: pName, checkedIn: isCheckedIn });
+    players.push({ name: pName, checkedIn: isCheckedIn, checked: isCheckedIn, court: courtVal });
   }
 
   logDebug("getPlayersForCheckIn", `Parsed ${players.length} players for '${sheet.getName()}' (Check-In Col Index: ${checkInIdx})`); 
@@ -158,6 +159,14 @@ function toggleSingleCheckIn(schedSheetName, playerName, isCheckedIn) {
   let data = sheet.getDataRange().getValues();
   if (data.length <= 1) return { error: "No data found on target sheet." };
 
+  let headers = data[0].map(h => h.toString().toLowerCase().trim());
+  let nameIdx = headers.findIndex(h => h.includes("name") || h.includes("player"));
+  if (nameIdx === -1) nameIdx = 0;
+
+  let checkInIdx = headers.findIndex(h => h.includes("check-in") || h.includes("checkin") || h === "x");
+  if (checkInIdx === -1 && data[0].length >= 7) {
+    checkInIdx = 6;
+  }
 
   if (nameIdx === -1 || checkInIdx === -1) {
     return { error: `Required columns ("Name" and "Check-In") missing on ${targetName}` };
@@ -227,8 +236,6 @@ function saveCheckIns(schedSheetName, checkedPlayerNames) {
   return `✅ Check-ins saved successfully (${updatedCount} checked in)!`;
 }
 
-
-
 function doGet(e) {
   logDebug("doGet", "HTTP GET Request received", e ? e.parameter : {});
   return handleApiRequest(e);
@@ -293,6 +300,7 @@ function handleApiRequest(e) {
           result = processWeeklyScoresForSheet(sheet, "W10", false);
         }
         break;
+
       case 'getSchedTabNames':
         result = getSchedTabNames();
         break;
@@ -401,7 +409,6 @@ function handleApiRequest(e) {
   }
 }
 
-
 function authorizeScript() {
   logDebug("authorizeScript", "Starting script authorization");
   const ss = SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -421,7 +428,6 @@ function authorizeScript() {
   UrlFetchApp.fetch("https://www.google.com");
   logDebug("authorizeScript", "Authorization completed successfully");
 }
-
 
 function getValidActiveScoreSheet(overrideTabName) {
   logDebug("getValidActiveScoreSheet", "Resolving target score sheet", overrideTabName);
@@ -471,8 +477,6 @@ function getScoreSheetByGroup(groupName) {
   return ss.getSheetByName(cleanName);
 }
 
-
-
 /* ==========================================
  * 1. CUSTOM MENU & ENTRY POINTS
  * ========================================== */
@@ -499,8 +503,6 @@ function onOpen() {
     .addSeparator()
     .addItem('🛠️ Maint: Generate Sched Tabs (All Groups)', 'menuGenerateScheduleTabs')
     .addToUi();
-
- 
 }
 
 function menuGenerateScheduleCurrentTab() {
@@ -1469,7 +1471,7 @@ function findFoursomeByPhone(phone) {
   }
 
   logDebug("findFoursomeByPhone", "Found user foursome details successfully");
-  return { player: foundPlayer, group: foundGroup, court: userCourt, foursome: foursome, checkedIn: isCheckedIn };
+  return { playerName: foundPlayer, groupName: foundGroup, court: userCourt, foursome: foursome, checkedIn: isCheckedIn, status: "ACTIVE" };
 }
 
 function togglePlayerStatus(phone) {
