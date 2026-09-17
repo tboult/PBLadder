@@ -143,26 +143,44 @@ function getPlayersForCheckIn(inputName) {
  */
 function toggleSingleCheckIn(sheetName, playerName, isCheckedIn) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(sheetName);
+  
+  // Normalize tab name prefix if missing
+  const resolvedName = sheetName.startsWith("Sched ") ? sheetName : "Sched " + sheetName;
+  const sheet = ss.getSheetByName(resolvedName) || ss.getSheetByName(sheetName);
   
   if (!sheet) throw new Error("Sheet not found: " + sheetName);
 
-  // Read entire column in a single API call instead of looping sheet.getRange()
-  const data = sheet.getRange("A1:B" + sheet.getLastRow()).getValues();
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) throw new Error("No player data found in sheet: " + sheetName);
+
+  // Read Columns A through G (Col 1 = Name, Col 7 = Check-In)
+  const data = sheet.getRange(1, 1, lastRow, 7).getValues();
+  const targetName = String(playerName || '').trim().toLowerCase();
   
   for (let i = 0; i < data.length; i++) {
-    if (data[i][0] === playerName) { // Assuming Column A is Name, Column B is Status
-      // Write result directly to single cell
-      sheet.getRange(i + 1, 2).setValue(isCheckedIn ? "YES" : "NO");
+    const rowName = String(data[i][0] || '').trim().toLowerCase();
+    
+    if (rowName === targetName) {
+      const targetRow = i + 1;
+      const checkInCol = 7; // Column G (Check-In)
+      const marker = isCheckedIn ? "X" : ""; // Uses "X" / empty string standard for check-ins
+
+      // Write directly to Column G (Check-In)
+      sheet.getRange(targetRow, checkInCol).setValue(marker);
       
-      // Force spreadsheet changes to commit instantly without full recalculation delay
-        SpreadsheetApp.flush();
-        logDebug("toggleSingleCheckIn", `Successfully updated ${playerName} to check-in: '${marker}' on row ${targetRow}`);        
-      return { success: true, name: playerName, checkedIn: isCheckedIn };
+      SpreadsheetApp.flush(); // Force changes to write immediately
+      
+      if (typeof logDebug === 'function') {
+        logDebug("toggleSingleCheckIn", `Successfully updated ${playerName} to check-in: '${marker}' on row ${targetRow}`);
+      }
+      
+      return { success: true, name: playerName, checkedIn: isCheckedIn, row: targetRow };
     }
   }
+  
   throw new Error("Player '" + playerName + "' not found on sheet " + sheetName);
 }
+
 
 function saveCheckIns(schedSheetName, checkedPlayerNames) {
   logDebug("saveCheckIns", "Saving check-ins for sheet", { schedSheetName, checkedPlayerNames });
