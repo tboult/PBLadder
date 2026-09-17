@@ -142,7 +142,7 @@ function getPlayersForCheckIn(inputName) {
  * Instant Single Player Check-In Toggle (Auto-Save on Click)
  */
 function toggleSingleCheckIn(sheetName, playerName, isCheckedIn) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID); // Fixed reference
   
   // Normalize tab name prefix if missing
   const resolvedName = sheetName.startsWith("Sched ") ? sheetName : "Sched " + sheetName;
