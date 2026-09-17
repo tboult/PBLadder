@@ -1597,4 +1597,3 @@ function submitCourtScores(payload) {
   logDebug("submitCourtScores", "Updated incremental court scores successfully");
   return "✅ Game scores updated successfully!";
 }
-
