@@ -713,8 +713,6 @@ function addNewUser(info) {
   return `✅ Success: Added ${info.first} ${info.last} to tab '${targetSheet.getName()}'.`;
 }
 
-
-
 function getTargetScoreSheet(groupOrTabName) {
   logDebug("getTargetScoreSheet", "Resolving target score sheet", groupOrTabName);
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -735,7 +733,6 @@ function getTargetScoreSheet(groupOrTabName) {
 
   throw new Error('Action Cancelled: No valid Score tab found. Please select or pass "Score Womens", "Score Mens", or "Score Mixed".');
 }
-
 
 /* ==========================================
  * 3. BACKUP & RESTORE SYSTEM
@@ -1247,7 +1244,6 @@ function generateScheduleTabs(scoreTabName = null) {
   return `✅ Schedule generated successfully for ${cleanGroupName} (${activePlayers.length} players, ${courtNum - 1} courts).`;
 }
 
-
 function rescheduleFromCheckIns(schedTabName) {
   logDebug("rescheduleFromCheckIns", "Rescheduling based on check-ins for tab", schedTabName);
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -1504,7 +1500,6 @@ function togglePlayerStatus(phone) {
   return { error: "Phone number not found in any player group." };
 }
 
-
 function getRankingsAndSchedData(groupName) {
   logDebug("getRankingsAndSchedData", "Fetching rankings & schedule data for group", groupName);
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -1558,7 +1553,6 @@ function getAdminPlayersByGroup(groupName) {
   logDebug("getAdminPlayersByGroup", `Retrieved ${players.length} players for '${groupName}'`);
   return { players: players };
 }
-
 
 function submitCourtScores(payload) {
   logDebug("submitCourtScores", "Submitting court scores payload", payload);

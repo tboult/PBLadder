@@ -8,6 +8,7 @@ const ENABLE_LOGGING = true; // Toggle to true/false to enable or disable system
  * Global Logger Helper
  */
 function logDebug(fnName, msg, extra = "") {
+  // Safely check if ENABLE_LOGGING is declared without throwing a ReferenceError
   if (typeof ENABLE_LOGGING !== 'undefined' && !ENABLE_LOGGING) return;
 
   let extraStr = "";
@@ -16,13 +17,14 @@ function logDebug(fnName, msg, extra = "") {
       try {
         extraStr = JSON.stringify(extra);
       } catch (err) {
-        extraStr = `[Object/Error: ${String(extra)}]`;
+        extraStr = `[Object/Error: ${String(extra)}]`; // Safe fallback for circular references
       }
     } else {
       extraStr = String(extra);
     }
   }
 
+  // console.log is preferred over Logger.log for Apps Script Web Apps & Stackdriver
   console.log(`[${new Date().toISOString()}] [${fnName}] ${msg} ${extraStr}`.trim());
 }
 
@@ -44,9 +46,15 @@ const MAX_MOVEMENT = 4;
 const MAX_POINTS_PER_WEEK = 45;
 const ALWAYS_BYE_LOWEST = true;
 
+
 const GROUPS = ["Womens", "Mens", "Mixed"];
 const SCHEDULE_TABS = ["Sched Womens", "Sched Mens", "Sched Mixed"];
 
+
+/**
+ * Returns configuration directly from hardcoded constants.
+ * Bypasses all spreadsheet tab reads.
+ */
 function getConstantsConfig() {
   logDebug("getConstantsConfig", "Serving raw code constants");
   return {
@@ -63,6 +71,7 @@ function getAppVersion() {
   logDebug("getAppVersion", "Retrieving app version");
   return "1.1.4"; 
 }
+
 
 function getValidScoreTabs() {
   logDebug("getValidScoreTabs", "Fetching valid score tabs");
@@ -82,6 +91,9 @@ function getAvailableGroups() {
 /**
  * Fetches players and their current check-in state dynamically.
  */
+/**
+ * Fetches players and their current check-in state with flexible column matching.
+ */
 function getPlayersForCheckIn(inputName) {
   if (!inputName) return { error: "No sheet or group name provided." };
 
@@ -97,20 +109,32 @@ function getPlayersForCheckIn(inputName) {
   const data = sheet.getDataRange().getValues();
   if (data.length <= 1) return [];
 
-  const headers = data[0].map(h => h.toString().toLowerCase().trim());
-  const nameIdx = headers.indexOf("name") !== -1 ? headers.indexOf("name") : 0;
-  const checkInIdx = headers.indexOf("check-in");
+  // Clean headers for matching
+  const headers = data[0].map(h => h.toString().toLowerCase().replace(/[\s\-_]/g, "").trim());
+  
+  // Look for Name column (default to col 0)
+  let nameIdx = headers.findIndex(h => h.includes("name") || h.includes("player"));
+  if (nameIdx === -1) nameIdx = 0;
+
+  // Flexible Check-In column lookup with fallback to Column 7 (Column G)
+  let checkInIdx = headers.findIndex(h => h.includes("checkin") || h.includes("checkedin") || h === "x");
+  if (checkInIdx === -1 && data[0].length >= 7) {
+    checkInIdx = 6; // Fallback to 7th column (index 6)
+  }
 
   let players = [];
   for (let r = 1; r < data.length; r++) {
     let pName = (data[r][nameIdx] || "").toString().trim();
-    if (!pName || pName.startsWith("---") || pName.startsWith("time:")) continue;
+    if (!pName || pName.startsWith("---") || pName.toLowerCase().startsWith("time:")) continue;
 
-    let isCheckedIn = checkInIdx !== -1 ? isCheckInTrue(data[r][checkInIdx]) : false;
-    players.push({ name: pName, checkedIn: isCheckedIn });
+    let checkVal = checkInIdx !== -1 ? data[r][checkInIdx] : false;
+    let isCheckedIn = isCheckInTrue(checkVal);
+    let courtVal = data[r][1] ? data[r][1].toString().trim() : "BYE";
+
+    players.push({ name: pName, checkedIn: isCheckedIn, checked: isCheckedIn, court: courtVal });
   }
 
-  logDebug("getPlayersForCheckIn", `Parsed ${players.length} players for check-in on '${sheet.getName()}'`); 
+  logDebug("getPlayersForCheckIn", `Parsed ${players.length} players for '${sheet.getName()}' (Check-In Col Index: ${checkInIdx})`); 
   return players;
 }
 
@@ -136,8 +160,13 @@ function toggleSingleCheckIn(schedSheetName, playerName, isCheckedIn) {
   if (data.length <= 1) return { error: "No data found on target sheet." };
 
   let headers = data[0].map(h => h.toString().toLowerCase().trim());
-  let nameIdx = headers.indexOf("name");
-  let checkInIdx = headers.indexOf("check-in");
+  let nameIdx = headers.findIndex(h => h.includes("name") || h.includes("player"));
+  if (nameIdx === -1) nameIdx = 0;
+
+  let checkInIdx = headers.findIndex(h => h.includes("check-in") || h.includes("checkin") || h === "x");
+  if (checkInIdx === -1 && data[0].length >= 7) {
+    checkInIdx = 6;
+  }
 
   if (nameIdx === -1 || checkInIdx === -1) {
     return { error: `Required columns ("Name" and "Check-In") missing on ${targetName}` };
@@ -241,7 +270,7 @@ function handleApiRequest(e) {
 
     let result;
     switch(action) {
-      case 'sortActivePlayers':
+       case 'sortActivePlayers':
         {
           let targetGroup = payload.arg || payload.group;
           let sheet = getValidActiveScoreSheet(targetGroup);
@@ -324,6 +353,7 @@ function handleApiRequest(e) {
         break;
 
       case 'rescheduleFromCheckIns':
+        // Safely construct tab name only if group/sheet parameters exist
         let reschedTarget = payload.arg || payload.tab || payload.sheet || (payload.group ? "Sched " + payload.group : null);
         result = rescheduleFromCheckIns(reschedTarget);
         break;
@@ -446,6 +476,10 @@ function getScoreSheetByGroup(groupName) {
   }
   return ss.getSheetByName(cleanName);
 }
+
+/* ==========================================
+ * 1. CUSTOM MENU & ENTRY POINTS
+ * ========================================== */
 
 function onOpen() {
   logDebug("onOpen", "Creating spreadsheet custom UI menus");
@@ -588,6 +622,10 @@ function menuCreateDriveBackup() {
   }
 }
 
+/* ==========================================
+ * URL, WEEK CALC & SEASON CONTROLS
+ * ========================================== */
+
 function getAdminSheetUrl() {
   logDebug("getAdminSheetUrl", "Retrieving Admin Sheet URL");
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -644,6 +682,10 @@ function calculateCurrentWeekNumber() {
   return Math.floor(diffDays / 7) + 1;
 }
 
+/* ==========================================
+ * USER REGISTRATION & RESCHEDULE
+ * ========================================== */
+
 function addNewUser(info) {
   logDebug("addNewUser", "Adding new user", info);
   if (!info.first || !info.last || !info.phone || !info.group) {
@@ -671,6 +713,8 @@ function addNewUser(info) {
   return `✅ Success: Added ${info.first} ${info.last} to tab '${targetSheet.getName()}'.`;
 }
 
+
+
 function getTargetScoreSheet(groupOrTabName) {
   logDebug("getTargetScoreSheet", "Resolving target score sheet", groupOrTabName);
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -691,6 +735,11 @@ function getTargetScoreSheet(groupOrTabName) {
 
   throw new Error('Action Cancelled: No valid Score tab found. Please select or pass "Score Womens", "Score Mens", or "Score Mixed".');
 }
+
+
+/* ==========================================
+ * 3. BACKUP & RESTORE SYSTEM
+ * ========================================== */
 
 function getSCPBLadderFolder() {
   logDebug("getSCPBLadderFolder", "Locating or creating Drive folder");
@@ -835,6 +884,10 @@ function checkAndRunWeeklyBackup() {
   }
 }
 
+/* ==========================================
+ * 4. SHARED HELPERS & MAPPING
+ * ========================================== */
+
 function buildColMap(header) {
   let col = {};
   if (!header) return col;
@@ -867,6 +920,10 @@ function parseAndSortCourts(cStr) {
   let courts = cStr.toString().split(',').map(s => s.trim()).filter(s => s.length > 0);
   return courts.length > 0 ? courts : [1, 2, 3, 4, 5, 6, 7, 8];
 }
+
+/* ==========================================
+ * 5. MAIN SCORE PROCESSING & RANKING
+ * ========================================== */
 
 function processWeeklyScores(forcedWeek, shouldShift = true) {
   logDebug("processWeeklyScores", "Processing weekly scores wrapper");
@@ -914,10 +971,12 @@ function harvestScoresFromSchedules(ss, scoreData, col, targetWeekIdx, groupName
     let totalSum = 0;
     let hasScore = false;
 
+    // Use Total column directly if available
     if (totalIdx !== -1 && row[totalIdx] !== "") {
       totalSum = parseFloat(row[totalIdx]) || 0;
       hasScore = true;
     } else {
+      // Fallback: Sum individual game columns if Total column is empty
       let g1 = g1Idx !== -1 ? (parseFloat(row[g1Idx]) || 0) : 0;
       let g2 = g2Idx !== -1 ? (parseFloat(row[g2Idx]) || 0) : 0;
       let g3 = g3Idx !== -1 ? (parseFloat(row[g3Idx]) || 0) : 0;
@@ -1112,6 +1171,10 @@ function sortActivePlayersForSheet(sheet) {
   return `✅ Active players sorted successfully on tab '${sheet.getName()}'! (${activeRows.length} Active, ${inactiveRows.length} Inactive)`;
 }
 
+/* ==========================================
+ * SCHEDULE GENERATION
+ * ========================================== */
+
 function generateScheduleTabs(scoreTabName = null) {
   logDebug("generateScheduleTabs", "Generating schedule for score tab", scoreTabName);
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -1159,6 +1222,7 @@ function generateScheduleTabs(scoreTabName = null) {
   let schedSheet = ss.getSheetByName(schedSheetName) || ss.insertSheet(schedSheetName);
   schedSheet.clear();
 
+  // 8 Columns: Name, Court, Game 1, Game 2, Game 3, Total, Check-In, Entered By
   let schedOut = [["Name", "Court", "Game 1", "Game 2", "Game 3", "Total", "Check-In", "Entered By"]];
   let courtNum = 1;
 
@@ -1182,6 +1246,7 @@ function generateScheduleTabs(scoreTabName = null) {
   logDebug("generateScheduleTabs", "Schedule tab successfully updated", schedSheetName);
   return `✅ Schedule generated successfully for ${cleanGroupName} (${activePlayers.length} players, ${courtNum - 1} courts).`;
 }
+
 
 function rescheduleFromCheckIns(schedTabName) {
   logDebug("rescheduleFromCheckIns", "Rescheduling based on check-ins for tab", schedTabName);
@@ -1218,14 +1283,14 @@ function rescheduleFromCheckIns(schedTabName) {
   for (let i = 1; i < data.length; i++) {
     let row = data[i];
     let pName = row[nameIdx] ? row[nameIdx].toString().trim() : "";
-    let checkVal = row[checkInIdx];
+    let checkVal = row[checkInIdx] ? row[checkInIdx].toString().trim().toLowerCase() : "";
 
     if (!pName || pName.startsWith("---") || pName.startsWith("Time:")) continue;
 
     let cleanKey = pName.toLowerCase();
     if (!seen.has(cleanKey)) {
       seen.add(cleanKey);
-      let isCheckedIn = isCheckInTrue(checkVal);
+      let isCheckedIn = ["yes", "true", "x", "checked in", "1"].includes(checkVal);
       if (isCheckedIn) {
         checkedInPlayers.push(pName);
       } else {
@@ -1270,6 +1335,10 @@ function rescheduleFromCheckIns(schedTabName) {
   logDebug("rescheduleFromCheckIns", `Rescheduled ${allPlayers.length} players (${checkedInPlayers.length} checked-in first, ${notCheckedInPlayers.length} at end) across ${courtNum - 1} courts`);
   return `✅ Rescheduled ${allPlayers.length} total players (${checkedInPlayers.length} checked in first, ${notCheckedInPlayers.length} placed at end courts/BYE without check-in marker) across ${courtNum - 1} courts on '${targetName}'.`;
 }
+
+/* ==========================================
+ * 7. PDF GENERATION
+ * ========================================== */
 
 function buildScheduleSheet() {
   logDebug("buildScheduleSheet", "Building combined schedule sheet for export");
@@ -1402,7 +1471,7 @@ function findFoursomeByPhone(phone) {
   }
 
   logDebug("findFoursomeByPhone", "Found user foursome details successfully");
-  return { player: foundPlayer, group: foundGroup, court: userCourt, foursome: foursome, checkedIn: isCheckedIn };
+  return { playerName: foundPlayer, groupName: foundGroup, court: userCourt, foursome: foursome, checkedIn: isCheckedIn, status: "ACTIVE" };
 }
 
 function togglePlayerStatus(phone) {
@@ -1434,6 +1503,7 @@ function togglePlayerStatus(phone) {
   }
   return { error: "Phone number not found in any player group." };
 }
+
 
 function getRankingsAndSchedData(groupName) {
   logDebug("getRankingsAndSchedData", "Fetching rankings & schedule data for group", groupName);
@@ -1469,6 +1539,7 @@ function getAdminPlayersByGroup(groupName) {
   if (data.length <= 1) return { players: [] };
 
   const col = buildColMap(data[0]);
+  
   let players = [];
 
   for (let i = 1; i < data.length; i++) {
@@ -1487,6 +1558,7 @@ function getAdminPlayersByGroup(groupName) {
   logDebug("getAdminPlayersByGroup", `Retrieved ${players.length} players for '${groupName}'`);
   return { players: players };
 }
+
 
 function submitCourtScores(payload) {
   logDebug("submitCourtScores", "Submitting court scores payload", payload);
@@ -1511,18 +1583,22 @@ function submitCourtScores(payload) {
     if (court === payload.court.toString().trim() && payload.scores[pName]) {
       let pScores = payload.scores[pName];
 
+      // Read current values from sheet to preserve already completed games
       let existingG1 = g1Idx !== -1 ? data[i][g1Idx] : "";
       let existingG2 = g2Idx !== -1 ? data[i][g2Idx] : "";
       let existingG3 = g3Idx !== -1 ? data[i][g3Idx] : "";
 
+      // Preserve existing score if payload sends empty string or undefined for that game
       let g1Val = (pScores.g1 !== undefined && pScores.g1 !== "") ? pScores.g1 : existingG1;
       let g2Val = (pScores.g2 !== undefined && pScores.g2 !== "") ? pScores.g2 : existingG2;
       let g3Val = (pScores.g3 !== undefined && pScores.g3 !== "") ? pScores.g3 : existingG3;
 
+      // Write individual game values
       if (g1Idx !== -1) sheet.getRange(i + 1, g1Idx + 1).setValue(g1Val);
       if (g2Idx !== -1) sheet.getRange(i + 1, g2Idx + 1).setValue(g2Val);
       if (g3Idx !== -1) sheet.getRange(i + 1, g3Idx + 1).setValue(g3Val);
 
+      // Re-apply total formula to guarantee automatic summation remains active
       let rowNum = i + 1;
       if (totalIdx !== -1) {
         sheet.getRange(rowNum, totalIdx + 1).setFormula(`=IF(COUNT(C${rowNum}:E${rowNum})>0, SUM(C${rowNum}:E${rowNum}), "")`);
