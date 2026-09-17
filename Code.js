@@ -822,19 +822,14 @@ function processWeeklyScores(forcedWeek, shouldShift = true) {
 function harvestScoresFromSchedules(ss, scoreData, col, targetWeekIdx, groupName) {
   logDebug("harvestScoresFromSchedules", `Harvesting scores for group '${groupName}'`);
   
-  // Look only for the schedule sheet corresponding to this specific group
   const schedSheet = ss.getSheetByName("Sched " + groupName) || 
                      ss.getSheetByName("Schedule " + groupName);
   
-  if (!schedSheet) {
-    logDebug("harvestScoresFromSchedules", `No matching schedule sheet found for group '${groupName}'`);
-    return;
-  }
+  if (!schedSheet) return;
 
   const data = schedSheet.getDataRange().getValues();
   if (data.length <= 1) return;
 
-  // Build player lookup map for this sheet's players
   let playerMap = {};
   for (let i = 1; i < scoreData.length; i++) {
     let fName = (scoreData[i][col.first] || "").toString().trim().toLowerCase();
@@ -849,6 +844,7 @@ function harvestScoresFromSchedules(ss, scoreData, col, targetWeekIdx, groupName
 
   let headers = data[0].map(h => h.toString().toLowerCase().trim());
   let nameIdx = headers.indexOf("name");
+  let totalIdx = headers.indexOf("total");
   let g1Idx = headers.indexOf("game 1");
   let g2Idx = headers.indexOf("game 2");
   let g3Idx = headers.indexOf("game 3");
@@ -860,22 +856,31 @@ function harvestScoresFromSchedules(ss, scoreData, col, targetWeekIdx, groupName
     let pName = (row[nameIdx] || "").toString().trim().toLowerCase();
     if (!pName || pName.startsWith("---") || pName.startsWith("time:")) continue;
 
-    let g1 = g1Idx !== -1 ? (parseFloat(row[g1Idx]) || 0) : 0;
-    let g2 = g2Idx !== -1 ? (parseFloat(row[g2Idx]) || 0) : 0;
-    let g3 = g3Idx !== -1 ? (parseFloat(row[g3Idx]) || 0) : 0;
-    
-    let hasScores = (g1Idx !== -1 && row[g1Idx] !== "") || 
-                    (g2Idx !== -1 && row[g2Idx] !== "") || 
-                    (g3Idx !== -1 && row[g3Idx] !== "");
-    if (!hasScores) continue;
+    let totalSum = 0;
+    let hasScore = false;
 
-    let totalSum = g1 + g2 + g3;
+    // Use Total column directly if available
+    if (totalIdx !== -1 && row[totalIdx] !== "") {
+      totalSum = parseFloat(row[totalIdx]) || 0;
+      hasScore = true;
+    } else {
+      // Fallback: Sum individual game columns if Total column is empty
+      let g1 = g1Idx !== -1 ? (parseFloat(row[g1Idx]) || 0) : 0;
+      let g2 = g2Idx !== -1 ? (parseFloat(row[g2Idx]) || 0) : 0;
+      let g3 = g3Idx !== -1 ? (parseFloat(row[g3Idx]) || 0) : 0;
+      hasScore = (g1Idx !== -1 && row[g1Idx] !== "") || (g2Idx !== -1 && row[g2Idx] !== "") || (g3Idx !== -1 && row[g3Idx] !== "");
+      totalSum = g1 + g2 + g3;
+    }
+
+    if (!hasScore) continue;
+
     let matchIdx = playerMap[pName];
     if (matchIdx !== undefined && targetWeekIdx !== undefined) {
       scoreData[matchIdx][targetWeekIdx] = totalSum;
     }
   }
 }
+
 
 function processWeeklyScoresForSheet(scoreSheet, forcedWeek, shouldShift = true) {
   logDebug("processWeeklyScoresForSheet", `Processing single sheet '${scoreSheet.getName()}'`, { forcedWeek, shouldShift });
@@ -1042,7 +1047,6 @@ function generateScheduleTabs(scoreTabName = null) {
   if (data.length <= 1) return "⚠️ No player data found on tab: " + resolvedTabName;
 
   const col = buildColMap(data[0]);
-
   let seenPlayers = new Set();
   let activePlayers = [];
 
@@ -1058,7 +1062,6 @@ function generateScheduleTabs(scoreTabName = null) {
         : ((row[col.first] || "") + " " + (row[col.last] || "")).trim();
       
       if (!pName) continue;
-
       let cleanKey = pName.toLowerCase();
       if (seenPlayers.has(cleanKey)) continue;
       seenPlayers.add(cleanKey);
@@ -1070,9 +1073,7 @@ function generateScheduleTabs(scoreTabName = null) {
     }
   }
 
-  if (activePlayers.length === 0) {
-    return "⚠️ No active players found on " + resolvedTabName;
-  }
+  if (activePlayers.length === 0) return "⚠️ No active players found on " + resolvedTabName;
 
   let cleanGroupName = resolvedTabName.replace("Score ", "").trim();
   let schedSheetName = "Sched " + cleanGroupName;
@@ -1080,27 +1081,28 @@ function generateScheduleTabs(scoreTabName = null) {
   let schedSheet = ss.getSheetByName(schedSheetName) || ss.insertSheet(schedSheetName);
   schedSheet.clear();
 
-  let schedOut = [["Name", "Court", "Game 1", "Game 2", "Game 3", "Check-In", "Entered By"]];
+  // Updated layout: Added 'Total' as Column 6
+  let schedOut = [["Name", "Court", "Game 1", "Game 2", "Game 3", "Total", "Check-In", "Entered By"]];
   let courtNum = 1;
 
   for (let i = 0; i < activePlayers.length; i += 4) {
     let courtName = "Court " + courtNum;
     for (let j = 0; j < 4; j++) {
       if (i + j < activePlayers.length) {
-        schedOut.push([activePlayers[i+j].name, courtName, "", "", "", "", ""]);
+        schedOut.push([activePlayers[i+j].name, courtName, "", "", "", "", "", ""]);
       }
     }
     courtNum++;
   }
 
-  let sRange = schedSheet.getRange(1, 1, schedOut.length, 7);
+  let sRange = schedSheet.getRange(1, 1, schedOut.length, 8);
   sRange.setValues(schedOut);
   sRange.setBorder(true, true, true, true, true, true, "black", SpreadsheetApp.BorderStyle.SOLID);
-  schedSheet.getRange(1, 1, 1, 7).setFontWeight("bold");
+  schedSheet.getRange(1, 1, 1, 8).setFontWeight("bold");
 
-  logDebug("generateScheduleTabs", "Schedule tab successfully updated", schedSheetName);
   return `✅ Schedule generated successfully for ${cleanGroupName} (${activePlayers.length} players, ${courtNum - 1} courts).`;
 }
+
 
 function rescheduleFromCheckIns(schedTabName) {
   logDebug("rescheduleFromCheckIns", "Rescheduling based on check-ins for tab", schedTabName);
@@ -1338,25 +1340,79 @@ function togglePlayerStatus(rawPhone) {
   return "INACTIVE";
 }
 
-function submitCourtScores(payload) {
-  logDebug("submitCourtScores", "Submitting court scores payload", payload);
+function generateScheduleTabs(scoreTabName = null) {
+  logDebug("generateScheduleTabs", "Generating schedule for score tab", scoreTabName);
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const sheet = ss.getSheetByName("Sched " + payload.groupName);
-  if (!sheet) return "Error: Schedule sheet not found.";
   
-  const data = sheet.getDataRange().getValues();
-  for (let i = 0; i < data.length; i++) {
-    let pName = data[i][0] ? data[i][0].toString().trim() : "";
-    let court = data[i][1] ? data[i][1].toString().trim() : "";
-    if (court === payload.court.toString().trim() && payload.scores[pName]) {
-      let pScores = payload.scores[pName];
-      let g1 = parseFloat(pScores.g1) || 0, g2 = parseFloat(pScores.g2) || 0, g3 = parseFloat(pScores.g3) || 0;
-      sheet.getRange(i + 1, 3, 1, 5).setValues([[g1, g2, g3, g1 + g2 + g3, payload.submitter]]);
+  let targetSheet = getValidActiveScoreSheet(scoreTabName);
+  let resolvedTabName = targetSheet.getName();
+
+  sortActivePlayersForSheet(targetSheet);
+
+  const data = targetSheet.getDataRange().getValues();
+  if (data.length <= 1) return "⚠️ No player data found on tab: " + resolvedTabName;
+
+  const col = buildColMap(data[0]);
+
+  let seenPlayers = new Set();
+  let activePlayers = [];
+
+  for (let i = 1; i < data.length; i++) {
+    let row = data[i];
+    let status = (col.status !== undefined && row[col.status] !== "") 
+      ? row[col.status].toString().toUpperCase().trim() 
+      : "ACTIVE";
+
+    if (status === "ACTIVE") {
+      let pName = (col.name !== undefined && row[col.name]) 
+        ? row[col.name].toString().trim() 
+        : ((row[col.first] || "") + " " + (row[col.last] || "")).trim();
+      
+      if (!pName) continue;
+
+      let cleanKey = pName.toLowerCase();
+      if (seenPlayers.has(cleanKey)) continue;
+      seenPlayers.add(cleanKey);
+      
+      activePlayers.push({
+        name: pName,
+        phone: col.phone !== undefined ? row[col.phone] : ""
+      });
     }
   }
-  logDebug("submitCourtScores", "Submitted court scores successfully");
-  return "✅ Scores submitted successfully!";
+
+  if (activePlayers.length === 0) {
+    return "⚠️ No active players found on " + resolvedTabName;
+  }
+
+  let cleanGroupName = resolvedTabName.replace("Score ", "").trim();
+  let schedSheetName = "Sched " + cleanGroupName;
+  
+  let schedSheet = ss.getSheetByName(schedSheetName) || ss.insertSheet(schedSheetName);
+  schedSheet.clear();
+
+  let schedOut = [["Name", "Court", "Game 1", "Game 2", "Game 3", "Check-In", "Entered By"]];
+  let courtNum = 1;
+
+  for (let i = 0; i < activePlayers.length; i += 4) {
+    let courtName = "Court " + courtNum;
+    for (let j = 0; j < 4; j++) {
+      if (i + j < activePlayers.length) {
+        schedOut.push([activePlayers[i+j].name, courtName, "", "", "", "", ""]);
+      }
+    }
+    courtNum++;
+  }
+
+  let sRange = schedSheet.getRange(1, 1, schedOut.length, 7);
+  sRange.setValues(schedOut);
+  sRange.setBorder(true, true, true, true, true, true, "black", SpreadsheetApp.BorderStyle.SOLID);
+  schedSheet.getRange(1, 1, 1, 7).setFontWeight("bold");
+
+  logDebug("generateScheduleTabs", "Schedule tab successfully updated", schedSheetName);
+  return `✅ Schedule generated successfully for ${cleanGroupName} (${activePlayers.length} players, ${courtNum - 1} courts).`;
 }
+
 
 function getRankingsAndSchedData(groupName) {
   logDebug("getRankingsAndSchedData", "Fetching rankings & schedule data for group", groupName);
@@ -1403,3 +1459,56 @@ function getAdminPlayersByGroup(groupName) {
   return players;
 }
 
+
+function submitCourtScores(payload) {
+  logDebug("submitCourtScores", "Submitting court scores payload", payload);
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName("Sched " + payload.groupName);
+  if (!sheet) return "Error: Schedule sheet not found.";
+  
+  const data = sheet.getDataRange().getValues();
+  if (data.length <= 1) return "Error: No schedule data found.";
+
+  let headers = data[0].map(h => h.toString().toLowerCase().trim());
+  let g1Idx = headers.indexOf("game 1");
+  let g2Idx = headers.indexOf("game 2");
+  let g3Idx = headers.indexOf("game 3");
+  let totalIdx = headers.indexOf("total");
+  let enteredIdx = headers.indexOf("entered by");
+
+  for (let i = 1; i < data.length; i++) {
+    let pName = data[i][0] ? data[i][0].toString().trim() : "";
+    let court = data[i][1] ? data[i][1].toString().trim() : "";
+
+    if (court === payload.court.toString().trim() && payload.scores[pName]) {
+      let pScores = payload.scores[pName];
+
+      // Read current values from sheet to preserve already completed games
+      let existingG1 = g1Idx !== -1 ? data[i][g1Idx] : "";
+      let existingG2 = g2Idx !== -1 ? data[i][g2Idx] : "";
+      let existingG3 = g3Idx !== -1 ? data[i][g3Idx] : "";
+
+      // Preserve existing score if payload sends empty string or undefined for that game
+      let g1Val = (pScores.g1 !== undefined && pScores.g1 !== "") ? pScores.g1 : existingG1;
+      let g2Val = (pScores.g2 !== undefined && pScores.g2 !== "") ? pScores.g2 : existingG2;
+      let g3Val = (pScores.g3 !== undefined && pScores.g3 !== "") ? pScores.g3 : existingG3;
+
+      // Write individual game values
+      if (g1Idx !== -1) sheet.getRange(i + 1, g1Idx + 1).setValue(g1Val);
+      if (g2Idx !== -1) sheet.getRange(i + 1, g2Idx + 1).setValue(g2Val);
+      if (g3Idx !== -1) sheet.getRange(i + 1, g3Idx + 1).setValue(g3Val);
+
+      // Calculate running total for games completed so far
+      let num1 = parseFloat(g1Val) || 0;
+      let num2 = parseFloat(g2Val) || 0;
+      let num3 = parseFloat(g3Val) || 0;
+      let runningTotal = num1 + num2 + num3;
+
+      if (totalIdx !== -1) sheet.getRange(i + 1, totalIdx + 1).setValue(runningTotal);
+      if (enteredIdx !== -1) sheet.getRange(i + 1, enteredIdx + 1).setValue(payload.submitter);
+    }
+  }
+
+  logDebug("submitCourtScores", "Updated incremental court scores successfully");
+  return "✅ Game scores updated successfully!";
+}
