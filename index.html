@@ -384,7 +384,7 @@
 
   window.API_URL = "https://script.google.com/macros/s/AKfycbweTOjVcY0R1sxXrYfbN2S9jqMz4yr5b1alVoz0gjVy3P3ty42rtHlfgfpdjtFnF4nFaQ/exec";
   const API_URL = window.API_URL;
-  const CURRENT_APP_VERSION = "1.1.1";
+  const CURRENT_APP_VERSION = "1.1.3";
 
   let adminPlayersCache = []; 
 
@@ -424,8 +424,7 @@ async function apiCall(action, payload = {}) {
     console.error(`API Call Failed (${action}):`, err);
     throw err;
   }
-  }
-  
+}
 
   
   // --- LOCAL STORAGE CACHE HANDLERS ---
@@ -752,8 +751,30 @@ async function apiCall(action, payload = {}) {
     if (!sheet) return;
     document.getElementById('checkInStatus').innerHTML = '<span class="loading-spinner"></span>Loading players...';
     try {
-      const data = await apiCall('getPlayersForCheckIn', { sheet: sheet });
-      renderCheckInPlayers(data);
+      // 1. Get existing check-in data from current schedule sheet
+      const checkInData = await apiCall('getPlayersForCheckIn', { sheet: sheet }) || [];
+
+      // 2. Fetch all ACTIVE players in this group to guarantee no active player is left off
+      let groupName = sheet.replace(/^Sched[\s_-]*/i, '').replace(/^Score[\s_-]*/i, '').trim();
+      try {
+        const activePlayers = await apiCall('getAdminPlayersByGroup', { group: groupName });
+        if (Array.isArray(activePlayers)) {
+          const existingNames = new Set(checkInData.map(p => p.name.trim().toLowerCase()));
+          activePlayers.forEach(p => {
+            if (p.status === "ACTIVE" && !existingNames.has(p.name.trim().toLowerCase())) {
+              checkInData.push({
+                name: p.name,
+                court: "BYE / Unchecked",
+                checked: false
+              });
+            }
+          });
+        }
+      } catch(err) {
+        console.warn("Could not fetch group master list for check-in sync:", err);
+      }
+
+      renderCheckInPlayers(checkInData);
     } catch(e) {
       document.getElementById('checkInStatus').innerText = e.message;
     }
@@ -768,14 +789,43 @@ async function apiCall(action, payload = {}) {
       document.getElementById('saveCheckInBtn').disabled = true;
       return;
     }
+
+    // Sort logic: Active numeric court foursomes at top, all BYE and unchecked players at bottom
+    data.sort((a, b) => {
+      let courtA = String(a.court || '').toUpperCase();
+      let courtB = String(b.court || '').toUpperCase();
+
+      let isByeA = courtA.includes("BYE") || courtA.includes("UNCHECKED");
+      let isByeB = courtB.includes("BYE") || courtB.includes("UNCHECKED");
+
+      // Push BYE/Unchecked courts to the bottom
+      if (isByeA && !isByeB) return 1;
+      if (!isByeA && isByeB) return -1;
+
+      // Group checked players above unchecked within identical courts
+      if (courtA === courtB) {
+        if (a.checked !== b.checked) return a.checked ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      }
+
+      // Order numeric court headers sequentially (Court 1, Court 2, etc.)
+      let numA = parseInt(courtA.replace(/\D/g, ''), 10);
+      let numB = parseInt(courtB.replace(/\D/g, ''), 10);
+      if (!isNaN(numA) && !isNaN(numB) && numA !== numB) {
+        return numA - numB;
+      }
+
+      return courtA.localeCompare(courtB);
+    });
+
     let currentCourt = "";
     data.forEach((p) => {
       if (p.court !== currentCourt) {
         currentCourt = p.court;
-        let isBye = String(currentCourt).toUpperCase().includes("BYE");
+        let isBye = String(currentCourt).toUpperCase().includes("BYE") || String(currentCourt).toUpperCase().includes("UNCHECKED");
         let ch = document.createElement('div');
         ch.className = isBye ? "court-header bye-header" : "court-header";
-        ch.innerText = isBye ? "⏸️ BYE (Sitting Out)" : "Court: " + currentCourt;
+        ch.innerText = isBye ? "⏸️ BYE / Unchecked (Sitting Out)" : "Court: " + currentCourt;
         container.appendChild(ch);
       }
       let div = document.createElement('div');
