@@ -214,9 +214,12 @@
     <div id="checkinTab" class="tab-content active">
       <label><b>Select Group:</b></label>
       <select id="sheetSelect" onchange="onGroupChange('sheetSelect'); loadCheckInPlayers()"><option value="">-- Choose Ladder --</option></select>
+      
+      <!-- Moved Save Check-Ins button and status before playerList -->
+      <button id="saveCheckInBtn" class="btn-main" onclick="submitCheckIns()" disabled style="margin-top:0.75rem; margin-bottom:0.25rem;">Save Check-Ins</button>
+      <div id="checkInStatus" class="status-msg" style="margin-top:0.25rem; margin-bottom:0.5rem;"></div>
+
       <div id="playerList"><i>Select a group above...</i></div>
-      <button id="saveCheckInBtn" class="btn-main" onclick="submitCheckIns()" disabled>Save Check-Ins</button>
-      <div id="checkInStatus" class="status-msg"></div>
     </div>
 
     <!-- TAB 2: SCORES & PHONE LOOKUP -->
@@ -757,8 +760,6 @@ async function apiCall(action, payload = {}) {
       document.getElementById('saveCheckInBtn').disabled = true;
       return;
     }
-    document.getElementById('saveCheckInBtn').disabled = false;
-
     let currentCourt = "";
     data.forEach((p) => {
       if (p.court !== currentCourt) {
@@ -783,6 +784,8 @@ async function apiCall(action, payload = {}) {
                        <span class="check-icon">${p.checked ? '✅' : '❌'}</span>`;
       container.appendChild(div);
     });
+    document.getElementById('saveCheckInBtn').disabled = false;
+      
   }
 
   async function submitCheckIns() {
