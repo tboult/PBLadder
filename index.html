@@ -787,7 +787,6 @@ async function apiCall(action, payload = {}) {
     container.innerHTML = "";
     if (!data || data.length === 0) {
       container.innerHTML = "<p style='text-align:center;'>No players found.</p>";
-      document.getElementById('saveCheckInBtn').disabled = true;
       return;
     }
 
@@ -844,7 +843,6 @@ async function apiCall(action, payload = {}) {
                        <span class="check-icon">${p.checked ? '✅' : '❌'}</span>`;
       container.appendChild(div);
     });
-    document.getElementById('saveCheckInBtn').disabled = false;
       
   }
 
@@ -855,7 +853,6 @@ async function apiCall(action, payload = {}) {
     rows.forEach(r => { if (r.getAttribute('data-checked') === "true") checkedNames.push(r.getAttribute('data-name')); });
     
     document.getElementById('checkInStatus').innerHTML = '<span class="loading-spinner"></span>Saving check-ins...';
-    document.getElementById('saveCheckInBtn').disabled = true;
     try {
       const res = await apiCall('saveCheckIns', { sheet: sheetName, checkedNames: checkedNames });
       document.getElementById('checkInStatus').innerText = res;
