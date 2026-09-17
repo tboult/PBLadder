@@ -141,57 +141,27 @@ function getPlayersForCheckIn(inputName) {
 /**
  * Instant Single Player Check-In Toggle (Auto-Save on Click)
  */
-function toggleSingleCheckIn(schedSheetName, playerName, isCheckedIn) {
-  logDebug("toggleSingleCheckIn", "Auto-saving single check-in", { schedSheetName, playerName, isCheckedIn });
-  if (!schedSheetName || !playerName) return { error: "Missing required parameters." };
+function toggleSingleCheckIn(sheetName, playerName, isCheckedIn) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(sheetName);
+  
+  if (!sheet) throw new Error("Sheet not found: " + sheetName);
 
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  let targetName = schedSheetName.toString().trim();
-  if (!targetName.startsWith("Sched ") && !targetName.startsWith("Score ")) {
-    targetName = "Sched " + targetName;
-  } else if (targetName.startsWith("Score ")) {
-    targetName = targetName.replace("Score ", "Sched ");
-  }
-
-  let sheet = ss.getSheetByName(targetName);
-  if (!sheet) return { error: `Sheet '${targetName}' not found.` };
-
-  let data = sheet.getDataRange().getValues();
-  if (data.length <= 1) return { error: "No data found on target sheet." };
-
-  let headers = data[0].map(h => h.toString().toLowerCase().trim());
-  let nameIdx = headers.findIndex(h => h.includes("name") || h.includes("player"));
-  if (nameIdx === -1) nameIdx = 0;
-
-  let checkInIdx = headers.findIndex(h => h.includes("check-in") || h.includes("checkin") || h === "x");
-  if (checkInIdx === -1 && data[0].length >= 7) {
-    checkInIdx = 6;
-  }
-
-  if (nameIdx === -1 || checkInIdx === -1) {
-    return { error: `Required columns ("Name" and "Check-In") missing on ${targetName}` };
-  }
-
-  let targetRow = -1;
-  let cleanTargetPlayer = playerName.toString().trim().toLowerCase();
-
-  for (let i = 1; i < data.length; i++) {
-    let rowName = data[i][nameIdx] ? data[i][nameIdx].toString().trim().toLowerCase() : "";
-    if (rowName === cleanTargetPlayer) {
-      targetRow = i + 1;
-      break;
+  // Read entire column in a single API call instead of looping sheet.getRange()
+  const data = sheet.getRange("A1:B" + sheet.getLastRow()).getValues();
+  
+  for (let i = 0; i < data.length; i++) {
+    if (data[i][0] === playerName) { // Assuming Column A is Name, Column B is Status
+      // Write result directly to single cell
+      sheet.getRange(i + 1, 2).setValue(isCheckedIn ? "YES" : "NO");
+      
+      // Force spreadsheet changes to commit instantly without full recalculation delay
+        SpreadsheetApp.flush();
+        logDebug("toggleSingleCheckIn", `Successfully updated ${playerName} to check-in: '${marker}' on row ${targetRow}`);        
+      return { success: true, name: playerName, checkedIn: isCheckedIn };
     }
   }
-
-  if (targetRow === -1) {
-    return { error: `Player '${playerName}' not found on ${targetName}.` };
-  }
-
-  let marker = isCheckedIn ? "X" : "";
-  sheet.getRange(targetRow, checkInIdx + 1).setValue(marker);
-
-  logDebug("toggleSingleCheckIn", `Successfully updated ${playerName} to check-in: '${marker}' on row ${targetRow}`);
-  return { success: true, playerName: playerName, checkedIn: isCheckedIn, row: targetRow };
+  throw new Error("Player '" + playerName + "' not found on sheet " + sheetName);
 }
 
 function saveCheckIns(schedSheetName, checkedPlayerNames) {

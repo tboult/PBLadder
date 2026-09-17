@@ -788,86 +788,106 @@ async function apiCall(action, payload = {}) {
     }
   }
 
-  function renderCheckInPlayers(data, sheetName) {
-    document.getElementById('checkInStatus').innerText = "";
-    const container = document.getElementById('playerList');
-    container.innerHTML = "";
-    if (!data || data.length === 0) {
-      container.innerHTML = "<p style='text-align:center;'>No players found.</p>";
-      return;
+
+function renderCheckInPlayers(data, sheetName) {
+  document.getElementById('checkInStatus').innerText = "";
+  const container = document.getElementById('playerList');
+  container.innerHTML = "";
+  if (!data || data.length === 0) {
+    container.innerHTML = "<p style='text-align:center;'>No players found.</p>";
+    return;
+  }
+
+  // Sort logic: Active numeric court foursomes at top, all BYE and unchecked players at bottom
+  data.sort((a, b) => {
+    let courtA = String(a.court || '').toUpperCase();
+    let courtB = String(b.court || '').toUpperCase();
+
+    let isByeA = courtA.includes("BYE") || courtA.includes("UNCHECKED");
+    let isByeB = courtB.includes("BYE") || courtB.includes("UNCHECKED");
+
+    if (isByeA && !isByeB) return 1;
+    if (!isByeA && isByeB) return -1;
+
+    if (courtA === courtB) {
+      if (a.checked !== b.checked) return a.checked ? -1 : 1;
+      return a.name.localeCompare(b.name);
     }
 
-    // Sort logic: Active numeric court foursomes at top, all BYE and unchecked players at bottom
-    data.sort((a, b) => {
-      let courtA = String(a.court || '').toUpperCase();
-      let courtB = String(b.court || '').toUpperCase();
+    let numA = parseInt(courtA.replace(/\D/g, ''), 10);
+    let numB = parseInt(courtB.replace(/\D/g, ''), 10);
+    if (!isNaN(numA) && !isNaN(numB) && numA !== numB) {
+      return numA - numB;
+    }
 
-      let isByeA = courtA.includes("BYE") || courtA.includes("UNCHECKED");
-      let isByeB = courtB.includes("BYE") || courtB.includes("UNCHECKED");
+    return courtA.localeCompare(courtB);
+  });
 
-      // Push BYE/Unchecked courts to the bottom
-      if (isByeA && !isByeB) return 1;
-      if (!isByeA && isByeB) return -1;
+  let currentCourt = "";
+  data.forEach((p) => {
+    if (p.court !== currentCourt) {
+      currentCourt = p.court;
+      let isBye = String(currentCourt).toUpperCase().includes("BYE") || String(currentCourt).toUpperCase().includes("UNCHECKED");
+      let ch = document.createElement('div');
+      ch.className = isBye ? "court-header bye-header" : "court-header";
+      ch.innerText = isBye ? "⏸️ BYE / Unchecked (Sitting Out)" : "Court: " + currentCourt;
+      container.appendChild(ch);
+    }
 
-      // Group checked players above unchecked within identical courts
-      if (courtA === courtB) {
-        if (a.checked !== b.checked) return a.checked ? -1 : 1;
-        return a.name.localeCompare(b.name);
+    let div = document.createElement('div');
+    let isChecked = (p.checked !== undefined) ? p.checked : p.checkedIn;
+    div.className = isChecked ? "player-row checked" : "player-row";
+    div.setAttribute('data-checked', isChecked ? "true" : "false");
+    div.setAttribute('data-name', p.name);
+
+    div.onclick = async function() {
+      // Prevent double-clicking while request is saving
+      if (this.style.pointerEvents === 'none') return;
+
+      let curState = this.getAttribute('data-checked') === "true";
+      let newState = !curState;
+      let iconSpan = this.querySelector('.check-icon');
+
+      // 1. Instant UI update + Show "Saving..." indicator
+      this.setAttribute('data-checked', newState ? "true" : "false");
+      this.className = newState ? "player-row checked saving" : "player-row saving";
+      this.style.opacity = '0.6';
+      this.style.pointerEvents = 'none'; // Lock row during API request
+      iconSpan.innerText = "⏳"; // Visual feedback that network call is working
+
+      try {
+        let activeSheet = sheetName || document.getElementById('sheetSelect')?.value || "";
+        let res = await apiCall('toggleSingleCheckIn', {
+          sheet: activeSheet,
+          playerName: p.name,
+          isCheckedIn: newState
+        });
+
+        if (res && res.status === "error") throw new Error(res.message);
+
+        // 2. Success: Confirm visual state
+        iconSpan.innerText = newState ? "✅" : "❌";
+      } catch(err) {
+        console.error("Auto-save check-in failed:", err);
+        alert("Check-in failed: " + (err.message || "Network Error"));
+
+        // 3. Revert state on failure
+        this.setAttribute('data-checked', curState ? "true" : "false");
+        this.className = curState ? "player-row checked" : "player-row";
+        iconSpan.innerText = curState ? "✅" : "❌";
+      } finally {
+        // Unlock row
+        this.style.opacity = '1';
+        this.style.pointerEvents = 'auto';
       }
+    };
 
-      // Order numeric court headers sequentially (Court 1, Court 2, etc.)
-      let numA = parseInt(courtA.replace(/\D/g, ''), 10);
-      let numB = parseInt(courtB.replace(/\D/g, ''), 10);
-      if (!isNaN(numA) && !isNaN(numB) && numA !== numB) {
-        return numA - numB;
-      }
+    div.innerHTML = `<span class="player-name">${p.name}</span>
+                     <span class="check-icon">${isChecked ? '✅' : '❌'}</span>`;
+    container.appendChild(div);
+  });
+}
 
-      return courtA.localeCompare(courtB);
-    });
-
-    let currentCourt = "";
-    data.forEach((p) => {
-      if (p.court !== currentCourt) {
-        currentCourt = p.court;
-        let isBye = String(currentCourt).toUpperCase().includes("BYE") || String(currentCourt).toUpperCase().includes("UNCHECKED");
-        let ch = document.createElement('div');
-        ch.className = isBye ? "court-header bye-header" : "court-header";
-        ch.innerText = isBye ? "⏸️ BYE / Unchecked (Sitting Out)" : "Court: " + currentCourt;
-        container.appendChild(ch);
-      }
-      let div = document.createElement('div');
-      let isChecked = (p.checked !== undefined) ? p.checked : p.checkedIn;
-      div.className = isChecked ? "player-row checked" : "player-row";
-      div.setAttribute('data-checked', isChecked ? "true" : "false");
-      div.setAttribute('data-name', p.name);
-      
-      div.onclick = async function() {
-        let curState = this.getAttribute('data-checked') === "true";
-        let newState = !curState;
-        
-        this.setAttribute('data-checked', newState ? "true" : "false");
-        this.className = newState ? "player-row checked" : "player-row";
-        this.querySelector('.check-icon').innerText = newState ? "✅" : "❌";
-        
-        try {
-          await apiCall('toggleSingleCheckIn', {
-            sheet: sheetName || document.getElementById('sheetSelect').value,
-            playerName: p.name,
-            isCheckedIn: newState
-          });
-        } catch(err) {
-          console.error("Auto-save check-in failed:", err);
-          this.setAttribute('data-checked', curState ? "true" : "false");
-          this.className = curState ? "player-row checked" : "player-row";
-          this.querySelector('.check-icon').innerText = curState ? "✅" : "❌";
-        }
-      };
-      
-      div.innerHTML = `<span class="player-name">${p.name}</span>
-                       <span class="check-icon">${isChecked ? '✅' : '❌'}</span>`;
-      container.appendChild(div);
-    });
-  }
 
   async function submitCheckIns() {
     const sheetName = document.getElementById('sheetSelect').value;
@@ -1056,6 +1076,35 @@ async function apiCall(action, payload = {}) {
       cancelRegistration();
     } catch(e) { alert(e.message); }
   }
+async function handleCheckInClick(event, playerName, currentStatus, sheetName) {
+  const targetElement = event.currentTarget;
+  const newStatus = !currentStatus;
+
+  // 1. Instant Visual Feedback (Optimistic Update)
+  targetElement.classList.toggle('checked-in', newStatus);
+  targetElement.style.opacity = '0.6';
+  targetElement.style.pointerEvents = 'none'; // Prevent double-clicking
+
+  try {
+    // 2. Network Request in Background
+    const response = await apiCall('toggleSingleCheckIn', {
+      sheet: sheetName,
+      name: playerName,
+      isCheckedIn: newStatus
+    });
+
+    if (response.status !== 'success') throw new Error(response.message);
+    
+  } catch (error) {
+    // 3. Revert Visual State if the API call failed
+    alert('Check-in failed: ' + error.message);
+    targetElement.classList.toggle('checked-in', currentStatus);
+  } finally {
+    // Re-enable interactions
+    targetElement.style.opacity = '1';
+    targetElement.style.pointerEvents = 'auto';
+  }
+}
 
 </script>
 </body>
