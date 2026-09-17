@@ -1324,3 +1324,4 @@ function getAdminPlayersByGroup(groupName) {
   players.sort((a,b) => a.name.localeCompare(b.name));
   return players;
 }
+

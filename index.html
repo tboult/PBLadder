@@ -40,6 +40,8 @@
         --row-checked-bg: #d8f3dc;
         --court-header-bg: #e8f5e9;
         --court-header-text: #1b4332;
+        --bye-header-bg: #fff3bf;
+        --bye-header-text: #856404;
         --focus-ring: #ffbf47;
       }
 
@@ -180,6 +182,7 @@
 
       #playerList { margin-top: 0.75rem; max-height: 60vh; overflow-y: auto; border-radius: 0.5rem; border: 2px solid var(--row-border); overflow-x: hidden; }
       .court-header { font-weight: bold; background: var(--court-header-bg); color: var(--court-header-text); padding: 0.5rem 0.75rem; margin-top: 0; font-size: 1.1rem; border-bottom: 2px solid var(--row-border);}
+      .court-header.bye-header { background: var(--bye-header-bg); color: var(--bye-header-text); }
       
       .score-grid { display: grid; grid-template-columns: 2.2fr 1fr 1fr 1fr; gap: 0.4rem; align-items: center; margin-top: 0.4rem; }
       .score-grid input { text-align: center; margin-top: 0; padding: 0.5rem; font-size: 1.1rem; min-height: 54px; }
@@ -189,6 +192,19 @@
       .status-inactive { background-color: #fff3bf; color: #856404; }
       .status-msg { margin-top: 0.75rem; text-align: center; font-size: 1rem; font-weight: 600; }
       
+      .loading-spinner {
+        display: inline-block;
+        width: 1.2rem;
+        height: 1.2rem;
+        border: 3px solid rgba(0,0,0,0.2);
+        border-radius: 50%;
+        border-top-color: var(--header-bg);
+        animation: spin 0.8s ease-in-out infinite;
+        vertical-align: middle;
+        margin-right: 0.5rem;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+
       table.data-table { width: 100%; border-collapse: collapse; font-size: 1rem; margin-top: 0.75rem; }
       table.data-table th { background: var(--header-bg); color: var(--header-text); padding: 0.5rem; text-align: left; }
       table.data-table td { padding: 0.5rem; border-bottom: 2px solid var(--row-border); }
@@ -215,7 +231,6 @@
       <label><b>Select Group:</b></label>
       <select id="sheetSelect" onchange="onGroupChange('sheetSelect'); loadCheckInPlayers()"><option value="">-- Choose Ladder --</option></select>
       
-      <!-- Moved Save Check-Ins button and status before playerList -->
       <button id="saveCheckInBtn" class="btn-main" onclick="submitCheckIns()" disabled style="margin-top:0.75rem; margin-bottom:0.25rem;">Save Check-Ins</button>
       <div id="checkInStatus" class="status-msg" style="margin-top:0.25rem; margin-bottom:0.5rem;"></div>
 
@@ -303,79 +318,75 @@
     </div>
 
     <!-- TAB 5: ADMIN -->
-<div id="adminTab" class="tab-content">
-  <div class="card">
-    <h3 style="margin-top:0; color:var(--btn-danger-bg);">⚙️ Admin Controls</h3>
+    <div id="adminTab" class="tab-content">
+      <div class="card">
+        <h3 style="margin-top:0; color:var(--btn-danger-bg);">⚙️ Admin Controls</h3>
 
-    <!-- SINGLE GLOBAL GROUP SELECTOR -->
-    <div class="card" style="margin-bottom:1rem; background: var(--bg-color);">
-      <label><b>Select Admin Target Group:</b></label>
-      <select id="adminGlobalGroupSelect" onchange="onAdminGlobalGroupChange()" style="width: 100%; padding: 0.5rem; margin-top: 0.25rem; font-weight: bold;">
-        <option value="">-- Select Group --</option>
-      </select>
-    </div>
- 
-    <a id="adminSheetLink" href="#" target="_blank" class="btn-main" style="display:block; padding:0.75rem; margin-bottom:1rem; border-radius:0.5rem; text-align:center;">📝 Edit Score Data Sheet for Group</a>
+        <!-- SINGLE GLOBAL GROUP SELECTOR -->
+        <div class="card" style="margin-bottom:1rem; background: var(--bg-color);">
+          <label><b>Select Admin Target Group:</b></label>
+          <select id="adminGlobalGroupSelect" onchange="onAdminGlobalGroupChange()" style="width: 100%; padding: 0.5rem; margin-top: 0.25rem; font-weight: bold;">
+            <option value="">-- Select Group --</option>
+          </select>
+        </div>
+     
+        <a id="adminSheetLink" href="#" target="_blank" class="btn-main" style="display:block; padding:0.75rem; margin-bottom:1rem; border-radius:0.5rem; text-align:center;">📝 Edit Score Data Sheet for Group</a>
 
-    <!-- QUICK ACTIVE/INACTIVE MANAGER -->
-    <div class="card" style="margin-bottom:1rem; background: var(--bg-color);">
-      <h4 style="margin:0 0 0.5rem 0;">👥 Quick Active / Inactive Manager</h4>
-      <input type="text" id="adminPlayerSearch" oninput="filterAdminPlayers()" placeholder="🔍 Type name to search..." style="width: 100%; padding: 0.5rem; margin-bottom: 0.75rem; border-radius: 0.25rem; border: 1px solid #ccc; box-sizing: border-box;">
-      
-      <div id="adminPlayerStatusList" style="margin-top:0.25rem; max-height:60vh; overflow-y:auto; border-radius:0.5rem; border:2px solid var(--row-border); padding:0.5rem;">
-        <i>Type in the search box above to display players...</i>
+        <!-- QUICK ACTIVE/INACTIVE MANAGER -->
+        <div class="card" style="margin-bottom:1rem; background: var(--bg-color);">
+          <h4 style="margin:0 0 0.5rem 0;">👥 Quick Active / Inactive Manager</h4>
+          <input type="text" id="adminPlayerSearch" oninput="filterAdminPlayers()" placeholder="🔍 Type name to search..." style="width: 100%; padding: 0.5rem; margin-bottom: 0.75rem; border-radius: 0.25rem; border: 1px solid #ccc; box-sizing: border-box;">
+          
+          <div id="adminPlayerStatusList" style="margin-top:0.25rem; max-height:60vh; overflow-y:auto; border-radius:0.5rem; border:2px solid var(--row-border); padding:0.5rem;">
+            <i>Type in the search box above to display players...</i>
+          </div>
+        </div>
+
+        <!-- RESCHEDULE & ACTIONS -->
+        <div class="card" style="margin-bottom:1rem; background: var(--bg-color);">
+          <h4 style="margin:0 0 0.5rem 0;">🗓️ Schedule Controls</h4>
+          
+          <label style="font-size:0.95rem; font-weight:bold;">1. Checked-In Players Only:</label>
+          <button id="reschedCheckedInBtn" class="btn-main" style="margin-top:0.25rem; margin-bottom:0.75rem;" onclick="runRescheduleCheckedIn()">
+            🔄 Reschedule Checked-In Only
+          </button>
+
+          <label style="font-size:0.95rem; font-weight:bold;">2. All Active Players in Group:</label>
+          <button id="reschedActiveBtn" class="btn-sub" style="margin-top:0.25rem; margin-bottom:0.75rem; background-color: #2d6a4f; color: white;" onclick="runRescheduleActive()">
+            ⚡ Reschedule All Active
+          </button>
+
+          <hr>
+          <button class="btn-sub" onclick="runAdmin('menuSortActivePlayers')">Sort Active Players (Current Group)</button>
+          <button class="btn-sub" onclick="runAdmin('menuGenerateScheduleTabs')">Generate All Schedule Tabs</button>
+          <button class="btn-sub" onclick="runAdmin('menuUpdateStandingsWithShift')">End of Week (Shift Scores)</button>
+          <button class="btn-sub" onclick="runAdmin('menuCorrectScoresNoShift')">Correct Scores (No Shift)</button>
+          <button class="btn-sub" onclick="getAdminPdf()">Download PDF Schedules</button>
+        </div>
+
+        <!-- ADD NEW PLAYER (PENDING STATUS) -->
+        <div class="card" style="margin-top:1.5rem; margin-bottom:1rem; background: var(--bg-color);">
+          <h4 style="margin:0 0 0.5rem 0;">➕ Add New Player</h4>
+          <input type="text" id="adminRegFirst" placeholder="First Name">
+          <input type="text" id="adminRegLast" placeholder="Last Name">
+          <input type="tel" id="adminRegPhone" placeholder="Phone Number">
+          <input type="email" id="adminRegEmail" placeholder="Email">
+          <button class="btn-main" style="margin-top:0.75rem;" onclick="submitAdminRegistration()">Add Pending Player</button>
+        </div>
+
+        <button class="btn-danger desktop-only" style="margin-top:2rem;" onclick="if(confirm('🚨 WARNING: Are you sure you want to start a new season? This will permanently wipe all current scores across ALL groups.')) runAdmin('startNewSeason')">🚨 Start New Season</button>
+
+        <div id="adminStatus" class="status-msg"></div>
       </div>
     </div>
-
-
-
-    <!-- RESCHEDULE & ACTIONS -->
-<!-- RESCHEDULE & ACTIONS -->
-<div class="card" style="margin-bottom:1rem; background: var(--bg-color);">
-  <h4 style="margin:0 0 0.5rem 0;">🗓️ Schedule Controls</h4>
-  
-  <label style="font-size:0.95rem; font-weight:bold;">1. Checked-In Players Only:</label>
-  <button class="btn-main" style="margin-top:0.25rem; margin-bottom:0.75rem;" onclick="runRescheduleCheckedIn()">
-    🔄 Reschedule Checked-In Only
-  </button>
-
-  <label style="font-size:0.95rem; font-weight:bold;">2. All Active Players in Group:</label>
-  <button class="btn-sub" style="margin-top:0.25rem; margin-bottom:0.75rem; background-color: #2d6a4f; color: white;" onclick="runRescheduleActive()">
-    ⚡ Reschedule All Active
-  </button>
-
-    <hr>
-    <button class="btn-sub" onclick="runAdmin('menuSortActivePlayers')">Sort Active Players (Current Group)</button>
-    <button class="btn-sub" onclick="runAdmin('menuGenerateScheduleTabs')">Generate All Schedule Tabs</button>
-    <button class="btn-sub" onclick="runAdmin('menuUpdateStandingsWithShift')">End of Week (Shift Scores)</button>
-    <button class="btn-sub" onclick="runAdmin('menuCorrectScoresNoShift')">Correct Scores (No Shift)</button>
-    <button class="btn-sub" onclick="getAdminPdf()">Download PDF Schedules</button>
-</div>
-
-    <!-- ADD NEW PLAYER (PENDING STATUS) -->
-    <div class="card" style="margin-top:1.5rem; margin-bottom:1rem; background: var(--bg-color);">
-      <h4 style="margin:0 0 0.5rem 0;">➕ Add New Player</h4>
-      <input type="text" id="adminRegFirst" placeholder="First Name">
-      <input type="text" id="adminRegLast" placeholder="Last Name">
-      <input type="tel" id="adminRegPhone" placeholder="Phone Number">
-      <input type="email" id="adminRegEmail" placeholder="Email">
-      <button class="btn-main" style="margin-top:0.75rem;" onclick="submitAdminRegistration()">Add Pending Player</button>
-    </div>
-
-    <button class="btn-danger desktop-only" style="margin-top:2rem;" onclick="if(confirm('🚨 WARNING: Are you sure you want to start a new season? This will permanently wipe all current scores across ALL groups.')) runAdmin('startNewSeason')">🚨 Start New Season</button>
-
-    <div id="adminStatus" class="status-msg"></div>
-  </div>
-</div>
 
 <script>
 
   window.API_URL = "https://script.google.com/macros/s/AKfycbweTOjVcY0R1sxXrYfbN2S9jqMz4yr5b1alVoz0gjVy3P3ty42rtHlfgfpdjtFnF4nFaQ/exec";
-   const API_URL = window.API_URL;
-  //https://script.google.com/macros/s/AKfycbycRGZ3A01rp9XsASrlGPCZ1pkr2HEemXLfz-hxusIGL_pN6Pxt95BydMKsTz_jOZ85wA/exec?action=getAppVersion
-  const CURRENT_APP_VERSION = "1.1.0";
+  const API_URL = window.API_URL;
+  const CURRENT_APP_VERSION = "1.1.1";
 
-  let adminPlayersCache = []; // Global cache for admin player status search
+  let adminPlayersCache = []; 
 
   // --- REGISTER SERVICE WORKER FOR PWA ---
   if ('serviceWorker' in navigator) {
@@ -466,14 +477,12 @@ async function apiCall(action, payload = {}) {
   async function onGroupContextUpdated(groupName) {
     if (!groupName) return;
     
-    // Update Admin Sheet Link for selected group
     try {
       const url = await apiCall('getAdminSheetUrl', { group: groupName });
       const link = document.getElementById('adminSheetLink');
       if (link && url) link.href = url;
     } catch(e) { console.warn("Failed to load group sheet URL."); }
 
-    // Pre-cache admin players for instant search
     loadAdminPlayerStatusCache(groupName);
   }
 
@@ -685,7 +694,6 @@ async function apiCall(action, payload = {}) {
       const newStatus = await apiCall('togglePlayerStatus', { phone: phone });
       buttonElement.innerText = newStatus;
       
-      // Update cache
       const cached = adminPlayersCache.find(p => String(p.phone) === String(phone));
       if (cached) cached.status = newStatus;
 
@@ -710,7 +718,7 @@ async function apiCall(action, payload = {}) {
       phone: document.getElementById('adminRegPhone').value.trim(),
       email: document.getElementById('adminRegEmail').value.trim(),
       group: currentGroup,
-      status: 'pending' // Enforces pending status
+      status: 'pending'
     };
     
     if (!data.group) {
@@ -723,7 +731,7 @@ async function apiCall(action, payload = {}) {
       return;
     }
 
-    document.getElementById('adminStatus').innerText = "Adding player as pending...";
+    document.getElementById('adminStatus').innerHTML = '<span class="loading-spinner"></span>Adding player as pending...';
     try {
       const res = await apiCall('addNewUser', data);
       document.getElementById('adminStatus').innerText = res || "Player added successfully!";
@@ -742,7 +750,7 @@ async function apiCall(action, payload = {}) {
   async function loadCheckInPlayers() {
     const sheet = document.getElementById('sheetSelect').value;
     if (!sheet) return;
-    document.getElementById('checkInStatus').innerText = "Loading players...";
+    document.getElementById('checkInStatus').innerHTML = '<span class="loading-spinner"></span>Loading players...';
     try {
       const data = await apiCall('getPlayersForCheckIn', { sheet: sheet });
       renderCheckInPlayers(data);
@@ -764,9 +772,10 @@ async function apiCall(action, payload = {}) {
     data.forEach((p) => {
       if (p.court !== currentCourt) {
         currentCourt = p.court;
+        let isBye = String(currentCourt).toUpperCase().includes("BYE");
         let ch = document.createElement('div');
-        ch.className = "court-header";
-        ch.innerText = "Court: " + currentCourt;
+        ch.className = isBye ? "court-header bye-header" : "court-header";
+        ch.innerText = isBye ? "⏸️ BYE (Sitting Out)" : "Court: " + currentCourt;
         container.appendChild(ch);
       }
       let div = document.createElement('div');
@@ -794,7 +803,7 @@ async function apiCall(action, payload = {}) {
     let checkedNames = [];
     rows.forEach(r => { if (r.getAttribute('data-checked') === "true") checkedNames.push(r.getAttribute('data-name')); });
     
-    document.getElementById('checkInStatus').innerText = "Saving...";
+    document.getElementById('checkInStatus').innerHTML = '<span class="loading-spinner"></span>Saving check-ins...';
     document.getElementById('saveCheckInBtn').disabled = true;
     try {
       const res = await apiCall('saveCheckIns', { sheet: sheetName, checkedNames: checkedNames });
@@ -807,7 +816,7 @@ async function apiCall(action, payload = {}) {
 
   async function lookupPhone() {
     const phone = document.getElementById('phoneInput').value;
-    document.getElementById('phoneStatus').innerText = "Searching player...";
+    document.getElementById('phoneStatus').innerHTML = '<span class="loading-spinner"></span>Searching player...';
     
     try {
       const res = await apiCall('findFoursomeByPhone', { phone: phone });
@@ -858,7 +867,7 @@ async function apiCall(action, payload = {}) {
   }
 
   async function toggleStatus() {
-    document.getElementById('phoneStatus').innerText = "Updating status...";
+    document.getElementById('phoneStatus').innerHTML = '<span class="loading-spinner"></span>Updating status...';
     try {
       await apiCall('togglePlayerStatus', { phone: document.getElementById('phoneInput').value });
       lookupPhone();
@@ -878,7 +887,7 @@ async function apiCall(action, payload = {}) {
       };
     });
     
-    document.getElementById('phoneStatus').innerText = "Submitting scores...";
+    document.getElementById('phoneStatus').innerHTML = '<span class="loading-spinner"></span>Submitting scores...';
     try {
       const res = await apiCall('submitCourtScores', {
         groupName: currentPlayerData.groupName,
@@ -907,7 +916,7 @@ async function apiCall(action, payload = {}) {
       status: 'pending'
     };
     
-    document.getElementById('phoneStatus').innerText = "Registering...";
+    document.getElementById('phoneStatus').innerHTML = '<span class="loading-spinner"></span>Registering...';
     try {
       const res = await apiCall('addNewUser', data);
       document.getElementById('phoneStatus').innerText = res;
@@ -921,7 +930,7 @@ async function apiCall(action, payload = {}) {
     const group = document.getElementById('groupViewerSelect').value;
     if (!group) return;
     
-    document.getElementById('viewerStatus').innerText = "Loading schedule and rankings...";
+    document.getElementById('viewerStatus').innerHTML = '<span class="loading-spinner"></span>Loading latest schedule & rankings...';
     try {
       const data = await apiCall('getRankingsAndSchedData', { group: group });
       renderRankingsAndSched(data);
@@ -936,15 +945,19 @@ async function apiCall(action, payload = {}) {
     let wLabel = data.weekNum; 
     
     if (data.sched && data.sched.length > 0) {
-      html += `<h4 style='margin:1rem 0 0.5rem 0;'>🎾 Week ${wLabel} Tentative Court Assignments</h4>`;
+      html += `<h4 style='margin:1rem 0 0.5rem 0;'>🎾 Week ${wLabel} Court Assignments</h4>`;
       let currentCourt = "";
       data.sched.forEach(row => {
         if (row.court !== currentCourt) {
           if (currentCourt !== "") html += "</div>";
           currentCourt = row.court;
-          html += "<div class='card'><div class='court-header'>Court " + currentCourt + "</div>";
+          let isBye = String(currentCourt).toUpperCase().includes("BYE");
+          let headerClass = isBye ? "court-header bye-header" : "court-header";
+          let courtTitle = isBye ? "⏸️ BYE (Sitting Out - Remainder)" : "Court " + currentCourt;
+          
+          html += `<div class='card'><div class='${headerClass}'>${courtTitle}</div>`;
         }
-        html += "<div style='padding:0.5rem 0; font-size:1.1rem; border-bottom:2px solid var(--row-border);'>" + row.name + "</div>";
+        html += `<div style='padding:0.5rem 0; font-size:1.1rem; border-bottom:2px solid var(--row-border);'>${row.name}</div>`;
       });
       if (currentCourt !== "") html += "</div>";
     }
@@ -960,23 +973,18 @@ async function apiCall(action, payload = {}) {
 
   async function runAdmin(funcName, arg) {
     const group = getSavedGroup();
-    document.getElementById('adminStatus').innerText = "Processing...";
+    document.getElementById('adminStatus').innerHTML = '<span class="loading-spinner"></span>Processing request...';
     try {
       const res = await apiCall(funcName, { arg: arg || group, group: group });
       document.getElementById('adminStatus').innerText = res || "Done.";
+      await loadRankingsAndSched();
     } catch(e) {
       document.getElementById('adminStatus').innerText = e.message;
     }
   }
 
-  function runReschedule() {
-    let tab = document.getElementById('adminSchedSelect').value || getSavedGroup();
-    if (!tab) return alert("Select a target group or schedule tab first.");
-    runAdmin('rescheduleFromCheckIns', tab);
-  }
-
   async function getAdminPdf() {
-    document.getElementById('adminStatus').innerText = "Generating PDF...";
+    document.getElementById('adminStatus').innerHTML = '<span class="loading-spinner"></span>Generating PDF...';
     try {
       const b64 = await apiCall('webExportSchedulePdf', { group: getSavedGroup() });
       document.getElementById('adminStatus').innerHTML = 
@@ -985,34 +993,60 @@ async function apiCall(action, payload = {}) {
       document.getElementById('adminStatus').innerText = e.message;
     }
   }
-function runRescheduleCheckedIn() {
-  let group = getSavedGroup();
-  if (!group) return alert("Please select an Admin Target Group first.");
-  
-  let tabName = group.startsWith("Sched ") ? group : "Sched " + group;
-  document.getElementById('adminStatus').innerText = "Rebuilding schedule for checked-in players...";
-  
-  runAdmin('rescheduleFromCheckIns', tabName);
-}
 
-function runRescheduleActive() {
-  let group = getSavedGroup(); // e.g., "Womens"
-  if (!group) {
-    alert("Please select a target group first.");
-    return;
+  async function runRescheduleCheckedIn() {
+    let group = getSavedGroup();
+    if (!group) return alert("Please select an Admin Target Group first.");
+    
+    let tabName = group.startsWith("Sched ") ? group : "Sched " + group;
+    const statusEl = document.getElementById('adminStatus');
+    const btn = document.getElementById('reschedCheckedInBtn');
+    
+    if (btn) btn.disabled = true;
+    statusEl.innerHTML = '<span class="loading-spinner"></span><b>Rescheduling checked-in players... Please wait.</b>';
+    
+    try {
+      const res = await apiCall('rescheduleFromCheckIns', { arg: tabName, group: group });
+      statusEl.innerHTML = '<span class="loading-spinner"></span>Fetching fresh schedule data...';
+      
+      // Flush and reload fresh schedule & check-in data
+      await loadRankingsAndSched();
+      await loadCheckInPlayers();
+      
+      statusEl.innerText = "✅ " + (res || "Reschedule finished! Schedule updated.");
+    } catch(e) {
+      statusEl.innerText = "❌ Reschedule Error: " + e.message;
+    } finally {
+      if (btn) btn.disabled = false;
+    }
   }
 
-  // Formats explicitly to "Score Womens"
-  let targetTab = group.startsWith("Score ") ? group : "Score " + group;
-  
-  document.getElementById('adminStatus').innerText = "Processing " + targetTab + "...";
+  async function runRescheduleActive() {
+    let group = getSavedGroup(); 
+    if (!group) return alert("Please select a target group first.");
 
-  // Send targetTab as the second parameter to Code.gs
-  google.script.run
-    .withSuccessHandler(onAdminSuccess)
-    .withFailureHandler(onAdminFailure)
-    .generateScheduleTabs(targetTab);
+    let targetTab = group.startsWith("Score ") ? group : "Score " + group;
+    const statusEl = document.getElementById('adminStatus');
+    const btn = document.getElementById('reschedActiveBtn');
+
+    if (btn) btn.disabled = true;
+    statusEl.innerHTML = '<span class="loading-spinner"></span><b>Rescheduling all active players... Please wait.</b>';
+
+    try {
+      const res = await apiCall('menuGenerateScheduleTabs', { arg: targetTab, group: group });
+      statusEl.innerHTML = '<span class="loading-spinner"></span>Fetching fresh schedule data...';
+
+      // Flush and reload fresh schedule & check-in data
+      await loadRankingsAndSched();
+      await loadCheckInPlayers();
+
+      statusEl.innerText = "✅ " + (res || "Reschedule finished! Schedule updated.");
+    } catch(e) {
+      statusEl.innerText = "❌ Reschedule Error: " + e.message;
+    } finally {
+      if (btn) btn.disabled = false;
     }
+  }
 
 </script>
 </body>
