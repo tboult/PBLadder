@@ -272,12 +272,6 @@ function handleApiRequest(e) {
         result = rescheduleFromCheckIns(reschedTarget);
         break;
 
-      case 'generateScheduleTabs':
-        // Safely construct tab name only if group/sheet parameters exist
-        let genTarget = payload.arg || payload.tab || payload.sheet || (payload.group ? "Score " + payload.group : null);
-        result = generateScheduleTabs(genTarget);
-        break;
-
       case 'menuSortActivePlayers':
         result = menuSortActivePlayers();
         break;
@@ -1203,6 +1197,7 @@ function rescheduleFromCheckIns(schedTabName) {
   }
 
   let checkedInPlayers = [];
+  let notCheckedInPlayers = [];
   let seen = new Set();
 
   for (let i = 1; i < data.length; i++) {
@@ -1210,32 +1205,42 @@ function rescheduleFromCheckIns(schedTabName) {
     let pName = row[nameIdx] ? row[nameIdx].toString().trim() : "";
     let checkVal = row[checkInIdx] ? row[checkInIdx].toString().trim().toLowerCase() : "";
 
-    let isCheckedIn = ["yes", "true", "x", "checked in", "1"].includes(checkVal);
+    if (!pName || pName.startsWith("---") || pName.startsWith("Time:")) continue;
 
-    if (pName && isCheckedIn) {
-      let cleanKey = pName.toLowerCase();
-      if (!seen.has(cleanKey)) {
-        seen.add(cleanKey);
+    let cleanKey = pName.toLowerCase();
+    if (!seen.has(cleanKey)) {
+      seen.add(cleanKey);
+      let isCheckedIn = ["yes", "true", "x", "checked in", "1"].includes(checkVal);
+      if (isCheckedIn) {
         checkedInPlayers.push(pName);
+      } else {
+        notCheckedInPlayers.push(pName);
       }
     }
   }
 
-  if (checkedInPlayers.length === 0) {
-    logDebug("rescheduleFromCheckIns", "No checked-in players found on tab", targetName);
-    return `⚠️ No players are currently marked as checked-in on ${targetName}.`;
+  let allPlayers = [
+    ...checkedInPlayers.map(p => ({ name: p, checkedIn: true })),
+    ...notCheckedInPlayers.map(p => ({ name: p, checkedIn: false }))
+  ];
+
+  if (allPlayers.length === 0) {
+    logDebug("rescheduleFromCheckIns", "No players found on tab", targetName);
+    return `⚠️ No players found on ${targetName}.`;
   }
 
   let schedOut = [["Name", "Court", "Game 1", "Game 2", "Game 3", "Total", "Check-In", "Entered By"]];
   let courtNum = 1;
 
-  for (let i = 0; i < checkedInPlayers.length; i += 4) {
+  for (let i = 0; i < allPlayers.length; i += 4) {
     let courtName = "Court " + courtNum;
     for (let j = 0; j < 4; j++) {
-      if (i + j < checkedInPlayers.length) {
+      if (i + j < allPlayers.length) {
+        let p = allPlayers[i + j];
         let rowNum = schedOut.length + 1;
         let sumFormula = `=IF(COUNT(C${rowNum}:E${rowNum})>0, SUM(C${rowNum}:E${rowNum}), "")`;
-        schedOut.push([checkedInPlayers[i + j], courtName, "", "", "", sumFormula, "YES", ""]);
+        let checkMarker = p.checkedIn ? "X" : "";
+        schedOut.push([p.name, courtName, "", "", "", sumFormula, checkMarker, ""]);
       }
     }
     courtNum++;
@@ -1247,8 +1252,8 @@ function rescheduleFromCheckIns(schedTabName) {
   sRange.setBorder(true, true, true, true, true, true, "black", SpreadsheetApp.BorderStyle.SOLID);
   sheet.getRange(1, 1, 1, 8).setFontWeight("bold");
 
-  logDebug("rescheduleFromCheckIns", `Rescheduled ${checkedInPlayers.length} players across ${courtNum - 1} courts`);
-  return `✅ Rescheduled ${checkedInPlayers.length} checked-in players across ${courtNum - 1} courts on '${targetName}'.`;
+  logDebug("rescheduleFromCheckIns", `Rescheduled ${allPlayers.length} players (${checkedInPlayers.length} checked-in first, ${notCheckedInPlayers.length} at end) across ${courtNum - 1} courts`);
+  return `✅ Rescheduled ${allPlayers.length} total players (${checkedInPlayers.length} checked in first, ${notCheckedInPlayers.length} placed at end courts/BYE without check-in marker) across ${courtNum - 1} courts on '${targetName}'.`;
 }
 
 /* ==========================================
