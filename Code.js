@@ -270,7 +270,7 @@ function handleApiRequest(e) {
     logDebug("handleApiRequest", "Dispatching action", action);
 
     let result;
-
+    switch(action) {
        case 'sortActivePlayers':
         {
           let targetGroup = payload.arg || payload.group;
