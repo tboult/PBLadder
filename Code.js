@@ -108,7 +108,7 @@ function getPlayersForCheckIn(inputName) {
     players.push({ name: pName, checkedIn: isCheckedIn });
   }
 
-  logDebug("getPlayersForCheckIn", `Parsed ${player.length} players for check-in on '${sheet.getName()}'`); 
+  logDebug("getPlayersForCheckIn", `Parsed ${players.length} players for check-in on '${sheet.getName()}'`); 
   return players;
 }
 
