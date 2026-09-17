@@ -77,40 +77,43 @@ function getAvailableGroups() {
 }
 
 
-function getPlayersForCheckIn(schedSheetName) {
-  logDebug("getPlayersForCheckIn", "Triggered for sheet", schedSheetName);
-  if (!schedSheetName) return [];
+function getPlayersForCheckIn(inputName) {
+  if (!inputName) return { error: "No sheet or group name provided." };
+
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  if (!ss) return [];
   
-  let sheet = ss.getSheetByName(schedSheetName);
-  if (!sheet && !schedSheetName.startsWith("Sched ")) {
-    sheet = ss.getSheetByName("Sched " + schedSheetName);
-  }
-  if (!sheet) {
-    logDebug("getPlayersForCheckIn", "Sheet not found", schedSheetName);
-    return [];
-  }
-  
+  // Strip prefixes to isolate core group name
+  let cleanGroupName = inputName.replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
+
+  // Check possible tab naming patterns
+  let sheet = ss.getSheetByName("Sched " + cleanGroupName) || 
+              ss.getSheetByName("Score " + cleanGroupName) || 
+              ss.getSheetByName(inputName);
+
+  if (!sheet) return { error: `Sheet not found for group '${inputName}'` };
+
   const data = sheet.getDataRange().getValues();
-  let result = [];
-  
-  for (let i = 0; i < data.length; i++) {
-    let name = data[i][0] ? data[i][0].toString().trim() : "";
-    let court = data[i][1] ? data[i][1].toString().trim() : "";
-    let status = data[i][5] ? data[i][5].toString().trim().toUpperCase() : "";
-    
-    if (name && court && court !== "BYE" && !name.startsWith("---") && !name.startsWith("Time:") && !name.toLowerCase().startsWith("name")) {
-      result.push({ 
-        name: name, 
-        court: court, 
-        checked: status === "X" || status === "TRUE" || status === "CHECKED" || status === "YES" 
-      });
-    }
+  if (data.length <= 1) return [];
+
+  const headers = data[0].map(h => h.toString().toLowerCase().trim());
+  const nameIdx = headers.indexOf("name") !== -1 ? headers.indexOf("name") : 0;
+  const checkInIdx = headers.indexOf("check-in");
+
+  let players = [];
+  for (let r = 1; r < data.length; r++) {
+    let pName = (data[r][nameIdx] || "").toString().trim();
+    if (!pName || pName.startsWith("---") || pName.startsWith("time:")) continue;
+
+    let isCheckedIn = checkInIdx !== -1 ? Boolean(data[r][checkInIdx]) : false;
+    players.push({ name: pName, checkedIn: isCheckedIn });
   }
-  logDebug("getPlayersForCheckIn", `Parsed ${result.length} players for check-in on '${sheet.getName()}'`);
-  return result;
+
+  logDebug("getPlayersForCheckIn", `Parsed ${player} players for check-in on '${sheet.getName()}'`);
+  return players;
 }
+
+
+
 
 function saveCheckIns(schedSheetName, checkedPlayerNames) {
   logDebug("saveCheckIns", "Saving check-ins for sheet", { schedSheetName, checkedPlayerNames });
@@ -195,7 +198,8 @@ function handleApiRequest(e) {
         break;
 
       case 'getPlayersForCheckIn':
-        result = getPlayersForCheckIn(payload.sheet || payload.schedSheetName || payload.tab);
+        let sheetName = payload.sheet || payload.schedSheetName || payload.tab || payload.groupName || payload.group || "";
+        result = getPlayersForCheckIn(sheetName);
         break;
 
       case 'saveCheckIns':
