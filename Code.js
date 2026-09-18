@@ -323,10 +323,6 @@ function handleApiRequest(e) {
         // Safely check if data.phone exists before passing it
         var userPhone = (data && data.phone) ? data.phone : null;
         result = getInitialAppData(userPhone);
-
-      case 'getInitialAppData':
-        result = getInitialAppData(data.phone);
-        break;
       
       case 'getSchedTabNames':
         result = getSchedTabNames();
