@@ -386,6 +386,19 @@
   const API_URL = window.API_URL;
   const CURRENT_APP_VERSION = "1.1.4";
 
+
+  const GROUP_COURT_MAP = {
+      "Womens": [3,4,5,6,7,8,15,16,17,18,19,20],
+      "Mens": [5,6,9,10,13,14,15,16],
+      "Mixed": [3,4,5,6,7,8,15,16,17,18,19,20],
+      "Default": [5,6,9,10,13,14,15,16]
+  };
+
+  function getCourtsForGroup(groupName) {
+    return GROUP_COURT_MAP[groupName] || GROUP_COURT_MAP["Default"];
+  }
+  
+
   let adminPlayersCache = []; 
 
   // --- REGISTER SERVICE WORKER FOR PWA ---
@@ -1139,6 +1152,24 @@ document.addEventListener('visibilitychange', () => {
 
 // Start timer on initial launch
 startCheckInAutoRefresh();  
+
+function initializeGroupCourts(groupName) {
+  const availableCourts = getCourtsForGroup(groupName);
+  
+  // Assign the first court of the groups assigned set as default if none set
+  if (currentPlayerData && (!currentPlayerData.court || currentPlayerData.court === 1)) {
+    currentPlayerData.court = availableCourts[0];
+  }
+
+  // Optional: Render court dropdown dynamically
+  const courtSelect = document.getElementById('courtSelect');
+  if (courtSelect) {
+    courtSelect.innerHTML = availableCourts.map(c => 
+      `<option value="${c}">Court ${c}</option>`
+    ).join('');
+    courtSelect.value = currentPlayerData.court;
+  }
+}  
 
 </script>
 </body>

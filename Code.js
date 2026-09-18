@@ -66,6 +66,17 @@ const ALWAYS_BYE_LOWEST = true;
 const GROUPS = ["Womens", "Mens", "Mixed"];
 const SCHEDULE_TABS = ["Sched Womens", "Sched Mens", "Sched Mixed"];
 
+const GROUP_COURT_MAP = {
+  "Womens": [3,4,5,6,7,8,15,16,17,18,19,20],
+  "Mens": [5,6,9,10,13,14,15,16],
+  "Mixed": [3,4,5,6,7,8,15,16,17,18,19,20],
+  "Default": [5,6,9,10,13,14,15,16]
+};
+
+function getCourtsForGroup(groupName) {
+  return GROUP_COURT_MAP[groupName] || GROUP_COURT_MAP["Default"];
+}
+
 
 /**
  * Returns configuration directly from hardcoded constants.
@@ -1192,6 +1203,11 @@ function sortActivePlayersForSheet(sheet) {
  * SCHEDULE GENERATION
  * ========================================== */
 
+
+/* ==========================================
+ * SCHEDULE GENERATION WITH GROUP COURT MAPPING
+ * ========================================== */
+
 function generateScheduleTabs(scoreTabName = null) {
   logDebug("generateScheduleTabs", "Generating schedule for score tab", scoreTabName);
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -1239,12 +1255,20 @@ function generateScheduleTabs(scoreTabName = null) {
   let schedSheet = ss.getSheetByName(schedSheetName) || ss.insertSheet(schedSheetName);
   schedSheet.clear();
 
+  // Retrieve assigned court numbers list for this group
+  const availableCourts = getCourtsForGroup(cleanGroupName);
+
   // 8 Columns: Name, Court, Game 1, Game 2, Game 3, Total, Check-In, Entered By
   let schedOut = [["Name", "Court", "Game 1", "Game 2", "Game 3", "Total", "Check-In", "Entered By"]];
-  let courtNum = 1;
+  let courtIdx = 0;
 
   for (let i = 0; i < activePlayers.length; i += 4) {
-    let courtName = "Court " + courtNum;
+    // Map court index to the specific court number assigned in GROUP_COURT_MAP
+    let courtNumber = availableCourts[courtIdx] !== undefined 
+      ? availableCourts[courtIdx] 
+      : (courtIdx + 1);
+    let courtName = "Court " + courtNumber;
+
     for (let j = 0; j < 4; j++) {
       if (i + j < activePlayers.length) {
         let rowNum = schedOut.length + 1;
@@ -1252,7 +1276,7 @@ function generateScheduleTabs(scoreTabName = null) {
         schedOut.push([activePlayers[i+j].name, courtName, "", "", "", sumFormula, "", ""]);
       }
     }
-    courtNum++;
+    courtIdx++;
   }
 
   let sRange = schedSheet.getRange(1, 1, schedOut.length, 8);
@@ -1261,7 +1285,7 @@ function generateScheduleTabs(scoreTabName = null) {
   schedSheet.getRange(1, 1, 1, 8).setFontWeight("bold");
 
   logDebug("generateScheduleTabs", "Schedule tab successfully updated", schedSheetName);
-  return `✅ Schedule generated successfully for ${cleanGroupName} (${activePlayers.length} players, ${courtNum - 1} courts).`;
+  return `✅ Schedule generated successfully for ${cleanGroupName} (${activePlayers.length} players, ${courtIdx} courts).`;
 }
 
 function rescheduleFromCheckIns(schedTabName) {
@@ -1274,83 +1298,48 @@ function rescheduleFromCheckIns(schedTabName) {
   } else if (targetName.startsWith("Score ")) {
     targetName = targetName.replace("Score ", "Sched ");
   }
-  
-  let sheet = ss.getSheetByName(targetName);
-  if (!sheet) {
-    logDebug("rescheduleFromCheckIns", "Target sheet not found", targetName);
-    return `⚠️ Target sheet '${targetName}' was not found.`;
-  }
 
-  let data = sheet.getDataRange().getValues();
-  if (data.length <= 1) return `⚠️ No data found on ${targetName}`;
+  let schedSheet = ss.getSheetByName(targetName);
+  if (!schedSheet) return "⚠️ Error: Schedule sheet '" + targetName + "' not found.";
 
-  let headers = data[0].map(h => h.toString().toLowerCase().trim());
-  let nameIdx = headers.indexOf("name");
-  let checkInIdx = headers.indexOf("check-in");
+  // Fetch checked-in players
+  const allPlayers = getPlayersForCheckIn(targetName);
+  const checkedInPlayers = Array.isArray(allPlayers) ? allPlayers.filter(p => p.checkedIn || p.checked) : [];
 
-  if (nameIdx === -1 || checkInIdx === -1) {
-    return `⚠️ Required columns ("Name" and "Check-In") missing on ${targetName}`;
-  }
+  if (checkedInPlayers.length === 0) return "⚠️ No checked-in players found on " + targetName;
 
-  let checkedInPlayers = [];
-  let notCheckedInPlayers = [];
-  let seen = new Set();
+  let cleanGroupName = targetName.replace("Sched ", "").trim();
+  const availableCourts = getCourtsForGroup(cleanGroupName);
 
-  for (let i = 1; i < data.length; i++) {
-    let row = data[i];
-    let pName = row[nameIdx] ? row[nameIdx].toString().trim() : "";
-    let checkVal = row[checkInIdx] ? row[checkInIdx].toString().trim().toLowerCase() : "";
-
-    if (!pName || pName.startsWith("---") || pName.startsWith("Time:")) continue;
-
-    let cleanKey = pName.toLowerCase();
-    if (!seen.has(cleanKey)) {
-      seen.add(cleanKey);
-      let isCheckedIn = ["yes", "true", "x", "checked in", "1"].includes(checkVal);
-      if (isCheckedIn) {
-        checkedInPlayers.push(pName);
-      } else {
-        notCheckedInPlayers.push(pName);
-      }
-    }
-  }
-
-  let allPlayers = [
-    ...checkedInPlayers.map(p => ({ name: p, checkedIn: true })),
-    ...notCheckedInPlayers.map(p => ({ name: p, checkedIn: false }))
-  ];
-
-  if (allPlayers.length === 0) {
-    logDebug("rescheduleFromCheckIns", "No players found on tab", targetName);
-    return `⚠️ No players found on ${targetName}.`;
-  }
-
+  schedSheet.clear();
   let schedOut = [["Name", "Court", "Game 1", "Game 2", "Game 3", "Total", "Check-In", "Entered By"]];
-  let courtNum = 1;
+  let courtIdx = 0;
 
-  for (let i = 0; i < allPlayers.length; i += 4) {
-    let courtName = "Court " + courtNum;
+  for (let i = 0; i < checkedInPlayers.length; i += 4) {
+    let courtNumber = availableCourts[courtIdx] !== undefined 
+      ? availableCourts[courtIdx] 
+      : (courtIdx + 1);
+    let courtName = "Court " + courtNumber;
+
     for (let j = 0; j < 4; j++) {
-      if (i + j < allPlayers.length) {
-        let p = allPlayers[i + j];
+      if (i + j < checkedInPlayers.length) {
         let rowNum = schedOut.length + 1;
         let sumFormula = `=IF(COUNT(C${rowNum}:E${rowNum})>0, SUM(C${rowNum}:E${rowNum}), "")`;
-        let checkMarker = p.checkedIn ? "X" : "";
-        schedOut.push([p.name, courtName, "", "", "", sumFormula, checkMarker, ""]);
+        schedOut.push([checkedInPlayers[i+j].name, courtName, "", "", "", sumFormula, "X", ""]);
       }
     }
-    courtNum++;
+    courtIdx++;
   }
 
-  sheet.clearContents();
-  let sRange = sheet.getRange(1, 1, schedOut.length, 8);
+  let sRange = schedSheet.getRange(1, 1, schedOut.length, 8);
   sRange.setValues(schedOut);
   sRange.setBorder(true, true, true, true, true, true, "black", SpreadsheetApp.BorderStyle.SOLID);
-  sheet.getRange(1, 1, 1, 8).setFontWeight("bold");
+  schedSheet.getRange(1, 1, 1, 8).setFontWeight("bold");
 
-  logDebug("rescheduleFromCheckIns", `Rescheduled ${allPlayers.length} players (${checkedInPlayers.length} checked-in first, ${notCheckedInPlayers.length} at end) across ${courtNum - 1} courts`);
-  return `✅ Rescheduled ${allPlayers.length} total players (${checkedInPlayers.length} checked in first, ${notCheckedInPlayers.length} placed at end courts/BYE without check-in marker) across ${courtNum - 1} courts on '${targetName}'.`;
+  logDebug("rescheduleFromCheckIns", "Check-in schedule regenerated", targetName);
+  return `✅ Rescheduled ${checkedInPlayers.length} checked-in players for ${cleanGroupName} across ${courtIdx} courts.`;
 }
+
 
 /* ==========================================
  * 7. PDF GENERATION
