@@ -730,16 +730,14 @@ async function processApiQueue() {
   let tapCount = 0;
   let tapTimer = null;
 
-window.onload = async function() {
+ window.onload = async function() {
   checkAppVersion();
   initAccessibility();
   
   try {
-    const p1 = apiCall('getSchedTabNames').then(populateSheets).catch(() => {});
-    const p2 = apiCall('getAvailableGroups').then(groups => {
-      populateGroups(groups);
-      autoSelectStoredGroup();
-    }).catch(() => {});
+    // 1. Fire off API calls but dont auto-select yet
+    const p1 = apiCall('getSchedTabNames').then(populateSheets).catch(e => console.warn("Failed tabs:", e));
+    const p2 = apiCall('getAvailableGroups').then(populateGroups).catch(e => console.warn("Failed groups:", e));
 
     const savedPhone = localStorage.getItem('foursome_phone');
     let p3 = Promise.resolve();
@@ -750,6 +748,10 @@ window.onload = async function() {
 
     // Wait until startup calls complete
     await Promise.allSettled([p1, p2, p3]);
+    
+    // 3. NOW it is safe to auto-select and trigger the Check-in load
+    autoSelectStoredGroup();
+    
   } finally {
     isInitialLoading = false;
     updateGlobalLoaderStatus();
@@ -927,37 +929,41 @@ window.onload = async function() {
 
    let isSavingCheckIn = false;
 
-   async function loadCheckInPlayers(isSilent = false) {
-       const sheet = document.getElementById('sheetSelect').value;
-       if (!sheet) return;
-       
-       // Dont overwrite the UI while a player is actively tapping a row
-       if (isSilent && isSavingCheckIn) return;
-       
-       if (!isSilent) {
-           document.getElementById('checkInStatus').innerHTML = '<span class="loading-spinner"></span>Loading players...';
-       }
-       
-       try {
-           // Single light API call for current sheet check-ins (~1 second)
-           const checkInData = await apiCall('getPlayersForCheckIn', { sheet: sheet }) || [];
-           
-           checkInData.forEach(p => {
-               let val = (p.checkedIn !== undefined) ? p.checkedIn : p.checked;
-               p.checked = !!val;
-               p.checkedIn = !!val;
-           }); // Closes checkInData.forEach
-                               
-           renderCheckInPlayers(checkInData, sheet);
-        } catch(e) {
-            if (!isSilent) {
-                document.getElementById('checkInStatus').innerText = e.message;
-            } else {
-           console.warn("Silent check-in polling failed:", e.message);
-            } // Closes else
-        } // Closes
-   } // Closes loadCheckInPlayers
-  
+
+  async function loadCheckInPlayers(isSilent = false) {
+      const sheet = document.getElementById('sheetSelect').value;
+      if (!sheet) return;
+    
+      // Don't overwrite the UI while a player is actively tapping a row
+      if (isSilent && isSavingCheckIn) return;
+      
+      if (!isSilent) {
+          document.getElementById('checkInStatus').innerHTML = '<span class="loading-spinner"></span>Loading players...';
+      }
+      
+      try {
+          const rawData = await apiCall('getPlayersForCheckIn', { sheet: sheet }) || [];
+          
+          // Safely extract the array whether its direct data or wrapped in an object
+          let checkInData = Array.isArray(rawData) ? rawData : (rawData.players || []);
+          
+          checkInData.forEach(p => {
+              let val = (p.checkedIn !== undefined) ? p.checkedIn : p.checked;
+              p.checked = !!val;
+              p.checkedIn = !!val;
+          });
+                            
+          renderCheckInPlayers(checkInData, sheet);
+      } catch(e) {
+          if (!isSilent) {
+              document.getElementById('checkInStatus').innerText = "Error: " + e.message;
+          } else {
+              console.warn("Silent check-in polling failed:", e.message);
+          }
+      } 
+  }  
+
+
 
 
 
@@ -1344,6 +1350,12 @@ function initializeGroupCourts(groupName) {
     courtSelect.value = currentPlayerData.court;
   }
 }  
+window.onGroupChange = function(selectId) {
+  const val = document.getElementById(selectId)?.value;
+  if (val) localStorage.setItem('foursome_last_group', val);
+};
+
+window.loadCheckInPlayers = loadCheckInPlayers;
 
 </script>
 </body>
