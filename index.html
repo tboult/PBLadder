@@ -135,7 +135,7 @@
       .tab-content { display: none; }
       .tab-content.active { display: block; }
 
-      input, select, button { 
+      input,  button { 
       width: 100%; 
       padding: 0.75rem; 
       margin-top: 0.5rem; 
@@ -149,43 +149,48 @@
       }
 
       select {
-      /* 1. Strip default browser UI overlays */
-      -webkit-appearance: none;
-      -moz-appearance: none;
-      appearance: none;
-      
-      /* 2. Lock box boundaries and alignment */
-      box-sizing: border-box;
-      width: 80%;
+      width: 100%;
       padding: 0.75rem 1rem;
-      line-height: 1.2;
-      vertical-align: middle;
+      margin-top: 0.5rem;
+      border-radius: 0.5rem;
+      border: 2px solid var(--input-border);
+      font-size: 1rem;
+      background-color: var(--input-bg);
+      color: var(--text-color);
+      min-height: 54px;
+      box-sizing: border-box;
       
-      /* 3. Force colors so OS defaults (e.g. blue text/white fill) are overridden */
-      color: var(--text-color, #ffffff);
-      background-color: var(--btn-bg, #007bff);
-      border: 1px solid transparent;
-      border-radius: 6px;
+      /* Restores predictable native dropdown picker alignment across iOS/Android/Desktop */
+      appearance: auto;
+      -webkit-appearance: auto;
+      -moz-appearance: auto;
       }
-
+      
+      /* Forces options to remain legible inside OS popover windows */
+      select option {
+      background-color: var(--card-bg);
+      color: var(--text-color);
+      }
+      
       button, .btn, .btn-main {
       background-color: #e8f5e9;
-        color: #1b5e20;
-        border: 1px solid #a5d6a7;
-        padding: 10px 16px;
-        border-radius: 6px;
-        font-weight: bold;
-        cursor: pointer;
-        transition: background-color 0.2s ease;
+      color: #1b5e20;
+      border: 1px solid #a5d6a7;
+      padding: 10px 16px;
+      border-radius: 6px;
+      font-weight: bold;
+      font-size: 22pt;      
+      cursor: pointer;
+      transition: background-color 0.2s ease;
       }
-
+      
       button:hover, .btn:hover, .btn-main:hover {
-        background-color: #c8e6c9; 
-        color: #0d3b0e;
+      background-color: #c8e6c9; 
+      color: #0d3b0e;
       }
 
       button:active, .btn:active, .btn-main:active {
-        background-color: #a5d6a7;
+      background-color: #a5d6a7;
       }
 
       .btn-sub { background-color: var(--btn-sub-bg); color: var(--btn-sub-text); font-weight: bold; border: none; cursor: pointer; }
@@ -616,10 +621,21 @@ async function processApiQueue() {
 }
 
   // --- LOCAL STORAGE CACHE HANDLERS ---
-    function getSavedGroup() {
-    const saved = localStorage.getItem('scpb_selected_group');
-    return (saved && saved.trim()) ? saved.trim() : 'Womens';
-  }
+function getSavedGroup() {
+  const saved = localStorage.getItem('scpb_selected_group');
+  return (saved && saved.trim()) ? saved.trim() : 'Womens';
+}
+
+// Load cached options instantly on script execution
+(function loadFromCache() {
+  const cachedSheets = localStorage.getItem('cached_sheets');
+  const cachedGroups = localStorage.getItem('cached_groups');
+  
+  if (cachedSheets) populateSheets(JSON.parse(cachedSheets));
+  if (cachedGroups) populateGroups(JSON.parse(cachedGroups));
+
+  autoSelectStoredGroup(); // 👈 Triggers data load for Womens immediately
+})();
 
   function setSavedGroup(groupName) {
     if (!groupName) return;
@@ -852,11 +868,12 @@ function applyTextSize(size) {
   }
 
 
-// ✅ REPLACE populateSheets and populateGroups with batch string building
 function populateSheets(sheets) {
   const sel1 = document.getElementById('sheetSelect');
   const sel2 = document.getElementById('adminSchedSelect');
   
+  if (!sheets || sheets.length === 0) return;
+
   let options1 = '<option value="">-- Choose Group --</option>';
   let options2 = '<option value="">-- Choose Group --</option>';
 
@@ -868,9 +885,14 @@ function populateSheets(sheets) {
 
   if (sel1) sel1.innerHTML = options1;
   if (sel2) sel2.innerHTML = options2;
+
+  // 👈 Auto-select stored group or fallback to "Womens"
+  syncAllGroupDropdowns(getSavedGroup());
 }
 
 function populateGroups(groups) {
+  if (!groups || groups.length === 0) return;
+
   const selectIds = ['groupViewerSelect', 'regGroup', 'adminRegGroup', 'adminStatusGroupSelect', 'adminGlobalGroupSelect'];
   
   selectIds.forEach(id => {
@@ -883,7 +905,11 @@ function populateGroups(groups) {
       el.innerHTML = options;
     }
   });
-}  
+
+  // 👈 Auto-select stored group or fallback to "Womens"
+  syncAllGroupDropdowns(getSavedGroup());
+}
+  
 
   async function loadAdminPlayerStatusCache(group) {
     if (!group) return;
