@@ -346,7 +346,7 @@ function handleApiRequest(e) {
         result = saveCheckIns(payload.sheet || payload.schedSheetName || payload.tab, payload.checkedNames);
         break;
 
-      case 'findFoursomeByPhone':
+      case 'findFoursomeByPhone': 
         result = findFoursomeByPhone(payload.phone);
         break;
 

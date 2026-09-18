@@ -1105,7 +1105,7 @@ let autoRefreshTimer = null;
 function startCheckInAutoRefresh() {
   if (autoRefreshTimer) return;
   
-  // Refresh every 15 seconds
+  // Refresh every 10 seconds
   autoRefreshTimer = setInterval(() => {
     const isCheckInActive = document.getElementById('checkinTab').classList.contains('active');
     const isTabVisible = document.visibilityState === 'visible';
@@ -1115,7 +1115,7 @@ function startCheckInAutoRefresh() {
     if (isCheckInActive && isTabVisible && !isUserSelecting) {
       loadCheckInPlayers(true); // Silent background reload
     }
-  }, 15000);
+  }, 10000);
 }
 
 function stopCheckInAutoRefresh() {
