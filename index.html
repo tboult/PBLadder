@@ -767,7 +767,7 @@ async function apiCall(action, payload = {}) {
                let val = (p.checkedIn !== undefined) ? p.checkedIn : p.checked;
                p.checked = !!val;
                p.checkedIn = !!val;
-           }; // Closes checkInData.forEach
+           }); // Closes checkInData.forEach
                                
            renderCheckInPlayers(checkInData, sheet);
         } catch(e) {
