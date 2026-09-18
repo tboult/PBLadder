@@ -196,6 +196,7 @@ function toggleSingleCheckIn(sheetNameOrData, playerName, isCheckedIn) {
 
 
 
+
 function saveCheckIns(schedSheetName, checkedPlayerNames) {
   logDebug("saveCheckIns", "Saving check-ins for sheet", { schedSheetName, checkedPlayerNames });
   if (!schedSheetName) return "⚠️ Error: No target sheet specified.";
