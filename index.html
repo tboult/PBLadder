@@ -288,6 +288,7 @@
       <span id="globalLoaderText">Loading app...</span>
     </div>
 
+
     <div class="nav">
       <button id="tab1Btn" class="active" onclick="switchTab('checkin')">Check-In</button>
       <button id="tab2Btn" onclick="switchTab('phone')">Enter Scores</button>
@@ -435,6 +436,7 @@
           
           <hr>
           <button class="btn-sub" onclick="runAdmin('sortActivePlayers')">Sort Active Players (Current Group)</button>
+          <button class="btn-sub" onclick="runAdmin('generateScheduleTabs')">Generate Schedule (Current Group)</button>
           <button class="btn-sub" onclick="runAdmin('updateStandingsWithShift')">End of Week (Shift Scores)</button>
           <button class="btn-sub" onclick="runAdmin('correctScoresNoShift')">Correct Scores (No Shift)</button>
           <button class="btn-sub" onclick="getAdminPdf()">Download PDF Schedules</button>
@@ -443,113 +445,906 @@
         <!-- ADD NEW PLAYER (PENDING STATUS) -->
         <div class="card" style="margin-top:1.5rem; margin-bottom:1rem; background: var(--bg-color);">
           <h4 style="margin:0 0 0.5rem 0;">➕ Add New Player</h4>
-          <button class="btn-main" onclick="showRegistrationAdmin()">Register Player</button>
+          <input type="text" id="adminRegFirst" placeholder="First Name">
+          <input type="text" id="adminRegLast" placeholder="Last Name">
+          <input type="tel" id="adminRegPhone" placeholder="Phone Number">
+          <input type="email" id="adminRegEmail" placeholder="Email">
+          <button class="btn-main" style="margin-top:0.75rem;" onclick="submitAdminRegistration()">Add Pending Player</button>
         </div>
+
+        <button class="btn-danger desktop-only" style="margin-top:2rem;" onclick="if(confirm('🚨 WARNING: Are you sure you want to start a new season? This will permanently wipe all current scores across ALL groups.')) runAdmin('startNewSeason')">🚨 Start New Season</button>
+
+        <div id="adminStatus" class="status-msg"></div>
       </div>
     </div>
 
-    <!-- CORE SCRIPT LOGIC FOR ADMIN COURT HANDLING -->
-    <script>
-      // Shared Court Map
-      const ADMIN_GROUP_COURT_MAP = {
-        "Womens": [3,4,5,6,7,8,15,16,17,18,19,20],
-        "Mens": [5,6,9,10,13,14,15,16],
-        "Mixed": [3,4,5,6,7,8,15,16,17,18,19,20],
-        "Default": [5,6,9,10,13,14,15,16]
-      };
+<script>
 
-      function renderAdminCourts(groupName) {
-        const list = document.getElementById('admin-court-list');
-        list.innerHTML = '';
-        
-        if (!groupName) {
-          list.innerHTML = '<i style="grid-column: 1 / -1; text-align: center; color: #666;">Select a group above to load courts...</i>';
-          return;
-        }
+  window.API_URL = "https://script.google.com/macros/s/AKfycbweTOjVcY0R1sxXrYfbN2S9jqMz4yr5b1alVoz0gjVy3P3ty42rtHlfgfpdjtFnF4nFaQ/exec";
+  // to test access append something action to above  ?action=getAppVersion
+  const API_URL = window.API_URL;
+  const CURRENT_APP_VERSION = "1.1.4";
 
-        const defaultCourts = ADMIN_GROUP_COURT_MAP[groupName] || ADMIN_GROUP_COURT_MAP["Default"];
-        
-        // Render all possible courts dynamically (assumes 24 max courts)
-        for (let i = 1; i <= 24; i++) {
-          const div = document.createElement('div');
-          div.className = 'court-item';
-          
-          const isChecked = defaultCourts.includes(i) ? 'checked' : '';
-          
-          div.innerHTML = `
-            <input type="checkbox" id="admin_court_${i}" value="${i}" ${isChecked} data-court-num="${i}">
-            <label for="admin_court_${i}">Ct ${i}</label>
-          `;
-          list.appendChild(div);
-        }
-      }
 
-      function getSelectedCourts() {
-        const selected = [];
-        const checkboxes = document.querySelectorAll('#admin-court-list input[type="checkbox"]:checked');
-        checkboxes.forEach(cb => selected.push(parseInt(cb.value, 10)));
-        return selected;
-      }
+  const GROUP_COURT_MAP = {
+      "Womens": [3,4,5,6,7,8,15,16,17,18,19,20],
+      "Mens": [5,6,9,10,13,14,15,16],
+      "Mixed": [3,4,5,6,7,8,15,16,17,18,19,20],
+      "Default": [5,6,9,10,13,14,15,16]
+  };
 
-      // Existing Hook for global group change, modified to trigger court rendering
-      function onAdminGlobalGroupChange() {
-        const group = document.getElementById('adminGlobalGroupSelect').value;
-        renderAdminCourts(group);
-        
-        // (You can place your existing logic to filter admin players or update links here)
-        if(typeof filterAdminPlayers === 'function') filterAdminPlayers();
-      }
+  function getCourtsForGroup(groupName) {
+    return GROUP_COURT_MAP[groupName] || GROUP_COURT_MAP["Default"];
+  }
 
-      function runRescheduleCheckedIn() {
-        const group = document.getElementById('adminGlobalGroupSelect').value;
-        if (!group) { alert("Please select an admin target group first."); return; }
-        
-        const courts = getSelectedCourts();
-        if(courts.length === 0) { alert("Please select at least 1 court to use."); return; }
-        
-        if(typeof showLoader === 'function') showLoader("Rescheduling...");
-        google.script.run
-          .withSuccessHandler(res => { if(typeof hideLoader === 'function') hideLoader(); alert(res); })
-          .withFailureHandler(err => { if(typeof hideLoader === 'function') hideLoader(); alert(err); })
-          .rescheduleFromCheckIns({ group: group, courts: courts });
-      }
+  function renderAdminCourts(groupName) {
+    const list = document.getElementById('admin-court-list');
+    if (!list) return;
+    list.innerHTML = '';
+    
+    if (!groupName) {
+      list.innerHTML = '<i style="grid-column: 1 / -1; text-align: center; color: #666;">Select a group above to load courts...</i>';
+      return;
+    }
 
-      function runRescheduleActive() {
-        const group = document.getElementById('adminGlobalGroupSelect').value;
-        if (!group) { alert("Please select an admin target group first."); return; }
-
-        const courts = getSelectedCourts();
-        if(courts.length === 0) { alert("Please select at least 1 court to use."); return; }
-        
-        if(typeof showLoader === 'function') showLoader("Rescheduling...");
-        google.script.run
-          .withSuccessHandler(res => { if(typeof hideLoader === 'function') hideLoader(); alert(res); })
-          .withFailureHandler(err => { if(typeof hideLoader === 'function') hideLoader(); alert(err); })
-          .generateScheduleTabs({ group: group, courts: courts });
-      }
+    const defaultCourts = GROUP_COURT_MAP[groupName] || GROUP_COURT_MAP["Default"];
+    
+    // Render all possible courts dynamically (assumes 24 max courts)
+    for (let i = 1; i <= 24; i++) {
+      const div = document.createElement('div');
+      div.className = 'court-item';
       
-      // Generic runAdmin handler fallback
-      function runAdmin(action) {
-        const group = document.getElementById('adminGlobalGroupSelect').value;
-        if(typeof showLoader === 'function') showLoader("Running process...");
-        google.script.run
-          .withSuccessHandler(res => { if(typeof hideLoader === 'function') hideLoader(); alert(res); })
-          .withFailureHandler(err => { if(typeof hideLoader === 'function') hideLoader(); alert(err); })
-          .handleApiRequest({ action: action, group: group });
+      const isChecked = defaultCourts.includes(i) ? 'checked' : '';
+      
+      div.innerHTML = `
+        <input type="checkbox" id="admin_court_${i}" value="${i}" ${isChecked} data-court-num="${i}">
+        <label for="admin_court_${i}">Ct ${i}</label>
+      `;
+      list.appendChild(div);
+    }
+  }
+
+  function getSelectedCourts() {
+    const selected = [];
+    const checkboxes = document.querySelectorAll('#admin-court-list input[type="checkbox"]:checked');
+    checkboxes.forEach(cb => selected.push(parseInt(cb.value, 10)));
+    return selected;
+  }
+  
+
+  let adminPlayersCache = []; 
+
+  // --- REGISTER SERVICE WORKER FOR PWA ---
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js')
+        .then(reg => console.log('PWA Service Worker registered:', reg.scope))
+        .catch(err => console.warn('Service Worker registration failed:', err));
+    });
+  }
+
+// In-memory queue to serialize requests and prevent GAS execution locks
+let apiQueue = [];
+let isProcessingQueue = false;
+let isInitialLoading = true;
+
+function updateGlobalLoaderStatus() {
+  const loader = document.getElementById('globalLoader');
+  const loaderText = document.getElementById('globalLoaderText');
+  if (!loader || !loaderText) return;
+
+  if (isInitialLoading) {
+    loaderText.innerText = "Loading app...";
+    loader.style.display = "flex";
+  } else if (isProcessingQueue || apiQueue.length > 0) {
+    const pending = apiQueue.length;
+    loaderText.innerText = pending > 0 ? `Syncing (${pending + 1})...` : "Syncing...";
+    loader.style.display = "flex";
+  } else {
+    loader.style.display = "none";
+  }
+}
+
+function apiCall(action, payload = {}) {
+  return new Promise((resolve, reject) => {
+    apiQueue.push({ action, payload, resolve, reject });
+    updateGlobalLoaderStatus();
+    processApiQueue();
+  });
+}
+
+async function processApiQueue() {
+  if (isProcessingQueue || apiQueue.length === 0) return;
+  isProcessingQueue = true;
+  updateGlobalLoaderStatus();
+
+  const { action, payload, resolve, reject } = apiQueue.shift();
+  const endpoint = window.API_URL || (typeof API_URL !== 'undefined' ? API_URL : null);
+
+  if (!endpoint) {
+    const err = new Error("API_URL is not defined. Check index.html configuration.");
+    isProcessingQueue = false;
+    updateGlobalLoaderStatus();
+    reject(err);
+    processApiQueue();
+    return;
+  }
+
+  const requestBody = Object.assign({ action: action }, payload);
+  const options = {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    redirect: 'follow',
+    body: JSON.stringify(requestBody)
+  };
+
+  try {
+    const res = await fetch(endpoint, options);
+    if (!res.ok) throw new Error(`HTTP status ${res.status}`);
+
+    const json = await res.json();
+    if (json.status === "error") throw new Error(json.message);
+
+    resolve(json.data);
+  } catch (err) {
+    console.error(`API Call Failed (${action}):`, err);
+    reject(err);
+  } finally {
+    isProcessingQueue = false;
+    updateGlobalLoaderStatus();
+    setTimeout(processApiQueue, 100);
+  }
+}
+
+  // --- LOCAL STORAGE CACHE HANDLERS ---
+  function getSavedGroup() {
+    try { return localStorage.getItem('scpb_selected_group') || ''; } catch(e) { return ''; }
+  }
+
+  function setSavedGroup(groupName) {
+    if (!groupName) return;
+    let cleanGroup = groupName.replace(/^Sched[\s_-]*/i, '').replace(/^Score[\s_-]*/i, '').trim();
+    try { localStorage.setItem('scpb_selected_group', cleanGroup); } catch(e) {}
+    syncAllGroupDropdowns(cleanGroup);
+    onGroupContextUpdated(cleanGroup);
+  }
+
+  function syncAllGroupDropdowns(groupName) {
+    const selectIds = [
+      'sheetSelect', 
+      'groupViewerSelect', 
+      'regGroup', 
+      'adminRegGroup', 
+      'adminStatusGroupSelect', 
+      'adminSchedSelect',
+      'adminGlobalGroupSelect'
+    ];
+    selectIds.forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      for (let i = 0; i < el.options.length; i++) {
+        let optVal = el.options[i].value.replace(/^Sched[\s_-]*/i, '').replace(/^Score[\s_-]*/i, '').trim();
+        if (optVal.toLowerCase() === groupName.toLowerCase()) {
+          el.selectedIndex = i;
+          break;
+        }
+      }
+    });
+  }
+
+  function onGroupChange(sourceSelectId) {
+    const el = document.getElementById(sourceSelectId);
+    if (el && el.value) setSavedGroup(el.value);
+  }
+
+  function onAdminGlobalGroupChange() {
+    const el = document.getElementById('adminGlobalGroupSelect');
+    if (el && el.value) {
+      setSavedGroup(el.value);
+      renderAdminCourts(el.value);
+    } else {
+      renderAdminCourts("");
+    }
+  }
+
+  async function onGroupContextUpdated(groupName) {
+    if (!groupName) return;
+    
+    try {
+      const url = await apiCall('getAdminSheetUrl', { group: groupName });
+      const link = document.getElementById('adminSheetLink');
+      if (link && url) link.href = url;
+    } catch(e) { console.warn("Failed to load group sheet URL."); }
+
+    loadAdminPlayerStatusCache(groupName);
+    renderAdminCourts(groupName);
+  }
+
+  async function checkAppVersion() {
+    try {
+      const serverVersion = await apiCall('getAppVersion');
+      const savedVersion = localStorage.getItem('app_installed_version');
+      if (savedVersion !== serverVersion) {
+        localStorage.setItem('app_installed_version', serverVersion);
+        window.location.reload(true);
+      }
+    } catch (e) {
+      console.warn("Version check failed.");
+    }
+  }
+
+  async function forceResetApp() {
+    if (confirm("This will clear cached app data and force-download the latest version. Continue?")) {
+      try {
+        localStorage.clear();
+        sessionStorage.clear();
+      } catch(e) {}
+      if ('serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        for (let registration of registrations) { await registration.unregister(); }
+      }
+      if ('caches' in window) {
+        const cacheNames = await caches.keys();
+        for (let name of cacheNames) { await caches.delete(name); }
+      }
+      const currentUrl = new URL(window.location.href);
+      currentUrl.searchParams.set('reset_ts', Date.now());
+      window.location.href = currentUrl.toString();
+    }
+  }
+
+  window.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') checkAppVersion();
+  });
+
+  const htmlRoot = document.documentElement;
+  const sizeRatios = { normal: '150%', large: '200%', huge: '250%' };
+    
+  function applyTextSize(size) {
+    htmlRoot.style.fontSize = sizeRatios[size];
+    try { localStorage.setItem('pwa-text-size', size); } catch(e) {}
+    document.getElementById('btn-size-normal').classList.remove('active');
+    document.getElementById('btn-size-large').classList.remove('active');
+    document.getElementById('btn-size-huge').classList.remove('active');
+    document.getElementById('btn-size-' + size).classList.add('active');
+  }
+
+  function toggleContrast() {
+    const isHigh = document.body.classList.toggle('high-contrast');
+    try { localStorage.setItem('pwa-contrast', isHigh ? 'high' : 'normal'); } catch(e) {}
+    document.getElementById('btn-contrast-toggle').classList.toggle('active', isHigh);
+  }
+
+  function initAccessibility() {
+    let savedSize = 'normal';
+    let savedContrast = 'normal';
+    try {
+      savedSize = localStorage.getItem('pwa-text-size') || 'normal';
+      savedContrast = localStorage.getItem('pwa-contrast') || 'normal';
+    } catch(e) {}
+    applyTextSize(savedSize);
+    if (savedContrast === 'high') { document.body.classList.add('high-contrast'); document.getElementById('btn-contrast-toggle').classList.add('active'); }
+  }
+
+  let currentPlayerData = null;
+  let tapCount = 0;
+  let tapTimer = null;
+
+window.onload = async function() {
+  checkAppVersion();
+  initAccessibility();
+  
+  try {
+    const p1 = apiCall('getSchedTabNames').then(populateSheets).catch(() => {});
+    const p2 = apiCall('getAvailableGroups').then(groups => {
+      populateGroups(groups);
+      autoSelectStoredGroup();
+    }).catch(() => {});
+
+    const savedPhone = localStorage.getItem('foursome_phone');
+    let p3 = Promise.resolve();
+    if (savedPhone) {
+      document.getElementById('phoneInput').value = savedPhone;
+      p3 = lookupPhone().catch(() => {});
+    }
+
+    // Wait until startup calls complete
+    await Promise.allSettled([p1, p2, p3]);
+  } finally {
+    isInitialLoading = false;
+    updateGlobalLoaderStatus();
+  }
+};
+
+
+  function autoSelectStoredGroup() {
+    const savedGroup = getSavedGroup();
+    if (savedGroup) {
+      syncAllGroupDropdowns(savedGroup);
+      onGroupContextUpdated(savedGroup);
+      if (document.getElementById('sheetSelect') && document.getElementById('sheetSelect').value) loadCheckInPlayers();
+      if (document.getElementById('groupViewerSelect') && document.getElementById('groupViewerSelect').value) loadRankingsAndSched();
+    }
+  }
+
+  function handleSecretTap(e) {
+    if (e && e.cancelable) e.preventDefault(); 
+    tapCount++;
+    clearTimeout(tapTimer);
+    if (tapCount >= 5) {
+        document.getElementById('tabAdminBtn').style.display = 'block';
+        document.getElementById('adminStatus').innerText = "Admin unlocked!";
+        tapCount = 0;
+    }
+    tapTimer = setTimeout(() => { tapCount = 0; }, 2000);
+  }          
+
+  function switchTab(tab) {
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
+    
+    document.getElementById(tab + 'Tab').classList.add('active');
+    let btnId = tab === 'ranksched' ? 'tab3Btn' : tab === 'checkin' ? 'tab1Btn' : tab === 'phone' ? 'tab2Btn' : tab === 'help' ? 'tab4Btn' : 'tabAdminBtn';
+    document.getElementById(btnId).classList.add('active');
+  }
+
+  function populateSheets(sheets) {
+    const sel1 = document.getElementById('sheetSelect');
+    const sel2 = document.getElementById('adminSchedSelect');
+    if (sel1) sel1.innerHTML = '<option value="">-- Choose Group --</option>';
+    if (sel2) sel2.innerHTML = '<option value="">-- Choose Group --</option>';
+    sheets.forEach(function(s) {
+      var cleanName = String(s).replace(/^Sched[\s_-]*/i, '').trim();
+      if (sel1) sel1.innerHTML += '<option value="' + s + '">' + cleanName + '</option>';
+      if (sel2) sel2.innerHTML += '<option value="' + s + '">' + cleanName + '</option>';
+    });
+  }
+    
+  function populateGroups(groups) {
+    const selectIds = ['groupViewerSelect', 'regGroup', 'adminRegGroup', 'adminStatusGroupSelect', 'adminGlobalGroupSelect'];
+    
+    selectIds.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.innerHTML = '<option value="">-- Select Group --</option>';
+        groups.forEach(g => {
+          el.innerHTML += '<option value="' + g + '">' + g + '</option>';
+        });
+      }
+    });
+  }
+
+  async function loadAdminPlayerStatusCache(group) {
+    if (!group) return;
+    try {
+      let res = await apiCall('getAdminPlayersByGroup', { group: group });
+      adminPlayersCache = (res && Array.isArray(res.players)) ? res.players : [];
+      filterAdminPlayers(); 
+    } catch(e) {
+      console.warn("Could not cache admin players:", e.message);
+    }
+  }
+
+  function filterAdminPlayers() {
+    const input = document.getElementById('adminPlayerSearch');
+    const query = input ? input.value.trim().toLowerCase() : '';
+    const container = document.getElementById('adminPlayerStatusList');
+    if (!container) return;
+    
+    if (!query) {
+      container.innerHTML = "<i style='display:block; padding:0.75rem; text-align:center;'>Type in the search box above to display players...</i>";
+      return;
+    }
+
+    const matches = adminPlayersCache.filter(p => 
+      (p.name && p.name.toLowerCase().includes(query)) || 
+      (p.phone && String(p.phone).includes(query))
+    );
+
+    if (matches.length === 0) {
+      container.innerHTML = "<p style='padding:0.75rem; text-align:center;'>No matching players found.</p>";
+      return;
+    }
+
+    container.innerHTML = "";
+    matches.forEach(p => {
+      let div = document.createElement('div');
+      let isActive = (p.status === "ACTIVE");
+      div.className = "player-row " + (isActive ? "checked" : "");
+      let uiColor = isActive ? '#00c853' : '#9e9e9e';
+      let uiWeight = isActive ? 'bold' : 'normal';
+      
+      div.innerHTML = '<span class="player-name" style="color: ' + uiColor + '; font-weight: ' + uiWeight + ';">' + p.name + ' (' + p.status + ')</span>' +
+                      '<button class="btn-sub" ' +
+                      'style="min-width:auto; min-height:auto; padding:0.4rem 0.75rem; margin:0; background-color: ' + uiColor + '; border: none; color: white;" ' +
+                      'onclick="toggleAdminStatus(\'' + p.phone + '\', this)">' + 
+                      p.status + 
+                      '</button>';
+                      
+      container.appendChild(div);
+    });
+  }
+
+  async function toggleAdminStatus(phone, buttonElement) {
+    buttonElement.innerText = "...";
+    try {
+      const res = await apiCall('togglePlayerStatus', { phone: phone });
+      let newStatus = res.newStatus || "ACTIVE";
+      buttonElement.innerText = newStatus;
+      
+      const cached = adminPlayersCache.find(p => String(p.phone) === String(phone));
+      if (cached) cached.status = newStatus;
+
+      const nameSpan = buttonElement.parentElement.querySelector('.player-name');
+      if(newStatus === "ACTIVE") {
+        buttonElement.parentElement.classList.add('checked');
+        buttonElement.style.backgroundColor = '#00c853';
+        if (nameSpan) { nameSpan.style.color = '#00c853'; nameSpan.style.fontWeight = 'bold'; }
+      } else {
+        buttonElement.parentElement.classList.remove('checked');
+        buttonElement.style.backgroundColor = '#9e9e9e';
+        if (nameSpan) { nameSpan.style.color = '#9e9e9e'; nameSpan.style.fontWeight = 'normal'; }
+      }
+    } catch(e) { alert(e.message); }
+  }
+
+  async function submitAdminRegistration() {
+    const currentGroup = getSavedGroup();
+    let data = {
+      first: document.getElementById('adminRegFirst').value.trim(),
+      last: document.getElementById('adminRegLast').value.trim(),
+      phone: document.getElementById('adminRegPhone').value.trim(),
+      email: document.getElementById('adminRegEmail').value.trim(),
+      group: currentGroup,
+      status: 'pending'
+    };
+    
+    if (!data.group) {
+      alert("Please select a group at the top of the Admin controls first.");
+      return;
+    }
+
+    if (!data.first || !data.last) {
+      alert("First and Last Name are required.");
+      return;
+    }
+
+    document.getElementById('adminStatus').innerHTML = '<span class="loading-spinner"></span>Adding player as pending...';
+    try {
+      const res = await apiCall('addNewUser', data);
+      document.getElementById('adminStatus').innerText = res || "Player added successfully!";
+      document.getElementById('adminRegFirst').value = "";
+      document.getElementById('adminRegLast').value = "";
+      document.getElementById('adminRegPhone').value = "";
+      document.getElementById('adminRegEmail').value = "";
+      
+      // Refresh admin players cache
+      loadAdminPlayerStatusCache(currentGroup);
+    } catch(e) {
+      document.getElementById('adminStatus').innerText = e.message;
+    }
+  }
+
+   let isSavingCheckIn = false;
+
+   async function loadCheckInPlayers(isSilent = false) {
+       const sheet = document.getElementById('sheetSelect').value;
+       if (!sheet) return;
+       
+       // Dont overwrite the UI while a player is actively tapping a row
+       if (isSilent && isSavingCheckIn) return;
+       
+       if (!isSilent) {
+           document.getElementById('checkInStatus').innerHTML = '<span class="loading-spinner"></span>Loading players...';
+       }
+       
+       try {
+           // Single light API call for current sheet check-ins (~1 second)
+           const checkInData = await apiCall('getPlayersForCheckIn', { sheet: sheet }) || [];
+           
+           checkInData.forEach(p => {
+               let val = (p.checkedIn !== undefined) ? p.checkedIn : p.checked;
+               p.checked = !!val;
+               p.checkedIn = !!val;
+           }); // Closes checkInData.forEach
+                               
+           renderCheckInPlayers(checkInData, sheet);
+        } catch(e) {
+            if (!isSilent) {
+                document.getElementById('checkInStatus').innerText = e.message;
+            } else {
+           console.warn("Silent check-in polling failed:", e.message);
+            } // Closes else
+        } // Closes
+   } // Closes loadCheckInPlayers
+  
+
+
+
+
+function renderCheckInPlayers(data, sheetName) {
+  document.getElementById('checkInStatus').innerText = "";
+  const container = document.getElementById('playerList');
+  container.innerHTML = "";
+  if (!data || data.length === 0) {
+    container.innerHTML = "<p style='text-align:center;'>No players found.</p>";
+    return;
+  }
+
+  // Sort logic: Active numeric court foursomes at top, all BYE and unchecked players at bottom
+  data.sort((a, b) => {
+    let courtA = String(a.court || '').toUpperCase();
+    let courtB = String(b.court || '').toUpperCase();
+
+    let isByeA = courtA.includes("BYE") || courtA.includes("UNCHECKED");
+    let isByeB = courtB.includes("BYE") || courtB.includes("UNCHECKED");
+
+    if (isByeA && !isByeB) return 1;
+    if (!isByeA && isByeB) return -1;
+
+    if (courtA === courtB) {
+      if (a.checked !== b.checked) return a.checked ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    }
+
+    let numA = parseInt(courtA.replace(/\D/g, ''), 10);
+    let numB = parseInt(courtB.replace(/\D/g, ''), 10);
+    if (!isNaN(numA) && !isNaN(numB) && numA !== numB) {
+      return numA - numB;
+    }
+
+    return courtA.localeCompare(courtB);
+  });
+
+  let currentCourt = "";
+  data.forEach((p) => {
+    if (p.court !== currentCourt) {
+      currentCourt = p.court;
+      let isBye = String(currentCourt).toUpperCase().includes("BYE") || String(currentCourt).toUpperCase().includes("UNCHECKED");
+      let ch = document.createElement('div');
+      ch.className = isBye ? "court-header bye-header" : "court-header";
+      ch.innerText = isBye ? "⏸️ BYE / Unchecked (Sitting Out)" : "Court: " + currentCourt;
+      container.appendChild(ch);
+    }
+
+    let div = document.createElement('div');
+    let isChecked = (p.checked !== undefined) ? p.checked : p.checkedIn;
+    div.className = isChecked ? "player-row checked" : "player-row";
+    div.setAttribute('data-checked', isChecked ? "true" : "false");
+    div.setAttribute('data-name', p.name);
+
+    div.onclick = async function() {
+      // Prevent double-clicking while request is saving
+      if (this.style.pointerEvents === 'none') return;
+
+      let curState = this.getAttribute('data-checked') === "true";
+      let newState = !curState;
+      let iconSpan = this.querySelector('.check-icon');
+
+      // 1. Instant UI update + Show "Saving..." indicator
+      this.setAttribute('data-checked', newState ? "true" : "false");
+      this.className = newState ? "player-row checked saving" : "player-row saving";
+      this.style.opacity = '0.6';
+      this.style.pointerEvents = 'none'; // Lock row during API request
+      iconSpan.innerText = "⏳"; // Visual feedback that network call is working
+
+      try {
+        let activeSheet = sheetName || document.getElementById('sheetSelect')?.value || "";
+        let res = await apiCall('toggleSingleCheckIn', {
+          sheet: activeSheet,
+          playerName: p.name,
+          isCheckedIn: newState
+        });
+
+        if (res && res.status === "error") throw new Error(res.message);
+
+        // 2. Success: Confirm visual state
+        iconSpan.innerText = newState ? "✅" : "❌";
+      } catch(err) {
+        console.error("Auto-save check-in failed:", err);
+        alert("Check-in failed: " + (err.message || "Network Error"));
+
+        // 3. Revert state on failure
+        this.setAttribute('data-checked', curState ? "true" : "false");
+        this.className = curState ? "player-row checked" : "player-row";
+        iconSpan.innerText = curState ? "✅" : "❌";
+      } finally {
+        // Unlock row
+        this.style.opacity = '1';
+        this.style.pointerEvents = 'auto';
+      }
+    };
+
+    div.innerHTML = `<span class="player-name">${p.name}</span>
+                     <span class="check-icon">${isChecked ? '✅' : '❌'}</span>`;
+    container.appendChild(div);
+  });
+}
+
+
+  async function submitCheckIns() {
+    const sheetName = document.getElementById('sheetSelect').value;
+    const rows = document.querySelectorAll('#playerList .player-row');
+    let checkedNames = [];
+    rows.forEach(r => { if (r.getAttribute('data-checked') === "true") checkedNames.push(r.getAttribute('data-name')); });
+    
+    document.getElementById('checkInStatus').innerHTML = '<span class="loading-spinner"></span>Saving check-ins...';
+    try {
+      const res = await apiCall('saveCheckIns', { sheet: sheetName, checkedNames: checkedNames });
+      document.getElementById('checkInStatus').innerText = res;
+      setTimeout(loadCheckInPlayers, 1000);
+    } catch(e) {
+      document.getElementById('checkInStatus').innerText = e.message;
+    }
+  }
+
+  async function lookupPhone() {
+    const phone = document.getElementById('phoneInput').value;
+    document.getElementById('phoneStatus').innerHTML = '<span class="loading-spinner"></span>Searching player...';
+    
+    try {
+      const res = await apiCall('findFoursomeByPhone', { phone: phone });
+      document.getElementById('phoneStatus').innerText = "";
+      localStorage.setItem('foursome_phone', phone);
+      document.getElementById('phoneEntrySection').style.display = "none";
+      document.getElementById('lookupResult').style.display = "block";
+      
+      currentPlayerData = res;
+      document.getElementById('pNameDisplay').innerText = res.playerName;
+      document.getElementById('pGroupDisplay').innerText = res.groupName || "N/A";
+      document.getElementById('pCourtDisplay').innerText = res.court || "N/A";
+      
+      if (res.groupName) setSavedGroup(res.groupName);
+      
+      const statBadge = document.getElementById('pStatusDisplay');
+      statBadge.innerText = res.status || "ACTIVE";
+      statBadge.className = "status-badge " + ((res.status || "ACTIVE") === "ACTIVE" ? "status-active" : "status-inactive");
+      
+      const scoreContainer = document.getElementById('scoreInputsContainer');
+      scoreContainer.innerHTML = "";
+
+      if (res.foursome && res.foursome.length > 0) {
+        document.getElementById('scoreEntrySection').style.display = "block";
+        scoreContainer.innerHTML = "<div class='score-grid' style='font-weight:bold; font-size:1rem;'><div>Player</div><div>G1</div><div>G2</div><div>G3</div></div>";
+        res.foursome.forEach(p => {
+          scoreContainer.innerHTML += `<div class="score-grid card">
+            <div><b>${p.name}</b></div>
+            <input type="number" id="g1_${p.name}" value="${p.g1 || ''}">
+            <input type="number" id="g2_${p.name}" value="${p.g2 || ''}">
+            <input type="number" id="g3_${p.name}" value="${p.g3 || ''}">
+          </div>`;
+        });
+      } else {
+        document.getElementById('scoreEntrySection').style.display = "none";
+      }
+    } catch(e) {
+      document.getElementById('phoneStatus').innerText = e.message;
+    }
+  }
+
+  async function saveScores() {
+    if (!currentPlayerData || !currentPlayerData.foursome) return;
+    let scores = {};
+    currentPlayerData.foursome.forEach(p => {
+      scores[p.name] = {
+        g1: document.getElementById(`g1_${p.name}`).value,
+        g2: document.getElementById(`g2_${p.name}`).value,
+        g3: document.getElementById(`g3_${p.name}`).value
+      };
+    });
+
+    document.getElementById('phoneStatus').innerHTML = '<span class="loading-spinner"></span>Submitting scores...';
+    try {
+      const res = await apiCall('submitCourtScores', {
+        groupName: currentPlayerData.groupName,
+        court: currentPlayerData.court,
+        submitter: currentPlayerData.playerName,
+        scores: scores
+      });
+      document.getElementById('phoneStatus').innerText = res;
+    } catch(e) {
+      document.getElementById('phoneStatus').innerText = e.message;
+    }
+  }
+
+
+
+
+  async function toggleStatus() {
+    const phone = document.getElementById('phoneInput').value;
+    try {
+      const res = await apiCall('togglePlayerStatus', { phone: phone });
+      alert(`Status updated for ${res.name}: Now ${res.newStatus}`);
+      lookupPhone();
+    } catch(e) { alert(e.message); }
+  }
+
+  function clearPhoneCache() {
+    localStorage.removeItem('foursome_phone');
+    document.getElementById('phoneInput').value = "";
+    document.getElementById('lookupResult').style.display = "none";
+    document.getElementById('phoneEntrySection').style.display = "block";
+  }
+
+  async function loadRankingsAndSched() {
+    const group = document.getElementById('groupViewerSelect').value;
+    if (!group) return;
+    document.getElementById('viewerStatus').innerHTML = '<span class="loading-spinner"></span>Loading schedule & standings...';
+    try {
+      const res = await apiCall('getRankingsAndSchedData', { group: group });
+      document.getElementById('viewerStatus').innerText = "";
+      let html = `<h3>Week ${res.weekNum || ''}</h3>`;
+
+      if (res.sched && res.sched.length > 0) {
+        html += `<h4>🗓️ Schedule</h4><table class="data-table"><tr><th>Court</th><th>Player</th></tr>`;
+        res.sched.forEach(s => html += `<tr><td>${s.court}</td><td>${s.name}</td></tr>`);
+        html += `</table>`;
       }
 
-      // Hide Loader initially on load
-      document.addEventListener("DOMContentLoaded", () => {
-         const loader = document.getElementById('globalLoader');
-         if(loader) loader.style.display = 'none';
-      });
+      if (res.rankings && res.rankings.length > 0) {
+        html += `<h4 style="margin-top:1.5rem;">🏆 Standings</h4><table class="data-table"><tr><th>Rank</th><th>Player</th><th>Win %</th><th>Pts</th></tr>`;
+        res.rankings.forEach(r => html += `<tr><td>${r.rank}</td><td>${r.name}</td><td>${r.pct}</td><td>${r.pts}</td></tr>`);
+        html += `</table>`;
+      }
 
-      // Dummy stubs for undefined UI interaction components to prevent console errors
-      function switchTab(tabId) { /* existing tab routing logic */ }
-      function onGroupChange(selectId) { /* existing drop-down logic */ }
-      function handleSecretTap(e) { /* existing easter egg/admin access logic */ }
-      function showLoader(msg) { const l = document.getElementById('globalLoader'); if(l) { l.style.display='flex'; document.getElementById('globalLoaderText').innerText = msg || "Loading..."; } }
-      function hideLoader() { const l = document.getElementById('globalLoader'); if(l) l.style.display='none'; }
-    </script>
-  </body>
+      document.getElementById('viewerContent').innerHTML = html;
+    } catch(e) {
+      document.getElementById('viewerStatus').innerText = e.message;
+    }
+  }
+
+  async function runRescheduleCheckedIn() {
+    const group = getSavedGroup();
+    if (!group) return alert("Select a group first.");
+    
+    const courts = getSelectedCourts();
+    if (courts.length === 0) return alert("Please select at least 1 court to use.");
+
+    document.getElementById('adminStatus').innerHTML = '<span class="loading-spinner"></span>Rescheduling checked-in players...';
+    try {
+      const res = await apiCall('rescheduleFromCheckIns', { group: group, courts: courts });
+      document.getElementById('adminStatus').innerText = res;
+    } catch(e) { document.getElementById('adminStatus').innerText = e.message; }
+  }
+
+  async function runRescheduleActive() {
+    const group = getSavedGroup();
+    if (!group) return alert("Select a group first.");
+
+    const courts = getSelectedCourts();
+    if (courts.length === 0) return alert("Please select at least 1 court to use.");
+
+    document.getElementById('adminStatus').innerHTML = '<span class="loading-spinner"></span>Generating schedule...';
+    try {
+      const res = await apiCall('generateScheduleTabs', { group: group, courts: courts });
+      document.getElementById('adminStatus').innerText = res;
+    } catch(e) { document.getElementById('adminStatus').innerText = e.message; }
+  }
+
+  async function runAdmin(action) {
+    const group = getSavedGroup();
+    document.getElementById('adminStatus').innerHTML = '<span class="loading-spinner"></span>Executing administrative command...';
+    try {
+      const res = await apiCall(action, { group: group });
+      document.getElementById('adminStatus').innerText = res;
+    } catch(e) { document.getElementById('adminStatus').innerText = e.message; }
+  }
+
+  async function getAdminPdf() {
+    document.getElementById('adminStatus').innerHTML = '<span class="loading-spinner"></span>Generating PDF...';
+    try {
+      const res = await apiCall('webExportSchedulePdf');
+      const a = document.createElement('a');
+      a.href = "data:application/pdf;base64," + res.base64;
+      a.download = res.fileName;
+      a.click();
+      document.getElementById('adminStatus').innerText = "PDF downloaded!";
+    } catch(e) { document.getElementById('adminStatus').innerText = e.message; }
+  }
+
+  function cancelRegistration() {
+    document.getElementById('registrationSection').style.display = "none";
+  }
+
+  async function submitRegistration() {
+    let data = {
+      first: document.getElementById('regFirst').value.trim(),
+      last: document.getElementById('regLast').value.trim(),
+      phone: document.getElementById('regPhone').value.trim(),
+      email: document.getElementById('regEmail').value.trim(),
+      group: document.getElementById('regGroup').value
+    };
+    try {
+      const res = await apiCall('addNewUser', data);
+      alert(res);
+      cancelRegistration();
+    } catch(e) { alert(e.message); }
+  }
+async function handleCheckInClick(event, playerName, currentStatus, sheetName) {
+  const targetElement = event.currentTarget;
+  const newStatus = !currentStatus;
+
+  // 1. Instant Visual Feedback (Optimistic Update)
+  targetElement.classList.toggle('checked-in', newStatus);
+  targetElement.style.opacity = '0.6';
+  targetElement.style.pointerEvents = 'none'; // Prevent double-clicking
+
+  try {
+    // 2. Network Request in Background
+    const response = await apiCall('toggleSingleCheckIn', {
+      sheet: sheetName,
+      name: playerName,
+      isCheckedIn: newStatus
+    });
+
+    if (response.status !== 'success') throw new Error(response.message);
+    
+  } catch (error) {
+    // 3. Revert Visual State if the API call failed
+    alert('Check-in failed: ' + error.message);
+    targetElement.classList.toggle('checked-in', currentStatus);
+  } finally {
+    // Re-enable interactions
+    targetElement.style.opacity = '1';
+    targetElement.style.pointerEvents = 'auto';
+  }
+}
+
+let autoRefreshTimer = null;
+
+function startCheckInAutoRefresh() {
+  if (autoRefreshTimer) return;
+  
+  // Refresh every 15 seconds
+  autoRefreshTimer = setInterval(() => {
+    const isCheckInActive = document.getElementById('checkinTab').classList.contains('active');
+    const isTabVisible = document.visibilityState === 'visible';
+    const isUserSelecting = document.querySelector('.saving') !== null;
+
+    // Only fetch if on Check-In tab, browser active, and not currently tapping
+    if (isCheckInActive && isTabVisible && !isUserSelecting) {
+      loadCheckInPlayers(true); // Silent background reload
+    }
+  }, 15000);
+}
+
+function stopCheckInAutoRefresh() {
+  if (autoRefreshTimer) {
+    clearInterval(autoRefreshTimer);
+    autoRefreshTimer = null;
+  }
+}
+
+// Pause polling when app is backgrounded to save quota/battery
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    startCheckInAutoRefresh();
+  } else {
+    stopCheckInAutoRefresh();
+  }
+});
+
+// Start timer on initial launch
+startCheckInAutoRefresh();  
+
+function initializeGroupCourts(groupName) {
+  const availableCourts = getCourtsForGroup(groupName);
+  
+  // Assign the first court of the groups assigned set as default if none set
+  if (currentPlayerData && (!currentPlayerData.court || currentPlayerData.court === 1)) {
+    currentPlayerData.court = availableCourts[0];
+  }
+
+  // Optional: Render court dropdown dynamically
+  const courtSelect = document.getElementById('courtSelect');
+  if (courtSelect) {
+    courtSelect.innerHTML = availableCourts.map(c => 
+      `<option value="${c}">Court ${c}</option>`
+    ).join('');
+    courtSelect.value = currentPlayerData.court;
+  }
+}  
+
+</script>
+</body>
 </html>
