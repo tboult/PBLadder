@@ -2,7 +2,23 @@
  * GLOBAL CONFIGURATION & HELPER DEFINITIONS
  * ========================================== */
 
+
 const ENABLE_LOGGING = true; // Toggle to true/false to enable or disable system logging
+
+
+function testCheckInDirectly() {
+  try {
+    // Replace with a real sheet name and player name from your sheet
+    const result = toggleSingleCheckIn({
+      sheet: "Sched Women", 
+      playerName: "Jennifer Little",
+      isCheckedIn: true
+    });
+    Logger.log("SUCCESS: " + JSON.stringify(result));
+  } catch (err) {
+    Logger.log("ERROR: " + err.toString());
+  }
+}
 
 /**
  * Global Logger Helper
