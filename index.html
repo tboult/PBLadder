@@ -212,11 +212,43 @@
       @media (max-width: 768px) {
         .desktop-only { display: none !important; }
       }
+
+      .global-loader {
+      position: fixed;
+      top: 12px;
+      right: 12px;
+      background: rgba(45, 106, 79, 0.92);
+      color: white;
+      padding: 8px 14px;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      font-weight: bold;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      pointer-events: none;
+      }
+      .global-loader .loading-spinner {
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #ffffff;
+      width: 0.9rem;
+      height: 0.9rem;
+      margin-right: 0;
+      }
+      
     </style>
   </head>
   <body>
 
     <h2 class="header-title" id="mainHeader" onpointerdown="handleSecretTap(event)">🥒 SCPB Ladder 🥒</h2>
+
+    <div id="globalLoader" class="global-loader" style="display: flex;">
+      <span class="loading-spinner"></span>
+      <span id="globalLoaderText">Loading app...</span>
+    </div>
+
 
     <div class="nav">
       <button id="tab1Btn" class="active" onclick="switchTab('checkin')">Check-In</button>
@@ -410,14 +442,54 @@
     });
   }
 
-async function apiCall(action, payload = {}) {
+// In-memory queue to serialize requests and prevent GAS execution locks
+let apiQueue = [];
+let isProcessingQueue = false;
+let isInitialLoading = true;
+
+function updateGlobalLoaderStatus() {
+  const loader = document.getElementById('globalLoader');
+  const loaderText = document.getElementById('globalLoaderText');
+  if (!loader || !loaderText) return;
+
+  if (isInitialLoading) {
+    loaderText.innerText = "Loading app...";
+    loader.style.display = "flex";
+  } else if (isProcessingQueue || apiQueue.length > 0) {
+    const pending = apiQueue.length;
+    loaderText.innerText = pending > 0 ? `Syncing (${pending + 1})...` : "Syncing...";
+    loader.style.display = "flex";
+  } else {
+    loader.style.display = "none";
+  }
+}
+
+function apiCall(action, payload = {}) {
+  return new Promise((resolve, reject) => {
+    apiQueue.push({ action, payload, resolve, reject });
+    updateGlobalLoaderStatus();
+    processApiQueue();
+  });
+}
+
+async function processApiQueue() {
+  if (isProcessingQueue || apiQueue.length === 0) return;
+  isProcessingQueue = true;
+  updateGlobalLoaderStatus();
+
+  const { action, payload, resolve, reject } = apiQueue.shift();
   const endpoint = window.API_URL || (typeof API_URL !== 'undefined' ? API_URL : null);
+
   if (!endpoint) {
-    throw new Error("API_URL is not defined. Check index.html configuration.");
+    const err = new Error("API_URL is not defined. Check index.html configuration.");
+    isProcessingQueue = false;
+    updateGlobalLoaderStatus();
+    reject(err);
+    processApiQueue();
+    return;
   }
 
   const requestBody = Object.assign({ action: action }, payload);
-
   const options = {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain' },
@@ -432,10 +504,14 @@ async function apiCall(action, payload = {}) {
     const json = await res.json();
     if (json.status === "error") throw new Error(json.message);
 
-    return json.data;
+    resolve(json.data);
   } catch (err) {
     console.error(`API Call Failed (${action}):`, err);
-    throw err;
+    reject(err);
+  } finally {
+    isProcessingQueue = false;
+    updateGlobalLoaderStatus();
+    setTimeout(processApiQueue, 100);
   }
 }
 
@@ -567,29 +643,32 @@ async function apiCall(action, payload = {}) {
   let tapCount = 0;
   let tapTimer = null;
 
-  window.onload = async function() {
-    checkAppVersion();
-    initAccessibility();
-    
-    try {
-      const sheets = await apiCall('getSchedTabNames');
-      populateSheets(sheets);
-    } catch(e) {}
-
-    try {
-      const groups = await apiCall('getAvailableGroups');
+window.onload = async function() {
+  checkAppVersion();
+  initAccessibility();
+  
+  try {
+    const p1 = apiCall('getSchedTabNames').then(populateSheets).catch(() => {});
+    const p2 = apiCall('getAvailableGroups').then(groups => {
       populateGroups(groups);
       autoSelectStoredGroup();
-    } catch(e) {}
-    
-    try {
-      const savedPhone = localStorage.getItem('foursome_phone');
-      if (savedPhone) {
-        document.getElementById('phoneInput').value = savedPhone;
-        lookupPhone();
-      }
-    } catch(e) {}
-  };
+    }).catch(() => {});
+
+    const savedPhone = localStorage.getItem('foursome_phone');
+    let p3 = Promise.resolve();
+    if (savedPhone) {
+      document.getElementById('phoneInput').value = savedPhone;
+      p3 = lookupPhone().catch(() => {});
+    }
+
+    // Wait until startup calls complete
+    await Promise.allSettled([p1, p2, p3]);
+  } finally {
+    isInitialLoading = false;
+    updateGlobalLoaderStatus();
+  }
+};
+
 
   function autoSelectStoredGroup() {
     const savedGroup = getSavedGroup();
