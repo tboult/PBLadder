@@ -730,33 +730,52 @@ async function processApiQueue() {
   let tapCount = 0;
   let tapTimer = null;
 
- window.onload = async function() {
-  checkAppVersion();
-  initAccessibility();
+
   
-  try {
-    // 1. Fire off API calls but dont auto-select yet
-    const p1 = apiCall('getSchedTabNames').then(populateSheets).catch(e => console.warn("Failed tabs:", e));
-    const p2 = apiCall('getAvailableGroups').then(populateGroups).catch(e => console.warn("Failed groups:", e));
-
-    const savedPhone = localStorage.getItem('foursome_phone');
-    let p3 = Promise.resolve();
-    if (savedPhone) {
-      document.getElementById('phoneInput').value = savedPhone;
-      p3 = lookupPhone().catch(() => {});
-    }
-
-    // Wait until startup calls complete
-    await Promise.allSettled([p1, p2, p3]);
-    
-    // 3. NOW it is safe to auto-select and trigger the Check-in load
-    autoSelectStoredGroup();
-    
-  } finally {
-    isInitialLoading = false;
-    updateGlobalLoaderStatus();
+  window.onload = async function() {
+      checkAppVersion();
+      initAccessibility();
+      
+      const savedPhone = localStorage.getItem('foursome_phone');
+      
+      try {
+          // Single API call replaces 3 separate network round-trips
+          const data = await apiCall('getInitialAppData', { phone: savedPhone });
+          
+          if (data) {
+              if (data.sheets) populateSheets(data.sheets);
+              if (data.groups) populateGroups(data.groups);
+              if (data.userData && savedPhone) {
+                  document.getElementById('phoneInput').value = savedPhone;
+                  handleUserData(data.userData);
+              }
+      
+              // Auto-select group after all dropdown data exists
+          autoSelectStoredGroup();
+          }
+      } catch (err) {
+          console.error("Batch load failed:", err);
+      } finally {
+          isInitialLoading = false;
+          updateGlobalLoaderStatus();
+      }
   }
-};
+
+  function populateSheetsWithCache(sheetsData) {
+      if (sheetsData) {
+          localStorage.setItem('cached_sheets', JSON.stringify(sheetsData));
+          populateSheets(sheetsData);
+      }
+  }
+
+  // Load cached options instantly on script execution before the network responds
+  (function loadFromCache() {
+      const cachedSheets = localStorage.getItem('cached_sheets');
+      const cachedGroups = localStorage.getItem('cached_groups');
+      
+      if (cachedSheets) populateSheets(JSON.parse(cachedSheets));
+      if (cachedGroups) populateGroups(JSON.parse(cachedGroups));
+  })();
 
 
   function autoSelectStoredGroup() {

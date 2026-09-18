@@ -1654,3 +1654,12 @@ function getTargetSheetDynamic(payload, prefix) {
   }
   return sheet;
 }
+
+
+function getInitialAppData(phone) {
+  return {
+    sheets: getSchedTabNames(),
+    groups: getAvailableGroups(),
+    userData: phone ? lookupPhoneInternal(phone) : null
+  };
+}
