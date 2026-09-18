@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+s<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8">
@@ -135,23 +135,27 @@
       .tab-content.active { display: block; }
 
       input, select, button { 
-        width: 100%; 
-        padding: 0.75rem; 
-        margin-top: 0.5rem; 
-        border-radius: 0.5rem; 
-        border: 2px solid var(--input-border); 
-        font-size: 1.1rem; 
-        background: var(--input-bg);
-        color: var(--text-color);
-        min-height: 54px; 
+      width: 100%; 
+      padding: 0.75rem; 
+      margin-top: 0.5rem; 
+      border-radius: 0.5rem; 
+      border: 2px solid var(--input-border); 
+      font-size: 1rem; 
+      background: var(--input-bg);
+      color: var(--text-color);
+      min-height: 54px; 
+      box-sizing: border-box;
       }
-      
-      input:focus, select:focus, button:focus {
-        outline: 3px solid var(--focus-ring);
-        outline-offset: 2px;
-      }
+
+      select {
+      appearance: auto;
+      -webkit-appearance: listbox;
+      font-size: 16px !important; /* Prevents root font-scaling from shifting native mobile pickers */
+      cursor: pointer;
+      }      
+
       button, .btn, .btn-main {
-        background-color: #e8f5e9;
+      background-color: #e8f5e9;
         color: #1b5e20;
         border: 1px solid #a5d6a7;
         padding: 10px 16px;
@@ -701,7 +705,7 @@ async function processApiQueue() {
   });
 
   const htmlRoot = document.documentElement;
-  const sizeRatios = { normal: '150%', large: '200%', huge: '250%' };
+  const sizeRatios = { normal: '100%', large: '125%', huge: '150%' };
     
   function applyTextSize(size) {
     htmlRoot.style.fontSize = sizeRatios[size];
@@ -817,31 +821,39 @@ async function processApiQueue() {
     document.getElementById(btnId).classList.add('active');
   }
 
-  function populateSheets(sheets) {
-    const sel1 = document.getElementById('sheetSelect');
-    const sel2 = document.getElementById('adminSchedSelect');
-    if (sel1) sel1.innerHTML = '<option value="">-- Choose Group --</option>';
-    if (sel2) sel2.innerHTML = '<option value="">-- Choose Group --</option>';
-    sheets.forEach(function(s) {
-      var cleanName = String(s).replace(/^Sched[\s_-]*/i, '').trim();
-      if (sel1) sel1.innerHTML += '<option value="' + s + '">' + cleanName + '</option>';
-      if (sel2) sel2.innerHTML += '<option value="' + s + '">' + cleanName + '</option>';
-    });
-  }
-    
-  function populateGroups(groups) {
-    const selectIds = ['groupViewerSelect', 'regGroup', 'adminRegGroup', 'adminStatusGroupSelect', 'adminGlobalGroupSelect'];
-    
-    selectIds.forEach(id => {
-      const el = document.getElementById(id);
-      if (el) {
-        el.innerHTML = '<option value="">-- Select Group --</option>';
-        groups.forEach(g => {
-          el.innerHTML += '<option value="' + g + '">' + g + '</option>';
-        });
-      }
-    });
-  }
+
+// ✅ REPLACE populateSheets and populateGroups with batch string building
+function populateSheets(sheets) {
+  const sel1 = document.getElementById('sheetSelect');
+  const sel2 = document.getElementById('adminSchedSelect');
+  
+  let options1 = '<option value="">-- Choose Group --</option>';
+  let options2 = '<option value="">-- Choose Group --</option>';
+
+  sheets.forEach(function(s) {
+    var cleanName = String(s).replace(/^Sched[\s_-]*/i, '').trim();
+    options1 += `<option value="${s}">${cleanName}</option>`;
+    options2 += `<option value="${s}">${cleanName}</option>`;
+  });
+
+  if (sel1) sel1.innerHTML = options1;
+  if (sel2) sel2.innerHTML = options2;
+}
+
+function populateGroups(groups) {
+  const selectIds = ['groupViewerSelect', 'regGroup', 'adminRegGroup', 'adminStatusGroupSelect', 'adminGlobalGroupSelect'];
+  
+  selectIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      let options = '<option value="">-- Select Group --</option>';
+      groups.forEach(g => {
+        options += `<option value="${g}">${g}</option>`;
+      });
+      el.innerHTML = options;
+    }
+  });
+}  
 
   async function loadAdminPlayerStatusCache(group) {
     if (!group) return;
