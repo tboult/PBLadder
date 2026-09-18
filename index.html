@@ -789,6 +789,7 @@ async function apiCall(action, payload = {}) {
   }
 
 
+
 function renderCheckInPlayers(data, sheetName) {
   document.getElementById('checkInStatus').innerText = "";
   const container = document.getElementById('playerList');
@@ -1105,6 +1106,43 @@ async function handleCheckInClick(event, playerName, currentStatus, sheetName) {
     targetElement.style.pointerEvents = 'auto';
   }
 }
+
+let autoRefreshTimer = null;
+
+function startCheckInAutoRefresh() {
+  if (autoRefreshTimer) return;
+  
+  // Refresh every 5 seconds
+  autoRefreshTimer = setInterval(() => {
+    const isCheckInActive = document.getElementById('checkinTab').classList.contains('active');
+    const isTabVisible = document.visibilityState === 'visible';
+    const isUserSelecting = document.querySelector('.saving') !== null;
+
+    // Only fetch if on Check-In tab, browser active, and not currently tapping
+    if (isCheckInActive && isTabVisible && !isUserSelecting) {
+      loadCheckInPlayers(true); // Silent background reload
+    }
+  }, 5000);
+}
+
+function stopCheckInAutoRefresh() {
+  if (autoRefreshTimer) {
+    clearInterval(autoRefreshTimer);
+    autoRefreshTimer = null;
+  }
+}
+
+// Pause polling when app is backgrounded to save quota/battery
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    startCheckInAutoRefresh();
+  } else {
+    stopCheckInAutoRefresh();
+  }
+});
+
+// Start timer on initial launch
+startCheckInAutoRefresh();  
 
 </script>
 </body>
