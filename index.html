@@ -118,7 +118,7 @@
         margin-top: 0;
         padding: 0.5rem;
         min-height: 44px;
-        font-size: 1.1rem;
+        font-size: 1.8rem;
         font-weight: bold;
         background: var(--btn-sub-bg);
         color: var(--btn-sub-text);
@@ -141,7 +141,7 @@
       margin-top: 0.5rem; 
       border-radius: 0.5rem; 
       border: 2px solid var(--input-border); 
-      font-size: 1rem; 
+      font-size: 24pt; 
       background: var(--input-bg);
       color: var(--text-color);
       min-height: 54px; 
@@ -154,7 +154,7 @@
       margin-top: 0.5rem;
       border-radius: 0.5rem;
       border: 2px solid var(--input-border);
-      font-size: 1rem;
+      font-size: 24pt;
       background-color: var(--input-bg);
       color: var(--text-color);
       min-height: 54px;
@@ -179,7 +179,7 @@
       padding: 10px 16px;
       border-radius: 6px;
       font-weight: bold;
-      font-size: 22pt;      
+      font-size: 24pt;      
       cursor: pointer;
       transition: background-color 0.2s ease;
       }
@@ -621,9 +621,54 @@ async function processApiQueue() {
 }
 
   // --- LOCAL STORAGE CACHE HANDLERS ---
+// 1. Ignore placeholder headers like "-- Choose Group --" and default to "Womens"
 function getSavedGroup() {
   const saved = localStorage.getItem('scpb_selected_group');
-  return (saved && saved.trim()) ? saved.trim() : 'Womens';
+  if (saved && saved.trim() && !saved.trim().startsWith('--')) {
+    return saved.trim();
+  }
+  return 'Womens';
+}
+
+// 2. Re-apply selected state immediately after building sheet dropdowns
+function populateSheets(sheets) {
+  const sel1 = document.getElementById('sheetSelect');
+  const sel2 = document.getElementById('adminSchedSelect');
+  if (!sheets || !sheets.length) return;
+
+  let options1 = '<option value="">-- Choose Group --</option>';
+  let options2 = '<option value="">-- Choose Group --</option>';
+
+  sheets.forEach(function(s) {
+    var cleanName = String(s).replace(/^Sched[\s_-]*/i, '').trim();
+    options1 += `<option value="${s}">${cleanName}</option>`;
+    options2 += `<option value="${s}">${cleanName}</option>`;
+  });
+
+  if (sel1) sel1.innerHTML = options1;
+  if (sel2) sel2.innerHTML = options2;
+
+  autoSelectStoredGroup(); // Sets "Womens" and loads check-ins
+}
+
+// 3. Re-apply selected state immediately after building group dropdowns
+function populateGroups(groups) {
+  if (!groups || !groups.length) return;
+
+  const selectIds = ['groupViewerSelect', 'regGroup', 'adminRegGroup', 'adminStatusGroupSelect', 'adminGlobalGroupSelect'];
+  
+  selectIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      let options = '<option value="">-- Select Group --</option>';
+      groups.forEach(g => {
+        options += `<option value="${g}">${g}</option>`;
+      });
+      el.innerHTML = options;
+    }
+  });
+
+  autoSelectStoredGroup(); // Sets "Womens" across viewer and admin selects
 }
 
 // Load cached options instantly on script execution
@@ -868,48 +913,6 @@ function applyTextSize(size) {
   }
 
 
-function populateSheets(sheets) {
-  const sel1 = document.getElementById('sheetSelect');
-  const sel2 = document.getElementById('adminSchedSelect');
-  
-  if (!sheets || sheets.length === 0) return;
-
-  let options1 = '<option value="">-- Choose Group --</option>';
-  let options2 = '<option value="">-- Choose Group --</option>';
-
-  sheets.forEach(function(s) {
-    var cleanName = String(s).replace(/^Sched[\s_-]*/i, '').trim();
-    options1 += `<option value="${s}">${cleanName}</option>`;
-    options2 += `<option value="${s}">${cleanName}</option>`;
-  });
-
-  if (sel1) sel1.innerHTML = options1;
-  if (sel2) sel2.innerHTML = options2;
-
-  // 👈 Auto-select stored group or fallback to "Womens"
-  syncAllGroupDropdowns(getSavedGroup());
-}
-
-function populateGroups(groups) {
-  if (!groups || groups.length === 0) return;
-
-  const selectIds = ['groupViewerSelect', 'regGroup', 'adminRegGroup', 'adminStatusGroupSelect', 'adminGlobalGroupSelect'];
-  
-  selectIds.forEach(id => {
-    const el = document.getElementById(id);
-    if (el) {
-      let options = '<option value="">-- Select Group --</option>';
-      groups.forEach(g => {
-        options += `<option value="${g}">${g}</option>`;
-      });
-      el.innerHTML = options;
-    }
-  });
-
-  // 👈 Auto-select stored group or fallback to "Womens"
-  syncAllGroupDropdowns(getSavedGroup());
-}
-  
 
   async function loadAdminPlayerStatusCache(group) {
     if (!group) return;
