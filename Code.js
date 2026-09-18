@@ -141,11 +141,24 @@ function getPlayersForCheckIn(inputName) {
 /**
  * Instant Single Player Check-In Toggle (Auto-Save on Click)
  */
-function toggleSingleCheckIn(sheetName, playerName, isCheckedIn) {
-    const ss = SpreadsheetApp.openById(SPREADSHEET_ID); // Fixed reference
+function toggleSingleCheckIn(sheetNameOrData, playerName, isCheckedIn) {
+  // Normalize parameters (handles both object payloads and positional arguments)
+  let sheetName, targetPlayer, checkedState;
+  
+  if (typeof sheetNameOrData === 'object' && sheetNameOrData !== null) {
+    sheetName = sheetNameOrData.sheet || sheetNameOrData.sheetName || "";
+    targetPlayer = sheetNameOrData.playerName || sheetNameOrData.name || "";
+    checkedState = sheetNameOrData.isCheckedIn;
+  } else {
+    sheetName = sheetNameOrData;
+    targetPlayer = playerName;
+    checkedState = isCheckedIn;
+  }
+
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   
   // Normalize tab name prefix if missing
-  const resolvedName = sheetName.startsWith("Sched ") ? sheetName : "Sched " + sheetName;
+  const resolvedName = String(sheetName).startsWith("Sched ") ? sheetName : "Sched " + sheetName;
   const sheet = ss.getSheetByName(resolvedName) || ss.getSheetByName(sheetName);
   
   if (!sheet) throw new Error("Sheet not found: " + sheetName);
@@ -155,7 +168,7 @@ function toggleSingleCheckIn(sheetName, playerName, isCheckedIn) {
 
   // Read Columns A through G (Col 1 = Name, Col 7 = Check-In)
   const data = sheet.getRange(1, 1, lastRow, 7).getValues();
-  const targetName = String(playerName || '').trim().toLowerCase();
+  const targetName = String(targetPlayer || '').trim().toLowerCase();
   
   for (let i = 0; i < data.length; i++) {
     const rowName = String(data[i][0] || '').trim().toLowerCase();
@@ -163,7 +176,7 @@ function toggleSingleCheckIn(sheetName, playerName, isCheckedIn) {
     if (rowName === targetName) {
       const targetRow = i + 1;
       const checkInCol = 7; // Column G (Check-In)
-      const marker = isCheckedIn ? "X" : ""; // Uses "X" / empty string standard for check-ins
+      const marker = checkedState ? "X" : ""; // Uses "X" / empty string standard
 
       // Write directly to Column G (Check-In)
       sheet.getRange(targetRow, checkInCol).setValue(marker);
@@ -171,15 +184,16 @@ function toggleSingleCheckIn(sheetName, playerName, isCheckedIn) {
       SpreadsheetApp.flush(); // Force changes to write immediately
       
       if (typeof logDebug === 'function') {
-        logDebug("toggleSingleCheckIn", `Successfully updated ${playerName} to check-in: '${marker}' on row ${targetRow}`);
+        logDebug("toggleSingleCheckIn", `Successfully updated ${targetPlayer} to check-in: '${marker}' on row ${targetRow}`);
       }
       
-      return { success: true, name: playerName, checkedIn: isCheckedIn, row: targetRow };
+      return { success: true, name: targetPlayer, checkedIn: !!checkedState, row: targetRow };
     }
   }
   
-  throw new Error("Player '" + playerName + "' not found on sheet " + sheetName);
+  throw new Error("Player '" + targetPlayer + "' not found on sheet " + sheetName);
 }
+
 
 
 function saveCheckIns(schedSheetName, checkedPlayerNames) {
