@@ -2,13 +2,10 @@
  * GLOBAL CONFIGURATION & HELPER DEFINITIONS
  * ========================================== */
 
-
 const ENABLE_LOGGING = true; // Toggle to true/false to enable or disable system logging
-
 
 function testCheckInDirectly() {
   try {
-    // Replace with a real sheet name and player name from your sheet
     const result = toggleSingleCheckIn({
       sheet: "Sched Women", 
       playerName: "Jennifer Little",
@@ -40,7 +37,6 @@ function logDebug(fnName, msg, extra = "") {
     }
   }
 
-  // console.log is preferred over Logger.log for Apps Script Web Apps & Stackdriver
   console.log(`[${new Date().toISOString()}] [${fnName}] ${msg} ${extraStr}`.trim());
 }
 
@@ -61,7 +57,6 @@ const SCORE_TABS = VALID_SCORE_TABS;
 const MAX_MOVEMENT = 4;
 const MAX_POINTS_PER_WEEK = 45;
 const ALWAYS_BYE_LOWEST = true;
-
 
 const GROUPS = ["Womens", "Mens", "Mixed"];
 const SCHEDULE_TABS = ["Sched Womens", "Sched Mens", "Sched Mixed"];
@@ -99,7 +94,6 @@ function getAppVersion() {
   return "1.1.4"; 
 }
 
-
 function getValidScoreTabs() {
   logDebug("getValidScoreTabs", "Fetching valid score tabs");
   return SCORE_TABS;
@@ -115,9 +109,6 @@ function getAvailableGroups() {
   return GROUPS;
 }
 
-/**
- * Fetches players and their current check-in state dynamically.
- */
 /**
  * Fetches players and their current check-in state with flexible column matching.
  */
@@ -146,7 +137,7 @@ function getPlayersForCheckIn(inputName) {
   // Flexible Check-In column lookup with fallback to Column 7 (Column G)
   let checkInIdx = headers.findIndex(h => h.includes("checkin") || h.includes("checkedin") || h === "x");
   if (checkInIdx === -1 && data[0].length >= 7) {
-    checkInIdx = 6; // Fallback to 7th column (index 6)
+    checkInIdx = 6; 
   }
 
   let players = [];
@@ -193,7 +184,6 @@ function toggleSingleCheckIn(sheetNameOrData, playerName, isCheckedIn) {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) throw new Error("No player data found in sheet: " + sheetName);
 
-  // Read Columns A through G (Col 1 = Name, Col 7 = Check-In)
   const data = sheet.getRange(1, 1, lastRow, 7).getValues();
   const targetName = String(targetPlayer || '').trim().toLowerCase();
   
@@ -220,9 +210,6 @@ function toggleSingleCheckIn(sheetNameOrData, playerName, isCheckedIn) {
   
   throw new Error("Player '" + targetPlayer + "' not found on sheet " + sheetName);
 }
-
-
-
 
 function saveCheckIns(schedSheetName, checkedPlayerNames) {
   logDebug("saveCheckIns", "Saving check-ins for sheet", { schedSheetName, checkedPlayerNames });
@@ -276,7 +263,6 @@ function doPost(e) {
   return handleApiRequest(e);
 }
 
-
 function handleApiRequest(e) {
   logDebug("handleApiRequest", "Processing API Payload");
   const lock = LockService.getScriptLock();
@@ -312,7 +298,8 @@ function handleApiRequest(e) {
       case 'generateScheduleTabs':
         {
           let genTarget = payload.arg || payload.tab || payload.sheet || (payload.group ? "Score " + payload.group : null);
-          result = generateScheduleTabs(genTarget);
+          let courts = payload.courts || null;
+          result = generateScheduleTabs(genTarget, courts);
         }
         break;
 
@@ -384,9 +371,11 @@ function handleApiRequest(e) {
         break;
 
       case 'rescheduleFromCheckIns':
-        // Safely construct tab name only if group/sheet parameters exist
-        let reschedTarget = payload.arg || payload.tab || payload.sheet || (payload.group ? "Sched " + payload.group : null);
-        result = rescheduleFromCheckIns(reschedTarget);
+        {
+          let reschedTarget = payload.arg || payload.tab || payload.sheet || (payload.group ? "Sched " + payload.group : null);
+          let courts = payload.courts || null;
+          result = rescheduleFromCheckIns(reschedTarget, courts);
+        }
         break;
 
       case 'menuSortActivePlayers':
@@ -1200,15 +1189,10 @@ function sortActivePlayersForSheet(sheet) {
 }
 
 /* ==========================================
- * SCHEDULE GENERATION
- * ========================================== */
-
-
-/* ==========================================
  * SCHEDULE GENERATION WITH GROUP COURT MAPPING
  * ========================================== */
 
-function generateScheduleTabs(scoreTabName = null) {
+function generateScheduleTabs(scoreTabName = null, overrideCourts = null) {
   logDebug("generateScheduleTabs", "Generating schedule for score tab", scoreTabName);
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   
@@ -1255,15 +1239,16 @@ function generateScheduleTabs(scoreTabName = null) {
   let schedSheet = ss.getSheetByName(schedSheetName) || ss.insertSheet(schedSheetName);
   schedSheet.clear();
 
-  // Retrieve assigned court numbers list for this group
-  const availableCourts = getCourtsForGroup(cleanGroupName);
+  // Retrieve assigned court numbers list for this group, with optional overrides from Admin UI
+  const defaultCourts = getCourtsForGroup(cleanGroupName);
+  const availableCourts = (overrideCourts && Array.isArray(overrideCourts) && overrideCourts.length > 0) 
+    ? overrideCourts 
+    : defaultCourts;
 
-  // 8 Columns: Name, Court, Game 1, Game 2, Game 3, Total, Check-In, Entered By
   let schedOut = [["Name", "Court", "Game 1", "Game 2", "Game 3", "Total", "Check-In", "Entered By"]];
   let courtIdx = 0;
 
   for (let i = 0; i < activePlayers.length; i += 4) {
-    // Map court index to the specific court number assigned in GROUP_COURT_MAP
     let courtNumber = availableCourts[courtIdx] !== undefined 
       ? availableCourts[courtIdx] 
       : (courtIdx + 1);
@@ -1288,7 +1273,7 @@ function generateScheduleTabs(scoreTabName = null) {
   return `✅ Schedule generated successfully for ${cleanGroupName} (${activePlayers.length} players, ${courtIdx} courts).`;
 }
 
-function rescheduleFromCheckIns(schedTabName) {
+function rescheduleFromCheckIns(schedTabName, overrideCourts = null) {
   logDebug("rescheduleFromCheckIns", "Rescheduling based on check-ins for tab", schedTabName);
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   
@@ -1315,7 +1300,11 @@ function rescheduleFromCheckIns(schedTabName) {
   if (checkedInPlayers.length === 0) return "⚠️ No checked-in players found on " + targetName;
 
   let cleanGroupName = targetName.replace("Sched ", "").trim();
-  const availableCourts = getCourtsForGroup(cleanGroupName);
+
+  const defaultCourts = getCourtsForGroup(cleanGroupName);
+  const availableCourts = (overrideCourts && Array.isArray(overrideCourts) && overrideCourts.length > 0) 
+    ? overrideCourts 
+    : defaultCourts;
 
   schedSheet.clear();
   let schedOut = [["Name", "Court", "Game 1", "Game 2", "Game 3", "Total", "Check-In", "Entered By"]];
@@ -1665,4 +1654,3 @@ function getTargetSheetDynamic(payload, prefix) {
   }
   return sheet;
 }
-
