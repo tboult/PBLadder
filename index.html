@@ -118,7 +118,7 @@
         margin-top: 0;
         padding: 0.5rem;
         min-height: 44px;
-        font-size: 1.8rem;
+        font-size: 24pt;
         font-weight: bold;
         background: var(--btn-sub-bg);
         color: var(--btn-sub-text);
@@ -130,7 +130,7 @@
       }
 
       .nav { display: flex; background: var(--nav-bg); border-radius: 0.5rem; padding: 0.2rem; margin-bottom: 0.75rem; overflow-x: auto;}
-      .nav button { flex: 1; min-width: 4.5rem; padding: 0.75rem 0.25rem; border: none; background: transparent; cursor: pointer; font-weight: 700; font-size: 0.9rem; color: var(--nav-text); border-radius: 0.4rem; transition: 0.2s; min-height: 54px; }
+      .nav button { flex: 1; min-width: 4.5rem; padding: 0.75rem 0.25rem; border: none; background: transparent; cursor: pointer; font-weight: 700; font-size: 22pt; color: var(--nav-text); border-radius: 0.4rem; transition: 0.2s; min-height: 54px; }
       .nav button.active { background: var(--nav-active-bg); color: var(--nav-active-text); box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
       .tab-content { display: none; }
       .tab-content.active { display: block; }
@@ -323,7 +323,7 @@
     <!-- TAB 1: CHECK-IN SYSTEM -->
     <div id="checkinTab" class="tab-content active">
       <label><b>Select Group:</b></label>
-      <select id="sheetSelect" onchange="onGroupChange('sheetSelect'); loadCheckInPlayers()"><option value="">-- Choose Ladder --</option></select>
+      <select id="sheetSelect" onchange="onGroupChange('sheetSelect'); loadCheckInPlayers()"><option value="Womens">-- Choose Ladder --</option></select>
       
       <div id="checkInStatus" class="status-msg" style="margin-top:0.25rem; margin-bottom:0.5rem;"></div>
 
@@ -381,11 +381,11 @@
     <!-- TAB 4: HELP -->
     <div id="helpTab" class="tab-content">
       <div class="access-panel">
-        <h3 style="margin-top:0;">📱 Adjust sizes / Contrast</h3>
+        <h3 style="margin-top:0;">📱 Adjust sizes / Contrast</h3><p>
         <button id="btn-size-normal" class="active" onclick="applyTextSize('normal')">Bold</button>
         <button id="btn-size-large" onclick="applyTextSize('large')">Large</button>
         <button id="btn-size-huge" onclick="applyTextSize('huge')">HUGE</button>
-        <button id="btn-contrast-toggle" onclick="toggleContrast()">High Contrast</button>
+        <button id="btn-contrast-toggle" onclick="toggleContrast()">High Contrast</button></p>
       </div>
 
       <div class="card">
@@ -623,6 +623,7 @@ async function processApiQueue() {
   // --- LOCAL STORAGE CACHE HANDLERS ---
 // 1. Ignore placeholder headers like "-- Choose Group --" and default to "Womens"
 function getSavedGroup() {
+  return 'Womens';
   const saved = localStorage.getItem('scpb_selected_group');
   if (saved && saved.trim() && !saved.trim().startsWith('--')) {
     return saved.trim();
@@ -634,7 +635,7 @@ function getSavedGroup() {
 function populateSheets(sheets) {
   const sel1 = document.getElementById('sheetSelect');
   const sel2 = document.getElementById('adminSchedSelect');
-  if (!sheets || !sheets.length) return;
+  if (!sheets) return;
 
   let options1 = '<option value="">-- Choose Group --</option>';
   let options2 = '<option value="">-- Choose Group --</option>';
@@ -653,7 +654,7 @@ function populateSheets(sheets) {
 
 // 3. Re-apply selected state immediately after building group dropdowns
 function populateGroups(groups) {
-  if (!groups || !groups.length) return;
+    if (!groups ) return;
 
   const selectIds = ['groupViewerSelect', 'regGroup', 'adminRegGroup', 'adminStatusGroupSelect', 'adminGlobalGroupSelect'];
   

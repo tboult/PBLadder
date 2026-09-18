@@ -112,7 +112,7 @@ function getAvailableGroups() {
 /**
  * Fetches players and their current check-in state with flexible column matching.
  */
-function getPlayersForCheckIn(inputName) {
+function fetchPlayersFromSheet(inputName) {
   if (!inputName) return { error: "No sheet or group name provided." };
 
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -1730,7 +1730,6 @@ function lookupPhoneInternal(phone) {
   return null;
 }
 
-// CODE.GS
 function getPlayersForCheckIn(sheetName) {
   const cache = CacheService.getScriptCache();
   const cacheKey = "checkin_" + sheetName;
