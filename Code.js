@@ -272,10 +272,6 @@ function handleApiRequest(e) {
     let action = (e && e.parameter && e.parameter.action) ? e.parameter.action : "";
     let payload = {};
 
-      if(action ==""){
-          new Error("Missing action on request: " + e);
-      }
-
     if (e && e.postData && e.postData.contents) {
       try {
         payload = JSON.parse(e.postData.contents);
