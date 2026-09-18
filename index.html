@@ -150,7 +150,7 @@ s<!DOCTYPE html>
       select {
       appearance: auto;
       -webkit-appearance: listbox;
-      font-size: 16px !important; /* Prevents root font-scaling from shifting native mobile pickers */
+      font-size: 18px !important; /* Prevents root font-scaling from shifting native mobile pickers */
       cursor: pointer;
       }      
 
@@ -705,16 +705,25 @@ async function processApiQueue() {
   });
 
   const htmlRoot = document.documentElement;
-  const sizeRatios = { normal: '100%', large: '125%', huge: '150%' };
-    
+
+  // ✅ Target document.body instead of htmlRoot
+  const sizeRatios = { normal: '100%', large: '150%', huge: '200%' };
+
   function applyTextSize(size) {
-    htmlRoot.style.fontSize = sizeRatios[size];
-    try { localStorage.setItem('pwa-text-size', size); } catch(e) {}
-    document.getElementById('btn-size-normal').classList.remove('active');
-    document.getElementById('btn-size-large').classList.remove('active');
-    document.getElementById('btn-size-huge').classList.remove('active');
-    document.getElementById('btn-size-' + size).classList.add('active');
-  }
+      const ratio = sizeRatios[size] || '100%';
+      document.body.style.fontSize = ratio; // Scales page text without corrupting html root coordinates
+  
+      // Highlight active accessibility button UI
+      ['btnNormal', 'btnLarge', 'btnHuge'].forEach(id => {
+          const btn = document.getElementById(id);
+          if (btn) btn.classList.remove('active');
+      });
+      
+      const activeBtn = document.getElementById('btn' + size.charAt(0).toUpperCase() + size.slice(1));
+      if (activeBtn) activeBtn.classList.add('active');
+      
+      localStorage.setItem('foursome_text_size', size);
+  }  
 
   function toggleContrast() {
     const isHigh = document.body.classList.toggle('high-contrast');
