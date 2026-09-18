@@ -633,8 +633,11 @@ async function processApiQueue() {
   }
 
   function onGroupChange(sourceSelectId) {
-    const el = document.getElementById(sourceSelectId);
-    if (el && el.value) setSavedGroup(el.value);
+      const el = document.getElementById(sourceSelectId);
+      if (el && el.value) {
+          setSavedGroup(el.value);
+          localStorage.setItem('foursome_last_group', el.value);
+      }
   }
 
   function onAdminGlobalGroupChange() {
@@ -732,34 +735,39 @@ async function processApiQueue() {
 
 
   
-  window.onload = async function() {
-      checkAppVersion();
-      initAccessibility();
-      
-      const savedPhone = localStorage.getItem('foursome_phone');
-      
-      try {
-          // Single API call replaces 3 separate network round-trips
-          const data = await apiCall('getInitialAppData', { phone: savedPhone });
-          
-          if (data) {
-              if (data.sheets) populateSheets(data.sheets);
-              if (data.groups) populateGroups(data.groups);
-              if (data.userData && savedPhone) {
-                  document.getElementById('phoneInput').value = savedPhone;
-                  handleUserData(data.userData);
-              }
-      
-              // Auto-select group after all dropdown data exists
-          autoSelectStoredGroup();
-          }
-      } catch (err) {
-          console.error("Batch load failed:", err);
-      } finally {
-          isInitialLoading = false;
-          updateGlobalLoaderStatus();
-      }
-  }
+    window.onload = async function() {
+        checkAppVersion();
+        initAccessibility();
+        
+        const savedPhone = localStorage.getItem('foursome_phone');
+        
+        try {
+            const data = await apiCall('getInitialAppData', { phone: savedPhone });
+            
+            if (data) {
+                if (data.sheets) {
+                    localStorage.setItem('cached_sheets', JSON.stringify(data.sheets)); // Cache sheets
+                    populateSheets(data.sheets);
+                }
+                if (data.groups) {
+                    localStorage.setItem('cached_groups', JSON.stringify(data.groups)); // Cache groups
+                    populateGroups(data.groups);
+                }
+                if (data.userData && savedPhone) {
+                    document.getElementById('phoneInput').value = savedPhone;
+                    handleUserData(data.userData);
+                }
+                
+                autoSelectStoredGroup();
+            }
+        } catch (err) {
+            console.error("Batch load failed:", err);
+        } finally {
+            isInitialLoading = false;
+            updateGlobalLoaderStatus();
+        }
+  };
+    
 
   function populateSheetsWithCache(sheetsData) {
       if (sheetsData) {
@@ -1285,35 +1293,6 @@ function renderCheckInPlayers(data, sheetName) {
       cancelRegistration();
     } catch(e) { alert(e.message); }
   }
-async function handleCheckInClick(event, playerName, currentStatus, sheetName) {
-  const targetElement = event.currentTarget;
-  const newStatus = !currentStatus;
-
-  // 1. Instant Visual Feedback (Optimistic Update)
-  targetElement.classList.toggle('checked-in', newStatus);
-  targetElement.style.opacity = '0.6';
-  targetElement.style.pointerEvents = 'none'; // Prevent double-clicking
-
-  try {
-    // 2. Network Request in Background
-    const response = await apiCall('toggleSingleCheckIn', {
-      sheet: sheetName,
-      name: playerName,
-      isCheckedIn: newStatus
-    });
-
-    if (response.status !== 'success') throw new Error(response.message);
-    
-  } catch (error) {
-    // 3. Revert Visual State if the API call failed
-    alert('Check-in failed: ' + error.message);
-    targetElement.classList.toggle('checked-in', currentStatus);
-  } finally {
-    // Re-enable interactions
-    targetElement.style.opacity = '1';
-    targetElement.style.pointerEvents = 'auto';
-  }
-}
 
 let autoRefreshTimer = null;
 
@@ -1369,10 +1348,6 @@ function initializeGroupCourts(groupName) {
     courtSelect.value = currentPlayerData.court;
   }
 }  
-window.onGroupChange = function(selectId) {
-  const val = document.getElementById(selectId)?.value;
-  if (val) localStorage.setItem('foursome_last_group', val);
-};
 
 window.loadCheckInPlayers = loadCheckInPlayers;
 

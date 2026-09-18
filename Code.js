@@ -1734,3 +1734,28 @@ function lookupPhoneInternal(phone) {
   return null;
 }
 
+// CODE.GS
+function getPlayersForCheckIn(sheetName) {
+  const cache = CacheService.getScriptCache();
+  const cacheKey = "checkin_" + sheetName;
+  const cached = cache.get(cacheKey);
+
+  // Return cached data if valid
+  if (cached) return JSON.parse(cached);
+
+  // Fetch from Google Sheet if cache miss
+  const players = fetchPlayersFromSheet(sheetName); 
+  cache.put(cacheKey, JSON.stringify(players), 600); // Cache for up to 10 mins
+  return players;
+}
+
+function toggleSingleCheckIn(data) {
+  // 1. Write update to Google Sheet
+  updatePlayerCheckInInSheet(data.sheet, data.playerName, data.isCheckedIn);
+
+  // 2. INVALIDATE SHARED CACHE: Forces ALL users to get fresh data on next poll
+  const cache = CacheService.getScriptCache();
+  cache.remove("checkin_" + data.sheet);
+
+  return { status: "success" };
+}
