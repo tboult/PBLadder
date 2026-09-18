@@ -1302,9 +1302,15 @@ function rescheduleFromCheckIns(schedTabName) {
   let schedSheet = ss.getSheetByName(targetName);
   if (!schedSheet) return "⚠️ Error: Schedule sheet '" + targetName + "' not found.";
 
-  // Fetch checked-in players
+  // Fetch all players
   const allPlayers = getPlayersForCheckIn(targetName);
-  const checkedInPlayers = Array.isArray(allPlayers) ? allPlayers.filter(p => p.checkedIn || p.checked) : [];
+  if (!Array.isArray(allPlayers) || allPlayers.length === 0) {
+    return "⚠️ No players found for " + targetName;
+  }
+
+  // Separate checked-in vs unchecked players
+  const checkedInPlayers = allPlayers.filter(p => p.checkedIn || p.checked);
+  const uncheckedPlayers = allPlayers.filter(p => !(p.checkedIn || p.checked));
 
   if (checkedInPlayers.length === 0) return "⚠️ No checked-in players found on " + targetName;
 
@@ -1313,22 +1319,42 @@ function rescheduleFromCheckIns(schedTabName) {
 
   schedSheet.clear();
   let schedOut = [["Name", "Court", "Game 1", "Game 2", "Game 3", "Total", "Check-In", "Entered By"]];
+
+  // Calculate how many complete 4-player courts can be formed
+  const fullCourtsCount = Math.floor(checkedInPlayers.length / 4);
+  const assignedCheckedCount = fullCourtsCount * 4;
   let courtIdx = 0;
 
-  for (let i = 0; i < checkedInPlayers.length; i += 4) {
+  // 1. Assign full 4-player courts for checked-in players
+  for (let i = 0; i < assignedCheckedCount; i += 4) {
     let courtNumber = availableCourts[courtIdx] !== undefined 
       ? availableCourts[courtIdx] 
       : (courtIdx + 1);
     let courtName = "Court " + courtNumber;
 
     for (let j = 0; j < 4; j++) {
-      if (i + j < checkedInPlayers.length) {
-        let rowNum = schedOut.length + 1;
-        let sumFormula = `=IF(COUNT(C${rowNum}:E${rowNum})>0, SUM(C${rowNum}:E${rowNum}), "")`;
-        schedOut.push([checkedInPlayers[i+j].name, courtName, "", "", "", sumFormula, "X", ""]);
-      }
+      let player = checkedInPlayers[i + j];
+      let rowNum = schedOut.length + 1;
+      let sumFormula = `=IF(COUNT(C${rowNum}:E${rowNum})>0, SUM(C${rowNum}:E${rowNum}), "")`;
+      schedOut.push([player.name, courtName, "", "", "", sumFormula, "X", ""]);
     }
     courtIdx++;
+  }
+
+  // 2. Checked-in leftovers (1-3 players) assigned to BYE with "X"
+  for (let i = assignedCheckedCount; i < checkedInPlayers.length; i++) {
+    let player = checkedInPlayers[i];
+    let rowNum = schedOut.length + 1;
+    let sumFormula = `=IF(COUNT(C${rowNum}:E${rowNum})>0, SUM(C${rowNum}:E${rowNum}), "")`;
+    schedOut.push([player.name, "BYE", "", "", "", sumFormula, "X", ""]);
+  }
+
+  // 3. Unchecked players assigned to BYE with empty check-in ""
+  for (let i = 0; i < uncheckedPlayers.length; i++) {
+    let player = uncheckedPlayers[i];
+    let rowNum = schedOut.length + 1;
+    let sumFormula = `=IF(COUNT(C${rowNum}:E${rowNum})>0, SUM(C${rowNum}:E${rowNum}), "")`;
+    schedOut.push([player.name, "BYE", "", "", "", sumFormula, "", ""]);
   }
 
   let sRange = schedSheet.getRange(1, 1, schedOut.length, 8);
@@ -1337,7 +1363,7 @@ function rescheduleFromCheckIns(schedTabName) {
   schedSheet.getRange(1, 1, 1, 8).setFontWeight("bold");
 
   logDebug("rescheduleFromCheckIns", "Check-in schedule regenerated", targetName);
-  return `✅ Rescheduled ${checkedInPlayers.length} checked-in players for ${cleanGroupName} across ${courtIdx} courts.`;
+  return `✅ Rescheduled ${checkedInPlayers.length} checked-in players across ${courtIdx} courts. (${uncheckedPlayers.length} unchecked players placed on BYE).`;
 }
 
 
