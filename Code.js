@@ -319,6 +319,15 @@ function handleApiRequest(e) {
         }
         break;
 
+      case 'getInitialAppData':
+        // Safely check if data.phone exists before passing it
+        var userPhone = (data && data.phone) ? data.phone : null;
+        result = getInitialAppData(userPhone);
+
+      case 'getInitialAppData':
+        result = getInitialAppData(data.phone);
+        break;
+      
       case 'getSchedTabNames':
         result = getSchedTabNames();
         break;
@@ -1663,3 +1672,64 @@ function getInitialAppData(phone) {
     userData: phone ? lookupPhoneInternal(phone) : null
   };
 }
+
+
+// 1. Returns tab names that represent schedule/ladder sheets
+function getSchedTabNames() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheets = ss.getSheets();
+  
+  // Filters tabs containing "Sched" or "Ladder" (adjust filter criteria if needed)
+  return sheets
+    .map(sheet => sheet.getName())
+    .filter(name => /sched|ladder/i.test(name));
+}
+
+// 2. Returns unique group names from a "Groups" or "Players" tab
+function getAvailableGroups() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const groupSheet = ss.getSheetByName("Groups") || ss.getSheetByName("Players");
+  if (!groupSheet) return [];
+  
+  const data = groupSheet.getDataRange().getValues();
+  const groups = new Set();
+  
+  // Assumes Group names are in Column A starting at Row 2
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0]) {
+      groups.add(String(data[i][0]).trim());
+    }
+  }
+  return Array.from(groups);
+}
+
+// 3. Searches the "Players" sheet for a matching phone number
+function lookupPhoneInternal(phone) {
+  if (!phone) return null;
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const playerSheet = ss.getSheetByName("Players") || ss.getSheetByName("Master");
+  if (!playerSheet) return null;
+  
+  const cleanPhone = String(phone).replace(/\D/g, ''); // Strip formatting
+  const data = playerSheet.getDataRange().getValues();
+  const headers = data[0].map(h => String(h).toLowerCase().trim());
+  
+  const phoneCol = headers.findIndex(h => h.includes('phone'));
+  const nameCol = headers.findIndex(h => h.includes('name'));
+  const groupCol = headers.findIndex(h => h.includes('group') || h.includes('ladder'));
+  
+  if (phoneCol === -1) return null;
+  
+  for (let i = 1; i < data.length; i++) {
+    const rowPhone = String(data[i][phoneCol]).replace(/\D/g, '');
+    if (rowPhone && rowPhone === cleanPhone) {
+      return {
+        name: nameCol !== -1 ? data[i][nameCol] : '',
+        group: groupCol !== -1 ? data[i][groupCol] : '',
+        phone: data[i][phoneCol]
+      };
+    }
+  }
+  return null;
+}
+
