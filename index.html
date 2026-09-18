@@ -244,7 +244,7 @@
         grid-template-columns: repeat(4, 1fr);
         gap: 6px;
         margin: 6px 0;
-        max-height: 200px;
+        max-height: 300px;
         overflow-y: auto;
         border: 2px solid var(--card-border);
         padding: 6px;
@@ -489,8 +489,8 @@
 
     const defaultCourts = GROUP_COURT_MAP[groupName] || GROUP_COURT_MAP["Default"];
     
-    // Render all possible courts dynamically (assumes 24 max courts)
-    for (let i = 1; i <= 24; i++) {
+    // Render all possible courts dynamically (assumes 20 max courts)
+    for (let i = 1; i <= 20; i++) {
       const div = document.createElement('div');
       div.className = 'court-item';
       
