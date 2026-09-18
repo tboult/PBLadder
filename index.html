@@ -214,21 +214,21 @@
       }
 
       .global-loader {
-      position: fixed;
-      top: 12px;
-      right: 12px;
-      background: rgba(45, 106, 79, 0.92);
-      color: white;
-      padding: 8px 14px;
-      border-radius: 20px;
-      font-size: 0.85rem;
-      font-weight: bold;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-      z-index: 9999;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      pointer-events: none;
+        position: fixed;
+        top: 12px;
+        right: 12px;
+        background: rgba(45, 106, 79, 0.92);
+        color: white;
+        padding: 8px 14px;
+        border-radius: 20px;
+        font-size: 0.85rem;
+        font-weight: bold;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        z-index: 9999;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        pointer-events: none;
       }
       .global-loader .loading-spinner {
         border: 2px solid rgba(255,255,255,0.3);
@@ -287,7 +287,6 @@
       <span class="loading-spinner"></span>
       <span id="globalLoaderText">Loading app...</span>
     </div>
-
 
     <div class="nav">
       <button id="tab1Btn" class="active" onclick="switchTab('checkin')">Check-In</button>
@@ -436,7 +435,6 @@
           
           <hr>
           <button class="btn-sub" onclick="runAdmin('sortActivePlayers')">Sort Active Players (Current Group)</button>
-          <button class="btn-sub" onclick="runAdmin('generateScheduleTabs')">Generate Schedule (Current Group)</button>
           <button class="btn-sub" onclick="runAdmin('updateStandingsWithShift')">End of Week (Shift Scores)</button>
           <button class="btn-sub" onclick="runAdmin('correctScoresNoShift')">Correct Scores (No Shift)</button>
           <button class="btn-sub" onclick="getAdminPdf()">Download PDF Schedules</button>
@@ -447,10 +445,6 @@
           <h4 style="margin:0 0 0.5rem 0;">➕ Add New Player</h4>
           <button class="btn-main" onclick="showRegistrationAdmin()">Register Player</button>
         </div>
-
-        <button class="btn-danger desktop-only" style="margin-top:2rem;" onclick="if(confirm('🚨 WARNING: Are you sure you want to start a new season? This will permanently wipe all current scores across ALL groups.')) runAdmin('startNewSeason')">🚨 Start New Season</button>
-
-        <div id="adminStatus" class="status-msg"></div>
       </div>
     </div>
 
