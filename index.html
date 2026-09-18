@@ -81,7 +81,8 @@
         padding: 0.75rem; 
         background-color: var(--bg-color); 
         color: var(--text-color); 
-        line-height: 1.6;
+      line-height: 1.6;
+      font-size: 22pt; /* 👈 Set base font size here (or 24pt) */      
       }
       
       .header-title { 
@@ -148,11 +149,24 @@
       }
 
       select {
-      appearance: auto;
-      -webkit-appearance: listbox;
-      font-size: 24px !important; /* Prevents root font-scaling from shifting native mobile pickers */
-      cursor: pointer;
-      }      
+      /* 1. Strip default browser UI overlays */
+      -webkit-appearance: none;
+      -moz-appearance: none;
+      appearance: none;
+      
+      /* 2. Lock box boundaries and alignment */
+      box-sizing: border-box;
+      width: 80%;
+      padding: 0.75rem 1rem;
+      line-height: 1.2;
+      vertical-align: middle;
+      
+      /* 3. Force colors so OS defaults (e.g. blue text/white fill) are overridden */
+      color: var(--text-color, #ffffff);
+      background-color: var(--btn-bg, #007bff);
+      border: 1px solid transparent;
+      border-radius: 6px;
+      }
 
       button, .btn, .btn-main {
       background-color: #e8f5e9;
@@ -708,24 +722,29 @@ async function processApiQueue() {
 
   const htmlRoot = document.documentElement;
 
-  // ✅ Target document.body instead of htmlRoot
-  const sizeRatios = { normal: '100%', large: '150%', huge: '200%' };
+// ✅ Use explicit pt values for base and scaled sizes
+const sizeRatios = { 
+  normal: '22pt',  // Default font size
+  large:  '24pt',  // Large  font size
+  huge:   '28pt'   // HUGE  font size
+};
 
-  function applyTextSize(size) {
-      const ratio = sizeRatios[size] || '100%';
-      document.body.style.fontSize = ratio; // Scales page text without corrupting html root coordinates
+function applyTextSize(size) {
+  const targetSize = sizeRatios[size] || '22pt';
+  document.body.style.fontSize = targetSize; // Applies chosen size directly to body
   
-      // Highlight active accessibility button UI
-      ['btnNormal', 'btnLarge', 'btnHuge'].forEach(id => {
-          const btn = document.getElementById(id);
-          if (btn) btn.classList.remove('active');
-      });
-      
-      const activeBtn = document.getElementById('btn' + size.charAt(0).toUpperCase() + size.slice(1));
-      if (activeBtn) activeBtn.classList.add('active');
-      
-      localStorage.setItem('foursome_text_size', size);
-  }  
+  // Update button active state highlights
+  ['btnNormal', 'btnLarge', 'btnHuge'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) btn.classList.remove('active');
+  });
+  
+  const activeBtn = document.getElementById('btn' + size.charAt(0).toUpperCase() + size.slice(1));
+  if (activeBtn) activeBtn.classList.add('active');
+  
+  localStorage.setItem('foursome_text_size', size);
+}
+  
 
   function toggleContrast() {
     const isHigh = document.body.classList.toggle('high-contrast');
