@@ -1566,7 +1566,7 @@ function getAdminPlayersByGroup(groupName) {
   if (!scoreSheet) return { error: `Score sheet for group '${groupName}' not found.` };
 
   const data = scoreSheet.getDataRange().getValues();
-  if (data.length <= 1) return { players: [] };
+  if (!data || data.length <= 1) return { players: [] };
 
   const col = buildColMap(data[0]);
   
@@ -1596,7 +1596,7 @@ function submitCourtScores(payload) {
   if (!sheet) return "Error: Schedule sheet not found.";
   
   const data = sheet.getDataRange().getValues();
-  if (data.length <= 1) return "Error: No schedule data found.";
+  if (!data || data.length <= 1) return "Error: No schedule data found.";
 
   let headers = data[0].map(h => h.toString().toLowerCase().trim());
   let g1Idx = headers.indexOf("game 1");
@@ -1693,7 +1693,8 @@ function getAvailableGroups() {
   
   const data = groupSheet.getDataRange().getValues();
   const groups = new Set();
-  
+
+  if (!data || data.length <= 1) return "Error: No Groups found.";  
   // Assumes Group names are in Column A starting at Row 2
   for (let i = 1; i < data.length; i++) {
     if (data[i][0]) {
@@ -1719,7 +1720,7 @@ function lookupPhoneInternal(phone) {
   const groupCol = headers.findIndex(h => h.includes('group') || h.includes('ladder'));
   
   if (phoneCol === -1) return null;
-  
+  if (!data || data.length <= 1) return "Error: phones found.";    
   for (let i = 1; i < data.length; i++) {
     const rowPhone = String(data[i][phoneCol]).replace(/\D/g, '');
     if (rowPhone && rowPhone === cleanPhone) {
