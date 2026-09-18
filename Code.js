@@ -1625,6 +1625,7 @@ function submitCourtScores(payload) {
   return "✅ Game scores updated successfully!";
 }
 
+
 // Normalizes tab names based on target prefix ("Sched " or "Score ")
 function resolveSheetName(rawInput, prefix) {
   if (!rawInput) return SpreadsheetApp.getActiveSheet().getName();
