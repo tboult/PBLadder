@@ -1851,3 +1851,5 @@ function getCheckInCacheKey(inputName) {
   let cleanGroup = String(inputName).replace(/^(Score|Sched|Rankings)\s*/i, "").trim().toLowerCase();
   return "checkin_sched_" + cleanGroup.replace(/[^a-z0-9_]/g, "_");
 }
+
+

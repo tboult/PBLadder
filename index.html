@@ -81,7 +81,7 @@
         padding: 0.75rem; 
         background-color: var(--bg-color); 
         color: var(--text-color); 
-      line-height: 1.6;
+      line-height: 1.2;
       font-size: 1rem; /* 👈 Set base font size */
       }
       
@@ -118,7 +118,7 @@
         margin-top: 0;
         padding: 0.5rem;
         min-height: 44px;
-        font-size: 20pt;
+        font-size: 1.2rem;
         font-weight: bold;
         background: var(--btn-sub-bg);
         color: var(--btn-sub-text);
@@ -130,7 +130,7 @@
       }
 
       .nav { display: flex; background: var(--nav-bg); border-radius: 0.5rem; padding: 0.2rem; margin-bottom: 0.75rem; overflow-x: auto;}
-      .nav button { flex: 1; min-width: 4.5rem; padding: 0.75rem 0.25rem; border: none; background: transparent; cursor: pointer; font-weight: 700; font-size: 20pt; color: var(--nav-text); border-radius: 0.4rem; transition: 0.2s; min-height: 54px; }
+      .nav button { flex: 1; min-width: 4.5rem; padding: 0.75rem 0.25rem; border: none; background: transparent; cursor: pointer; font-weight: 700;  color: var(--nav-text); border-radius: 0.4rem; transition: 0.2s; min-height: 54px; }
       .nav button.active { background: var(--nav-active-bg); color: var(--nav-active-text); box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
       .tab-content { display: none; }
       .tab-content.active { display: block; }
@@ -141,7 +141,6 @@
       margin-top: 0.5rem; 
       border-radius: 0.5rem; 
       border: 2px solid var(--input-border); 
-      font-size: 20pt; 
       background: var(--input-bg);
       color: var(--text-color);
       min-height: 54px; 
@@ -154,7 +153,6 @@
       margin-top: 0.5rem;
       border-radius: 0.5rem;
       border: 2px solid var(--input-border);
-      font-size: 20pt;
       background-color: var(--input-bg);
       color: var(--text-color);
       min-height: 54px;
@@ -179,7 +177,6 @@
       padding: 10px 16px;
       border-radius: 6px;
       font-weight: bold;
-      font-size: 20pt;      
       cursor: pointer;
       transition: background-color 0.2s ease;
       }
@@ -200,7 +197,7 @@
       .player-row { display: flex; align-items: center; justify-content: space-between; padding: 1rem 0.75rem; border-bottom: 2px solid var(--row-border); background: var(--card-bg); cursor: pointer; min-height: 54px; }
       .player-row:active { background: var(--row-hover); }
       .player-row.checked { background: var(--row-checked-bg); }
-      .player-name { font-size: 1.1rem; font-weight: 600; pointer-events: none; }
+      .player-name {  font-weight: 600; pointer-events: none; }
       .check-icon { font-size: 1.25rem; pointer-events: none; }
 
       #playerList { margin-top: 0.75rem; max-height: 60vh; overflow-y: auto; border-radius: 0.5rem; border: 2px solid var(--row-border); overflow-x: hidden; }
@@ -683,44 +680,6 @@ function populateGroups(groups) {
   autoSelectStoredGroup(); // 👈 Triggers data load for Womens immediately
 })();
 
-  function setSavedGroup(groupName) {
-    if (!groupName) return;
-    let cleanGroup = groupName.replace(/^Sched[\s_-]*/i, '').replace(/^Score[\s_-]*/i, '').trim();
-    try { localStorage.setItem('scpb_selected_group', cleanGroup); } catch(e) {}
-    syncAllGroupDropdowns(cleanGroup);
-    onGroupContextUpdated(cleanGroup);
-  }
-
-  function syncAllGroupDropdowns(groupName) {
-    const selectIds = [
-      'sheetSelect', 
-      'groupViewerSelect', 
-      'regGroup', 
-      'adminRegGroup', 
-      'adminStatusGroupSelect', 
-      'adminSchedSelect',
-      'adminGlobalGroupSelect'
-    ];
-    selectIds.forEach(id => {
-      const el = document.getElementById(id);
-      if (!el) return;
-      for (let i = 0; i < el.options.length; i++) {
-        let optVal = el.options[i].value.replace(/^Sched[\s_-]*/i, '').replace(/^Score[\s_-]*/i, '').trim();
-        if (optVal.toLowerCase() === groupName.toLowerCase()) {
-          el.selectedIndex = i;
-          break;
-        }
-      }
-    });
-  }
-
-  function onGroupChange(sourceSelectId) {
-      const el = document.getElementById(sourceSelectId);
-      if (el && el.value) {
-          setSavedGroup(el.value);
-          localStorage.setItem('foursome_last_group', el.value);
-      }
-  }
 
   function onAdminGlobalGroupChange() {
     const el = document.getElementById('adminGlobalGroupSelect');
@@ -732,18 +691,6 @@ function populateGroups(groups) {
     }
   }
 
-  async function onGroupContextUpdated(groupName) {
-    if (!groupName) return;
-    
-    try {
-      const url = await apiCall('getAdminSheetUrl', { group: groupName });
-      const link = document.getElementById('adminSheetLink');
-      if (link && url) link.href = url;
-    } catch(e) { console.warn("Failed to load group sheet URL."); }
-
-    loadAdminPlayerStatusCache(groupName);
-    renderAdminCourts(groupName);
-  }
 
 
 async function checkAppVersion() {
@@ -898,15 +845,6 @@ function populateSheetsWithCache(sheetsData) {
   if (cachedGroups) populateGroups(JSON.parse(cachedGroups));
 })();
 
-function autoSelectStoredGroup() {
-  const savedGroup = getSavedGroup();
-  if (savedGroup) {
-    syncAllGroupDropdowns(savedGroup);
-    onGroupContextUpdated(savedGroup);
-    if (document.getElementById('sheetSelect') && document.getElementById('sheetSelect').value) loadCheckInPlayers();
-    if (document.getElementById('groupViewerSelect') && document.getElementById('groupViewerSelect').value) loadRankingsAndSched();
-  }
-}
 
 function handleSecretTap(e) {
   if (e && e.cancelable) e.preventDefault(); 
@@ -920,17 +858,6 @@ function handleSecretTap(e) {
   tapTimer = setTimeout(() => { tapCount = 0; }, 2000);
 }
 
-function switchTab(tab) {
-  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
-
-  document.getElementById(tab + 'Tab').classList.add('active');
-  let btnId = tab === 'ranksched' ? 'tab3Btn' : tab === 'checkin' ? 'tab1Btn' : tab === 'phone' ? 'tab2Btn' : tab === 'help' ? 'tab4Btn' : 'tabAdminBtn';
-  document.getElementById(btnId).classList.add('active');
-  
-  // Load data for the newly exposed tab
-  refreshActiveTabData();
-}
 
 async function loadAdminPlayerStatusCache(group) {
   if (!group) return;
@@ -1463,24 +1390,111 @@ function setSelectedGroup(newGroup, forceRefresh = false) {
   refreshActiveTabData();
 }
 
-function refreshActiveTabData() {
-  if (!currentActiveGroup) return;
+  // --- OPTIMIZED GROUP CONTEXT & TAB ROUTING ---
 
-  // Identify active UI tab
+function syncAllGroupDropdowns(groupName) {
+  const selectIds = [
+    'sheetSelect', 
+    'groupViewerSelect', 
+    'regGroup', 
+    'adminRegGroup', 
+    'adminStatusGroupSelect', 
+    'adminSchedSelect',
+    'adminGlobalGroupSelect'
+  ];
+  selectIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    for (let i = 0; i < el.options.length; i++) {
+      let optVal = el.options[i].value.replace(/^Sched[\s_-]*/i, '').replace(/^Score[\s_-]*/i, '').trim();
+      if (optVal.toLowerCase() === groupName.toLowerCase()) {
+        el.selectedIndex = i;
+        break;
+      }
+    }
+  });
+}
+
+function onGroupChange(sourceSelectId) {
+  const el = document.getElementById(sourceSelectId);
+  if (el && el.value) {
+    setSavedGroup(el.value);
+    localStorage.setItem('foursome_last_group', el.value);
+  }
+}
+
+function setSavedGroup(groupName) {
+  if (!groupName) return;
+  let cleanGroup = groupName.replace(/^Sched[\s_-]*/i, '').replace(/^Score[\s_-]*/i, '').trim();
+  try { localStorage.setItem('scpb_selected_group', cleanGroup); } catch(e) {}
+  syncAllGroupDropdowns(cleanGroup);
+  onGroupContextUpdated(cleanGroup);
+}
+
+// On group context update, only trigger admin data fetching IF admin tab is actively visible
+function onGroupContextUpdated(groupName) {
+  if (!groupName) return;
+  
+  const adminTab = document.getElementById('adminTab');
+  if (adminTab && adminTab.classList.contains('active')) {
+    loadAdminTabData(groupName);
+  }
+}
+
+// Dedicated Admin Data Loader: Called ONLY when Admin tab is active
+async function loadAdminTabData(groupName) {
+  const targetGroup = groupName || getSavedGroup();
+  if (!targetGroup) return;
+
+  renderAdminCourts(targetGroup);
+
+  try {
+    const url = await apiCall('getAdminSheetUrl', { group: targetGroup });
+    const link = document.getElementById('adminSheetLink');
+    if (link && url) link.href = url;
+  } catch(e) { 
+    console.warn("Failed to load admin sheet URL."); 
+  }
+
+  loadAdminPlayerStatusCache(targetGroup);
+}
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
+
+  document.getElementById(tab + 'Tab').classList.add('active');
+  let btnId = tab === 'ranksched' ? 'tab3Btn' : tab === 'checkin' ? 'tab1Btn' : tab === 'phone' ? 'tab2Btn' : tab === 'help' ? 'tab4Btn' : 'tabAdminBtn';
+  const btn = document.getElementById(btnId);
+  if (btn) btn.classList.add('active');
+  
+  refreshActiveTabData();
+}
+
+function refreshActiveTabData() {
   const activeTab = document.querySelector('.tab-content.active')?.id;
 
   switch (activeTab) {
-    case 'checkin-tab':
+    case 'checkinTab':
       loadCheckInPlayers();
       break;
-    case 'admin-tab':
-      loadAdminTabData();
+    case 'rankschedTab':
+      loadRankingsAndSched();
       break;
-    case 'rankings-tab':
-      loadRankingsAndSchedData();
+    case 'adminTab':
+      loadAdminTabData();
       break;
   }
 }
+
+function autoSelectStoredGroup() {
+  const savedGroup = getSavedGroup();
+  if (savedGroup) {
+    syncAllGroupDropdowns(savedGroup);
+    refreshActiveTabData();
+  }
+}
+
 
 </script>
 </body>
