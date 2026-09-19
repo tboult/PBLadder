@@ -82,7 +82,7 @@
         background-color: var(--bg-color); 
         color: var(--text-color); 
       line-height: 1.6;
-      font-size: 22pt; /* 👈 Set base font size here (or 24pt) */      
+      font-size: 20pt; /* 👈 Set base font size here (or 24pt) */      
       }
       
       .header-title { 
@@ -118,7 +118,7 @@
         margin-top: 0;
         padding: 0.5rem;
         min-height: 44px;
-        font-size: 24pt;
+        font-size: 20pt;
         font-weight: bold;
         background: var(--btn-sub-bg);
         color: var(--btn-sub-text);
@@ -130,7 +130,7 @@
       }
 
       .nav { display: flex; background: var(--nav-bg); border-radius: 0.5rem; padding: 0.2rem; margin-bottom: 0.75rem; overflow-x: auto;}
-      .nav button { flex: 1; min-width: 4.5rem; padding: 0.75rem 0.25rem; border: none; background: transparent; cursor: pointer; font-weight: 700; font-size: 22pt; color: var(--nav-text); border-radius: 0.4rem; transition: 0.2s; min-height: 54px; }
+      .nav button { flex: 1; min-width: 4.5rem; padding: 0.75rem 0.25rem; border: none; background: transparent; cursor: pointer; font-weight: 700; font-size: 20pt; color: var(--nav-text); border-radius: 0.4rem; transition: 0.2s; min-height: 54px; }
       .nav button.active { background: var(--nav-active-bg); color: var(--nav-active-text); box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
       .tab-content { display: none; }
       .tab-content.active { display: block; }
@@ -141,7 +141,7 @@
       margin-top: 0.5rem; 
       border-radius: 0.5rem; 
       border: 2px solid var(--input-border); 
-      font-size: 24pt; 
+      font-size: 20pt; 
       background: var(--input-bg);
       color: var(--text-color);
       min-height: 54px; 
@@ -154,7 +154,7 @@
       margin-top: 0.5rem;
       border-radius: 0.5rem;
       border: 2px solid var(--input-border);
-      font-size: 24pt;
+      font-size: 20pt;
       background-color: var(--input-bg);
       color: var(--text-color);
       min-height: 54px;
@@ -179,7 +179,7 @@
       padding: 10px 16px;
       border-radius: 6px;
       font-weight: bold;
-      font-size: 24pt;      
+      font-size: 20pt;      
       cursor: pointer;
       transition: background-color 0.2s ease;
       }
@@ -323,7 +323,7 @@
     <!-- TAB 1: CHECK-IN SYSTEM -->
     <div id="checkinTab" class="tab-content active">
       <label><b>Select Group:</b></label>
-      <select id="sheetSelect" onchange="onGroupChange('sheetSelect'); loadCheckInPlayers()"><option value="Womens">-- Choose Ladder --</option></select>
+      <select id="sheetSelect" onchange="onGroupChange('sheetSelect'); loadCheckInPlayers()"><option value="">-- Choose Ladder --</option></select>
       
       <div id="checkInStatus" class="status-msg" style="margin-top:0.25rem; margin-bottom:0.5rem;"></div>
 

@@ -110,22 +110,59 @@ function getAvailableGroups() {
 }
 
 /**
- * Fetches players and their current check-in state with flexible column matching.
+ * Safely fetches players from cache or sheet.
+ */
+function getPlayersForCheckIn(sheetName) {
+  if (!sheetName) return [];
+
+  // 1. Sanitize cache key (CacheService keys must not contain spaces/special characters)
+  const cleanKey = String(sheetName).replace(/[^a-zA-Z0-9_]/g, "_");
+  const cacheKey = "checkin_" + cleanKey;
+  const cache = CacheService.getScriptCache();
+
+  // 2. Try Cache Read
+  try {
+    const cached = cache.get(cacheKey);
+    if (cached) return JSON.parse(cached);
+  } catch (err) {
+    // Continue to fetch if cache lookup fails
+  }
+
+  // 3. Fetch from Google Sheet
+  const players = fetchPlayersFromSheet(sheetName);
+
+  // 4. Safely Cache (Only cache valid arrays, prevent 100KB limits from crashing script)
+  if (Array.isArray(players) && players.length > 0) {
+    try {
+      const payloadString = JSON.stringify(players);
+      if (payloadString.length < 100000) { // Stay below Apps Script 100KB limit
+        cache.put(cacheKey, payloadString, 600); // Cache for 10 mins
+      }
+    } catch (err) {
+      // Ignore cache write failures without breaking execution
+    }
+  }
+
+  return players;
+}
+
+/**
+ * Fetches players and check-in state with flexible column matching.
  */
 function fetchPlayersFromSheet(inputName) {
-  if (!inputName) return { error: "No sheet or group name provided." };
+  if (!inputName) return [];
 
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  let cleanGroupName = inputName.replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
+  let cleanGroupName = String(inputName).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
 
   let sheet = ss.getSheetByName("Sched " + cleanGroupName) || 
               ss.getSheetByName("Score " + cleanGroupName) || 
               ss.getSheetByName(inputName);
 
-  if (!sheet) return { error: `Sheet not found for group '${inputName}'` };
+  if (!sheet) return [];
 
   const data = sheet.getDataRange().getValues();
-  if (data.length <= 1) return [];
+  if (!data || data.length <= 1) return [];
 
   // Clean headers for matching
   const headers = data[0].map(h => h.toString().toLowerCase().replace(/[\s\-_]/g, "").trim());
@@ -134,7 +171,7 @@ function fetchPlayersFromSheet(inputName) {
   let nameIdx = headers.findIndex(h => h.includes("name") || h.includes("player"));
   if (nameIdx === -1) nameIdx = 0;
 
-  // Flexible Check-In column lookup with fallback to Column 7 (Column G)
+  // Check-In column lookup with fallback to Column 7 (Column G)
   let checkInIdx = headers.findIndex(h => h.includes("checkin") || h.includes("checkedin") || h === "x");
   if (checkInIdx === -1 && data[0].length >= 7) {
     checkInIdx = 6; 
@@ -146,13 +183,30 @@ function fetchPlayersFromSheet(inputName) {
     if (!pName || pName.startsWith("---") || pName.toLowerCase().startsWith("time:")) continue;
 
     let checkVal = checkInIdx !== -1 ? data[r][checkInIdx] : false;
-    let isCheckedIn = isCheckInTrue(checkVal);
+    
+    // Defensive check-in evaluation (fallback if isCheckInTrue helper is missing)
+    let isCheckedIn = false;
+    if (typeof isCheckInTrue === 'function') {
+      isCheckedIn = isCheckInTrue(checkVal);
+    } else {
+      isCheckedIn = String(checkVal).toUpperCase().trim() === 'X' || checkVal === true;
+    }
+
     let courtVal = data[r][1] ? data[r][1].toString().trim() : "BYE";
 
-    players.push({ name: pName, checkedIn: isCheckedIn, checked: isCheckedIn, court: courtVal });
+    players.push({ 
+      name: pName, 
+      checkedIn: isCheckedIn, 
+      checked: isCheckedIn, 
+      court: courtVal 
+    });
   }
 
-  logDebug("getPlayersForCheckIn", `Parsed ${players.length} players for '${sheet.getName()}' (Check-In Col Index: ${checkInIdx})`); 
+  // Defensive debug logging (fallback if logDebug helper is missing)
+  if (typeof logDebug === 'function') {
+    logDebug("getPlayersForCheckIn", `Parsed ${players.length} players for '${sheet.getName()}'`); 
+  }
+
   return players;
 }
 
@@ -377,7 +431,7 @@ function handleApiRequest(e) {
   } finally {
     try {
       lock.releaseLock();
-    } catch(e) {}
+    } catch(e) { return e}
   }
 }
 
@@ -1648,19 +1702,6 @@ function lookupPhoneInternal(phone) {
   return null;
 }
 
-function getPlayersForCheckIn(sheetName) {
-  const cache = CacheService.getScriptCache();
-  const cacheKey = "checkin_" + sheetName;
-  const cached = cache.get(cacheKey);
-
-  // Return cached data if valid
-  if (cached) return JSON.parse(cached);
-
-  // Fetch from Google Sheet if cache miss
-  const players = fetchPlayersFromSheet(sheetName); 
-  cache.put(cacheKey, JSON.stringify(players), 600); // Cache for up to 10 mins
-  return players;
-}
 
 function toggleSingleCheckIn(sheetNameOrData, playerName, isCheckedIn) {
   let sheetName, targetPlayer, checkedState;
