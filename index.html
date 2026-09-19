@@ -339,10 +339,11 @@
     <!-- TAB 1: CHECK-IN SYSTEM -->
     <div id="checkinTab" class="tab-content active">
       <label><b>Select Group:</b></label>
-      <select id="sheetSelect" onchange="onGroupChange('sheetSelect'); loadCheckInPlayers()"><option value="">-- Choose Ladder --</option></select>
-      
+      <label><b>Select Group:</b></label>
+      <select id="sheetSelect" onchange="onGroupChange('sheetSelect'); loadCheckInPlayers();">
+        <option value="">-- Choose Group --</option>
+      </select>
       <div id="checkInStatus" class="status-msg" style="margin-top:0.25rem; margin-bottom:0.5rem;"></div>
-
       <div id="playerList"><i>Select a group above...</i></div>
     </div>
 
@@ -649,9 +650,9 @@ async function processApiQueue() {
 
 function getSavedGroup() {
   const saved = localStorage.getItem('scpb_selected_group');
-  if (!saved || saved.startsWith('--')) {
+/*  if (!saved || saved.startsWith('--')) {
     return 'Womens';
-  }
+  }*/
   return saved;
 }
 
@@ -660,17 +661,19 @@ function populateSheets(sheets) {
   const select = document.getElementById('sheetSelect');
   if (!select) return;
 
-  select.innerHTML = '<option value="">-- Choose Ladder --</option>';
+  select.innerHTML = '<option value="">-- Choose Group --</option>';
   sheets.forEach(s => {
     const opt = document.createElement('option');
-    opt.value = s;
-    opt.textContent = s;
+    const cleanGroup = s.replace(/^Sched\s*/i, '');
+    opt.value = cleanGroup; 
+    opt.textContent = cleanGroup; 
     select.appendChild(opt);
   });
 
   localStorage.setItem('cached_sheets', JSON.stringify(sheets));
 }
 
+        
 function populateGroups(groups) {
   if (!groups || !Array.isArray(groups)) return;
   const ids = ['regGroup', 'groupViewerSelect', 'adminGlobalGroupSelect'];
@@ -1429,6 +1432,32 @@ function setSelectedGroup(groupName) {
   setSavedGroup(groupName);
   syncAllGroupDropdowns(groupName);
   onGroupContextUpdated(groupName);
+}
+
+function syncAllGroupDropdowns(groupName) {
+  if (!groupName) return;
+  const cleanGroup = groupName.replace(/^Sched\s*/i, '');
+  const ids = ['sheetSelect', 'regGroup', 'groupViewerSelect', 'adminGlobalGroupSelect'];
+
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+
+    const match = Array.from(el.options).find(opt => 
+      opt.value === cleanGroup || opt.value.replace(/^Sched\s*/i, '') === cleanGroup
+    );
+
+    if (match) {
+      el.value = match.value;
+    }
+  });
+
+  const sheetLink = document.getElementById('adminSheetLink');
+  if (sheetLink) {
+    sheetLink.href = `${API_URL}?action=editSheet&group=${encodeURIComponent(cleanGroup)}`;
+  }
+
+  renderAdminCourts(cleanGroup);
 }
 
 function syncAllGroupDropdowns(groupName) {
