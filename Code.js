@@ -201,7 +201,7 @@ function saveCheckIns(schedSheetName, checkedPlayerNames) {
   logDebug("saveCheckIns", "Saving check-ins for sheet", { schedSheetName, checkedPlayerNames });
   if (!schedSheetName) return "⚠️ Error: No target sheet specified.";
 
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const ss = getDb()
   
   let targetName = schedSheetName.toString().trim();
   if (!targetName.startsWith("Sched ")) {
@@ -252,7 +252,7 @@ function saveCheckIns(schedSheetName, checkedPlayerNames) {
 function fetchPlayersFromSheet(inputName) {
   if (!inputName) return [];
 
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const ss = getDb()
   let cleanGroupName = String(inputName).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
 
   let sheet = ss.getSheetByName("Sched " + cleanGroupName) || 
@@ -531,7 +531,7 @@ function handleApiRequest(e) {
 
 function authorizeScript() {
   logDebug("authorizeScript", "Starting script authorization");
-  const ss = SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID);
+  const ss = SpreadsheetApp.getActiveSpreadsheet() || getDb()
   
   const sheet = ss.getSheets()[0];
   const testVal = sheet.getRange(1, 1).getValue();
@@ -551,7 +551,7 @@ function authorizeScript() {
 
 function getValidActiveScoreSheet(overrideTabName) {
   logDebug("getValidActiveScoreSheet", "Resolving target score sheet", overrideTabName);
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const ss = getDb()
   let sheet = null;
 
   if (overrideTabName) {
@@ -589,7 +589,7 @@ function getValidActiveScoreSheet(overrideTabName) {
 function getScoreSheetByGroup(groupName) {
   logDebug("getScoreSheetByGroup", "Fetching score sheet for group", groupName);
   if (!groupName) return null;
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const ss = getDb()
   let cleanName = groupName.toString().trim();
   if (!cleanName.startsWith("Score ")) {
     cleanName = "Score " + cleanName;
@@ -749,7 +749,7 @@ function menuCreateDriveBackup() {
 
 function getAdminSheetUrl() {
   logDebug("getAdminSheetUrl", "Retrieving Admin Sheet URL");
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const ss = getDb()
   let targetSheet = ss.getSheetByName("Score Womens");
   let url = ss.getUrl();
   if (targetSheet) {
@@ -760,7 +760,7 @@ function getAdminSheetUrl() {
 
 function startNewSeason() {
   logDebug("startNewSeason", "Wiping weekly score data across tabs");
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const ss = getDb()
   let clearedCount = 0;
 
   getValidScoreTabs().forEach(tabName => {
@@ -836,7 +836,7 @@ function addNewUser(info) {
 
 function getTargetScoreSheet(groupOrTabName) {
   logDebug("getTargetScoreSheet", "Resolving target score sheet", groupOrTabName);
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const ss = getDb()
   let sheet = null;
 
   if (groupOrTabName) {
@@ -868,7 +868,7 @@ function getSCPBLadderFolder() {
 
 function executeDriveBackup(label) {
   logDebug("executeDriveBackup", "Creating drive backup file", label);
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const ss = getDb()
   const file = DriveApp.getFileById(ss.getId());
   const timestamp = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "yyyy-MM-dd_HHmm");
   const backupName = `${ss.getName()} - FULL_BACKUP_${label}_${timestamp}`;
@@ -882,7 +882,7 @@ function executeDriveBackup(label) {
 function restoreFullFileFromDrive() {
   logDebug("restoreFullFileFromDrive", "Starting restore process from Drive");
   const ui = SpreadsheetApp.getUi();
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const ss = getDb()
   const targetFolder = getSCPBLadderFolder();
   const files = targetFolder.getFiles();
   let backupFiles = [];
@@ -930,7 +930,7 @@ function restoreFullFileFromDrive() {
 function createPreWorkSnapshotTab() {
   logDebug("createPreWorkSnapshotTab", "Creating snapshot tab");
   const ui = SpreadsheetApp.getUi();
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const ss = getDb()
   let scoreSheet;
   
   try {
@@ -960,7 +960,7 @@ function createPreWorkSnapshotTab() {
 function restoreFromSnapshotTab() {
   logDebug("restoreFromSnapshotTab", "Restoring tab from snapshot");
   const ui = SpreadsheetApp.getUi();
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const ss = getDb()
   const backupSheets = ss.getSheets().filter(s => s.getName().startsWith("Backup - "));
   if (backupSheets.length === 0) return ui.alert("No Backup Tabs Found", "No captain backup tabs exist.", ui.ButtonSet.OK);
 
@@ -1209,7 +1209,7 @@ function parseRankVal(val) {
  * ========================================== */
 
 function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const ss = getDb()
 
   // --- CONFIGURATION FLAGS ---
   // true  = evaluate -R tag based on INITIAL Raw Rank movement
@@ -1467,7 +1467,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
  * ========================================== */
 
 function testWomensRankingsWeeks1To10() {
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const ss = getDb()
   
   // 1. Locate sheet
   let sheet = ss.getSheetByName("Score Womens");
@@ -1657,7 +1657,7 @@ function sortActivePlayers() {
 
 function generateScheduleTabs(scoreTabName = null, overrideCourts = null) {
   logDebug("generateScheduleTabs", "Generating schedule for score tab", scoreTabName);
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const ss = getDb()
   
   let targetSheet = getValidActiveScoreSheet(scoreTabName);
   let resolvedTabName = targetSheet.getName();
@@ -1751,7 +1751,7 @@ function generateScheduleTabs(scoreTabName = null, overrideCourts = null) {
 
 function rescheduleFromCheckIns(schedTabName, overrideCourts = null) {
   logDebug("rescheduleFromCheckIns", "Rescheduling based on check-ins for tab", schedTabName);
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const ss = getDb()
   
   let targetName = (schedTabName || "").toString().trim();
   if (!targetName.startsWith("Sched ") && !targetName.startsWith("Score ")) {
@@ -1870,7 +1870,7 @@ function rescheduleFromCheckIns(schedTabName, overrideCourts = null) {
 
 function buildScheduleSheet() {
   logDebug("buildScheduleSheet", "Building combined schedule sheet for export");
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const ss = getDb()
   const instr = ss.getSheetByName("Instructions");
   const league = instr ? instr.getRange("B2").getValue().toString().trim() : "Ladders";
   const dateStr = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "MMM d");
@@ -1933,7 +1933,7 @@ function webExportSchedulePdf() {
 
 function exportSheetAsPDF(sheet, fileName) {
   logDebug("exportSheetAsPDF", "Rendering sheet to PDF blob", fileName);
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const ss = getDb()
   const url = ss.getUrl().replace(/edit$/, '') + 'export?exportFormat=pdf&format=pdf' +
     '&size=letter&portrait=true&fitw=true&gridlines=true&printtitle=false&sheetnames=false&fzr=false' +
     '&gid=' + sheet.getSheetId();
@@ -1947,7 +1947,7 @@ function findFoursomeByPhone(phone) {
   logDebug("findFoursomeByPhone", "Locating foursome for phone number", phone);
   if (!phone) return { error: "No phone number provided." };
   let cleanInput = phone.toString().replace(/\D/g, "");
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const ss = getDb()
   let foundPlayer = null, foundGroup = null, isCheckedIn = false;
 
   for (let g of GROUPS) {
@@ -2006,7 +2006,7 @@ function togglePlayerStatus(phone) {
   logDebug("togglePlayerStatus", "Toggling active/inactive player status", phone);
   if (!phone) return { error: "No phone number provided." };
   let cleanInput = phone.toString().replace(/\D/g, "");
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const ss = getDb()
 
   for (let g of GROUPS) {
     let scoreSheet = ss.getSheetByName("Score " + g);
@@ -2034,7 +2034,7 @@ function togglePlayerStatus(phone) {
 
 function getRankingsAndSchedData(groupName) {
   logDebug("getRankingsAndSchedData", "Fetching rankings & schedule data for group", groupName);
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const ss = getDb()
   let schedList = [], rankingList = [];
   const currentWeek = calculateCurrentWeekNumber();
 
@@ -2088,7 +2088,7 @@ function getAdminPlayersByGroup(groupName) {
 
 function submitCourtScores(payload) {
   logDebug("submitCourtScores", "Submitting court scores payload", payload);
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const ss = getDb()
   const sheet = ss.getSheetByName("Sched " + payload.groupName);
   if (!sheet) return "Error: Schedule sheet not found.";
   
@@ -2215,7 +2215,7 @@ function updatePlayerCheckInInSheet(sheetName, playerName, isCheckedIn) {
     throw new Error("Sheet name and player name are required.");
   }
 
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const ss = getDb()
   const resolvedName = String(sheetName).startsWith("Sched ") ? sheetName : "Sched " + sheetName;
   const sheet = ss.getSheetByName(resolvedName) || ss.getSheetByName(sheetName);
 
@@ -2294,7 +2294,7 @@ function onEdit(e) {
  * and exports the full matrix into the "RankTest" sheet.
  */
 function testWomensRankingsWeeks1To10() {
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const ss = getDb()
   
   // 1. Locate sheet
   let sheet = ss.getSheetByName("Score Womens");
@@ -2420,4 +2420,14 @@ function buildColMap(header) {
   }
 
   return col;
+}
+
+// At the top of Code.js
+var _cachedSsInstance = null;
+
+function getDb() {
+  if (!_cachedSsInstance) {
+    _cachedSsInstance = SpreadsheetApp.openById(SPREADSHEET_ID);
+  }
+  return _cachedSsInstance;
 }

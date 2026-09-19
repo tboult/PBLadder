@@ -81,16 +81,14 @@
           line-height: inherit;
       }      
       
-
-      
       body { 
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
         margin: 0; 
         padding: 0.75rem; 
         background-color: var(--bg-color); 
         color: var(--text-color); 
-      line-height: 1.2;
-      font-size: 1rem; /* 👈 Set base font size */
+        line-height: 1.2;
+        font-size: 1rem; /* 👈 Set base font size */
       }
       
       .header-title { 
@@ -161,16 +159,16 @@
           font-size: 1rem; /* Scales relative to <html> font-size */
       }      
 
-      input,  button { 
-      width: 100%; 
-      padding: 0.75rem; 
-      margin-top: 0.5rem; 
-      border-radius: 0.5rem; 
-      border: 2px solid var(--input-border); 
-      background: var(--input-bg);
-      color: var(--text-color);
-      min-height: 54px; 
-      box-sizing: border-box;
+      input, button { 
+        width: 100%; 
+        padding: 0.75rem; 
+        margin-top: 0.5rem; 
+        border-radius: 0.5rem; 
+        border: 2px solid var(--input-border); 
+        background: var(--input-bg);
+        color: var(--text-color);
+        min-height: 54px; 
+        box-sizing: border-box;
       }
 
       select {
@@ -195,25 +193,24 @@
           font-size: 1rem; /* Scales options list text inside popover */
       }
 
-      
       button, .btn, .btn-main {
-      background-color: #e8f5e9;
-      color: #1b5e20;
-      border: 1px solid #a5d6a7;
-      padding: 10px 16px;
-      border-radius: 6px;
-      font-weight: bold;
-      cursor: pointer;
-      transition: background-color 0.2s ease;
+        background-color: #e8f5e9;
+        color: #1b5e20;
+        border: 1px solid #a5d6a7;
+        padding: 10px 16px;
+        border-radius: 6px;
+        font-weight: bold;
+        cursor: pointer;
+        transition: background-color 0.2s ease;
       }
       
       button:hover, .btn:hover, .btn-main:hover {
-      background-color: #c8e6c9; 
-      color: #0d3b0e;
+        background-color: #c8e6c9; 
+        color: #0d3b0e;
       }
 
       button:active, .btn:active, .btn-main:active {
-      background-color: #a5d6a7;
+        background-color: #a5d6a7;
       }
 
       .btn-sub { background-color: var(--btn-sub-bg); color: var(--btn-sub-text); font-weight: bold; border: none; cursor: pointer; }
@@ -223,7 +220,7 @@
       .player-row { display: flex; align-items: center; justify-content: space-between; padding: 1rem 0.75rem; border-bottom: 2px solid var(--row-border); background: var(--card-bg); cursor: pointer; min-height: 54px; }
       .player-row:active { background: var(--row-hover); }
       .player-row.checked { background: var(--row-checked-bg); }
-      .player-name {  font-weight: 600; pointer-events: none; }
+      .player-name { font-weight: 600; pointer-events: none; }
       .check-icon { font-size: 1.25rem; pointer-events: none; }
 
       #playerList { margin-top: 0.75rem; max-height: 60vh; overflow-y: auto; border-radius: 0.5rem; border: 2px solid var(--row-border); overflow-x: hidden; }
@@ -333,7 +330,6 @@
       <span class="loading-spinner"></span>
       <span id="globalLoaderText">Loading app...</span>
     </div>
-
 
     <div class="nav">
       <button id="tab1Btn" class="active" onclick="switchTab('checkin')">Check-In</button>
@@ -487,12 +483,21 @@
           </button>
           
           <hr>
-          <button class="btn-sub" onclick="runAdmin('correctScoresNoShift')">Compute Ranking from Current Scores</button>
-          <button class="btn-sub" onclick="runAdmin('sortActivePlayers')">Sort Active Players (Current Group)</button>
-          <button class="btn-sub" onclick="runAdmin('generateScheduleTabs')">Generate Schedule (Current Group)</button>
-          <button class="btn-sub" onclick="runAdmin('updateStandingsWithShift')">End of Week (Shift Scores)</button>
-          <button class="btn-sub" onclick="runAdmin('correctScoresNoShift')">Correct Scores (No Shift)</button>
-          <button class="btn-sub" onclick="getAdminPdf()">Download PDF Schedules</button>
+          <button onclick="runAdmin('sortActivePlayersForSheet')">Sort Players</button>
+          <!-- 1. Sort Active Players -->
+          <button onclick="runAdmin('sortActivePlayersForSheet')">Sort Active Players</button>
+          <!-- 2. Generate Schedule Tabs -->
+          <button onclick="runAdmin('generateScheduleTabs')">Generate Schedule</button>
+          <!-- 3. Update Standings with Court Shift -->
+          <button onclick="runAdmin('processWeeklyScoresForSheet', { weekCol: 'W10', shift: true })">Process Weekly Standings (Shift)</button>
+          <!-- 4. Correct Scores without Court Shift -->
+          <button onclick="runAdmin('processWeeklyScoresForSheet', { weekCol: 'W10', shift: false })">Correct Scores (No Shift)</button>
+          <!-- 5. Reschedule Checked-In Players -->
+          <button onclick="runAdmin('rescheduleFromCheckIns')">Reschedule Checked-In Players</button>
+          <!-- 6. Start New Season -->
+          <button onclick="runAdmin('startNewSeason')">Start New Season</button>
+          <!-- 7. Export Schedule PDF -->
+          <button onclick="runAdmin('webExportSchedulePdf')">Export Schedule PDF</button>
         </div>
 
         <!-- ADD NEW PLAYER (PENDING STATUS) -->
@@ -512,13 +517,21 @@
     </div>
 
 <script>
-
+  /**
+   * ASSUMPTION: The application connects to a single Google Apps Script (GAS) Web App execution endpoint.
+   * ASSUMPTION: The web app endpoint handles CORS headers or processes serialized payload requests.
+   */
   window.API_URL = "https://script.google.com/macros/s/AKfycbweTOjVcY0R1sxXrYfbN2S9jqMz4yr5b1alVoz0gjVy3P3ty42rtHlfgfpdjtFnF4nFaQ/exec";
   // to test access append something action to above  ?action=getAppVersion
   const API_URL = window.API_URL;
+  /**
+   * ASSUMPTION: Version matching enforces client cache invalidation if the server returns a higher version string.
+   */
   const CURRENT_APP_VERSION = "1.1.4";
 
-
+  /**
+   * ASSUMPTION: Physical courts 1 through 20 are pre-assigned to default divisions/groups in Sun City facilities.
+   */
   const GROUP_COURT_MAP = {
       "Womens": [3,4,5,6,7,8,15,16,17,18,19,20],
       "Mens": [5,6,9,10,13,14,15,16],
@@ -526,10 +539,20 @@
       "Default": [5,6,9,10,13,14,15,16]
   };
 
+  /**
+   * Retrieves default array of physical court numbers assigned to a specific group.
+   * @param {string} groupName Name of selected ladder group.
+   * @returns {Array<number>} Array of court numbers.
+   */
   function getCourtsForGroup(groupName) {
     return GROUP_COURT_MAP[groupName] || GROUP_COURT_MAP["Default"];
   }
 
+  /**
+   * Renders the 4-column court checkbox grid inside the Admin panel for overriding court availability.
+   * ASSUMPTION: Maximum available physical courts in facility is 20.
+   * @param {string} groupName Currently targeted admin group.
+   */
   function renderAdminCourts(groupName) {
     const list = document.getElementById('admin-court-list');
     if (!list) return;
@@ -557,6 +580,10 @@
     }
   }
 
+  /**
+   * Reads checked court checkbox values from the Admin grid UI.
+   * @returns {Array<number>} Array of selected court numbers integer values.
+   */
   function getSelectedCourts() {
     const selected = [];
     const checkboxes = document.querySelectorAll('#admin-court-list input[type="checkbox"]:checked');
@@ -564,10 +591,12 @@
     return selected;
   }
   
-
   let adminPlayersCache = []; 
 
   // --- REGISTER SERVICE WORKER FOR PWA ---
+  /**
+   * ASSUMPTION: Browsers supporting progressive web apps (PWA) register sw.js for offline caching of shell assets.
+   */
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('./sw.js')
@@ -577,10 +606,17 @@
   }
 
 // In-memory queue to serialize requests and prevent GAS execution locks
+/**
+ * ASSUMPTION: Concurrent fetch calls to Google Apps Script can cause lock conflicts in Google Sheets/Script backend.
+ * All API requests are queued and processed sequentially.
+ */
 let apiQueue = [];
 let isProcessingQueue = false;
 let isInitialLoading = true;
 
+/**
+ * Updates top-right loader status indicator based on queue length and network activity.
+ */
 function updateGlobalLoaderStatus() {
   const loader = document.getElementById('globalLoader');
   const loaderText = document.getElementById('globalLoaderText');
@@ -598,6 +634,10 @@ function updateGlobalLoaderStatus() {
   }
 }
 
+/**
+ * Wraps outgoing backend calls into serialized Promise queue.
+ * ASSUMPTION: Backend expects POST requests with JSON payload formatted with text/plain content type to bypass CORS options pre-flight.
+ */
 function apiCall(action, payload = {}) {
   if (!action) return Promise.reject(new Error("API action cannot be empty"));
   return new Promise((resolve, reject) => {
@@ -607,6 +647,9 @@ function apiCall(action, payload = {}) {
   });
 }
 
+/**
+ * Executes queued API requests sequentially.
+ */
 async function processApiQueue() {
   if (isProcessingQueue || apiQueue.length === 0) return;
   isProcessingQueue = true;
@@ -616,280 +659,1024 @@ async function processApiQueue() {
   const endpoint = window.API_URL || (typeof API_URL !== 'undefined' ? API_URL : null);
 
   if (!endpoint) {
-    const err = new Error("API_URL is not defined. Check index.html configuration.");
+    const err = new Error("API_URL is not configured.");
+    reject(err);
     isProcessingQueue = false;
     updateGlobalLoaderStatus();
-    reject(err);
-    processApiQueue();
     return;
   }
 
-  const requestBody = Object.assign({ action: action }, payload);
-  const options = {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain' },
-    redirect: 'follow',
-    body: JSON.stringify(requestBody)
-  };
-
   try {
-    const res = await fetch(endpoint, options);
-    if (!res.ok) throw new Error(`HTTP status ${res.status}`);
-
-    const json = await res.json();
-    if (json.status === "error") throw new Error(json.message);
-
-    resolve(json.data);
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action, ...payload })
+    });
+    const data = await response.json();
+    resolve(data);
   } catch (err) {
-    console.error(`API Call Failed (${action}):`, err);
+    console.error(`API Call failed for action "${action}":`, err);
     reject(err);
   } finally {
     isProcessingQueue = false;
     updateGlobalLoaderStatus();
-    setTimeout(processApiQueue, 100);
+    if (apiQueue.length > 0) {
+      processApiQueue();
+    }
   }
 }
 
-  // --- LOCAL STORAGE CACHE HANDLERS ---
-// 1. Ignore placeholder headers like "-- Choose Group --" and default to "Womens"
+// --- LOCAL STORAGE CACHE HANDLERS ---
+/**
+ * Reads user's last selected group from LocalStorage.
+ * ASSUMPTION: If no saved group exists or it is a placeholder, defaults to "Womens".
+ */
 function getSavedGroup() {
-  return 'Womens';
   const saved = localStorage.getItem('scpb_selected_group');
-  if (saved && saved.trim() && !saved.trim().startsWith('--')) {
-    return saved.trim();
+  // 1. Ignore placeholder headers like "-- Choose Group --" and default to "Womens"
+  if (!saved || saved.startsWith('--')) {
+    return 'Womens';
   }
-  return 'Womens';
+  return saved;
 }
 
-// 2. Re-apply selected state immediately after building sheet dropdowns
+/**
+ * Populates sheet/ladder dropdown choices.
+ * // 2. Re-apply selected state immediately after building sheet dropdowns
+ */
 function populateSheets(sheets) {
-  const sel1 = document.getElementById('sheetSelect');
-  const sel2 = document.getElementById('adminSchedSelect');
-  if (!sheets) return;
+  if (!sheets || !Array.isArray(sheets)) return;
+  const select = document.getElementById('sheetSelect');
+  if (!select) return;
 
-  let options1 = '<option value="">-- Choose Group --</option>';
-  let options2 = '<option value="">-- Choose Group --</option>';
-
-  sheets.forEach(function(s) {
-    var cleanName = String(s).replace(/^Sched[\s_-]*/i, '').trim();
-    options1 += `<option value="${s}">${cleanName}</option>`;
-    options2 += `<option value="${s}">${cleanName}</option>`;
+  select.innerHTML = '<option value="">-- Choose Ladder --</option>';
+  sheets.forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s;
+    opt.textContent = s;
+    select.appendChild(opt);
   });
 
-  if (sel1) sel1.innerHTML = options1;
-  if (sel2) sel2.innerHTML = options2;
+  localStorage.setItem('cached_sheets', JSON.stringify(sheets));
   // REMOVED: autoSelectStoredGroup();
 }
 
-// 3. Re-apply selected state immediately after building group dropdowns
+/**
+ * Populates group dropdown selectors across viewer, admin, and registration forms.
+ * // 3. Re-apply selected state immediately after building group dropdowns
+ */
 function populateGroups(groups) {
-    if (!groups ) return;
-
-  const selectIds = ['groupViewerSelect', 'regGroup', 'adminRegGroup', 'adminStatusGroupSelect', 'adminGlobalGroupSelect'];
+  if (!groups || !Array.isArray(groups)) return;
+  const ids = ['regGroup', 'groupViewerSelect', 'adminGlobalGroupSelect'];
   
-  selectIds.forEach(id => {
+  ids.forEach(id => {
     const el = document.getElementById(id);
-    if (el) {
-      let options = '<option value="">-- Select Group --</option>';
-      groups.forEach(g => {
-        options += `<option value="${g}">${g}</option>`;
-      });
-      el.innerHTML = options;
+    if (!el) return;
+    const currentVal = el.value;
+    el.innerHTML = id === 'regGroup' ? '<option value="">-- Select Group --</option>' : '<option value="">-- Choose Group --</option>';
+    
+    groups.forEach(g => {
+      const opt = document.createElement('option');
+      opt.value = g;
+      opt.textContent = g;
+      el.appendChild(opt);
+    });
+
+    if (currentVal && groups.includes(currentVal)) {
+      el.value = currentVal;
     }
   });
 
-//  autoSelectStoredGroup(); // Sets "Womens" across viewer and admin selects
+  localStorage.setItem('cached_groups', JSON.stringify(groups));
+  //  autoSelectStoredGroup(); // Sets "Womens" across viewer and admin selects
 }
 
-// Load cached options instantly on script execution
-(function loadFromCache() {
+/**
+ * Reads cached dropdown choices from LocalStorage on immediate boot before network returns.
+ * // Load cached options instantly on script execution
+ */
+function loadFromCache() {
   const cachedSheets = localStorage.getItem('cached_sheets');
   const cachedGroups = localStorage.getItem('cached_groups');
-  
-  if (cachedSheets) populateSheets(JSON.parse(cachedSheets));
-  if (cachedGroups) populateGroups(JSON.parse(cachedGroups));
 
-  autoSelectStoredGroup(); // 👈 Triggers data load for Womens immediately
-})();
-
-
-  function onAdminGlobalGroupChange() {
-    const el = document.getElementById('adminGlobalGroupSelect');
-    if (el && el.value) {
-      setSavedGroup(el.value);
-      renderAdminCourts(el.value);
-    } else {
-      renderAdminCourts("");
-    }
+  if (cachedSheets) {
+    try { populateSheets(JSON.parse(cachedSheets)); } catch(e){}
   }
+  if (cachedGroups) {
+    try { populateGroups(JSON.parse(cachedGroups)); } catch(e){}
+  }
+  
+  autoSelectStoredGroup(); // 👈 Triggers data load for Womens immediately
+}
 
+/**
+ * Triggers group context switch when user selects target group in Admin section.
+ */
+function onAdminGlobalGroupChange() {
+  const val = document.getElementById('adminGlobalGroupSelect').value;
+  if (val) {
+    setSelectedGroup(val);
+  }
+}
 
-
+/**
+ * Checks server app version to detect updates and trigger cache refreshes if client is outdated.
+ */
 async function checkAppVersion() {
   try {
-    const serverVersion = await apiCall('getAppVersion');
-    const savedVersion = localStorage.getItem('app_installed_version');
-    
-    // Safety check: verify localStorage is functional before triggering reloads
-    if (savedVersion && savedVersion !== serverVersion) {
-      localStorage.setItem('app_installed_version', serverVersion);
-      window.location.reload(true);
-    } else if (!savedVersion) {
-      localStorage.setItem('app_installed_version', serverVersion);
-    }
-  } catch (e) {
-    console.warn("Version check skipped/failed.");
-  }
-}  
-
-
-  async function forceResetApp() {
-    if (confirm("This will clear cached app data and force-download the latest version. Continue?")) {
-      try {
-        localStorage.clear();
-        sessionStorage.clear();
-      } catch(e) {}
-      if ('serviceWorker' in navigator) {
-        const registrations = await navigator.serviceWorker.getRegistrations();
-        for (let registration of registrations) { await registration.unregister(); }
-      }
-      if ('caches' in window) {
-        const cacheNames = await caches.keys();
-        for (let name of cacheNames) { await caches.delete(name); }
-      }
-      const currentUrl = new URL(window.location.href);
-      currentUrl.searchParams.set('reset_ts', Date.now());
-      window.location.href = currentUrl.toString();
-    }
-  }
-
-  window.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') checkAppVersion();
-  });
-
-  const htmlRoot = document.documentElement;
-
-// ✅ Use explicit pt values for base and scaled sizes
-const sizeRatios = { 
-  normal: '100%',   // ~16px baseline
-  large:  '125%',   // ~20 
-  huge:   '150%'    // ~24
-};
-
-function applyTextSize(size) {
-  const targetSize = sizeRatios[size] || '100%';
-  // Target root html element so rem/em scaling cascades across all elements
-  document.documentElement.style.fontSize = targetSize; 
-  
-  // Update active state on correct button IDs
-  ['btn-size-normal', 'btn-size-large', 'btn-size-huge'].forEach(id => {
-    const btn = document.getElementById(id);
-    if (btn) btn.classList.remove('active');
-  });
-  
-  const activeBtn = document.getElementById('btn-size-' + size);
-  if (activeBtn) activeBtn.classList.add('active');
-  
-  localStorage.setItem('pwa-text-size', size);
-} 
-
-  function toggleContrast() {
-    const isHigh = document.body.classList.toggle('high-contrast');
-    try { localStorage.setItem('pwa-contrast', isHigh ? 'high' : 'normal'); } catch(e) {}
-    document.getElementById('btn-contrast-toggle').classList.toggle('active', isHigh);
-  }
-
-  function initAccessibility() {
-    let savedSize = 'normal';
-    let savedContrast = 'normal';
-    try {
-      savedSize = localStorage.getItem('pwa-text-size') || 'normal';
-      savedContrast = localStorage.getItem('pwa-contrast') || 'normal';
-    } catch(e) {}
-    applyTextSize(savedSize);
-    if (savedContrast === 'high') { document.body.classList.add('high-contrast'); document.getElementById('btn-contrast-toggle').classList.add('active'); }
-  }
-
-  let currentPlayerData = null;
-  let tapCount = 0;
-  let tapTimer = null;
-
-
-
-  function setupEventListeners() {
-    document.getElementById('sheetSelect')?.addEventListener('change', function(e) {
-      setSelectedGroup(e.target.value);
-    });
-
-    document.getElementById('adminSchedSelect')?.addEventListener('change', function(e) {
-      setSelectedGroup(e.target.value);
-    });
-  }  
-
-  
-window.onload = async function() {
-  checkAppVersion();
-  setupEventListeners();
-  initAccessibility();
-
-  const savedPhone = localStorage.getItem('foursome_phone');
-
-  try {
-    const data = await apiCall('getInitialAppData', { phone: savedPhone });
-    if (data) {
-      if (data.sheets) populateSheets(data.sheets);
-      if (data.groups) populateGroups(data.groups);
-
-      const savedGroup = getSavedGroup();
-      if (savedGroup) {
-        setSelectedGroup(savedGroup);
-      }
+    const res = await apiCall('getAppVersion');
+    if (res && res.version && res.version !== CURRENT_APP_VERSION) {
+      console.log(`New app version detected (${res.version}). Force resetting caches...`);
+      forceResetApp();
     }
   } catch (err) {
-    console.error("Startup error:", err);
-  } finally {
-    // Flag initial load complete and update loader UI
-    isInitialLoading = false;
-    if (typeof updateGlobalLoaderStatus === 'function') {
-      updateGlobalLoaderStatus();
-    } else {
-      // Fallback direct DOM hide if helper isn't defined
-      const loader = document.getElementById('globalLoader') || document.getElementById('loadingOverlay');
-      if (loader) loader.style.display = 'none';
+    console.warn('Version check skipped or failed:', err);
+  }
+}
+
+/**
+ * Clears service worker caches and local storage, performing a full browser reload.
+ */
+function forceResetApp() {
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistrations().then(registrations => {
+      for (let registration of registrations) {
+        registration.unregister();
+      }
+    });
+  }
+  if ('caches' in window) {
+    caches.keys().then(names => {
+      for (let name of names) caches.delete(name);
+    });
+  }
+  localStorage.clear();
+  sessionStorage.clear();
+  window.location.reload(true);
+}
+
+// Re-check app version whenever app returns to foreground focus
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    checkAppVersion();
+  }
+});
+
+// --- ACCESSIBILITY & CONTRAST HANDLERS ---
+/**
+ * Applies relative font scaling to the root <html> element for senior legibility.
+ * // ✅ Use explicit pt values for base and scaled sizes
+ * // Target root html element so rem/em scaling cascades across all elements
+ */
+function applyTextSize(size) {
+  const html = document.documentElement;
+  if (size === 'large') {
+    html.style.fontSize = '125%';
+  } else if (size === 'huge') {
+    html.style.fontSize = '150%';
+  } else {
+    html.style.fontSize = '100%';
+  }
+
+  // Update active state on correct button IDs
+  ['normal', 'large', 'huge'].forEach(s => {
+    const btn = document.getElementById(`btn-size-${s}`);
+    if (btn) {
+      if (s === size) btn.classList.add('active');
+      else btn.classList.remove('active');
+    }
+  });
+
+  localStorage.setItem('scpb_text_size', size);
+}
+
+/**
+ * Toggles high contrast theme class on document body for bright outdoor Arizona sun readability.
+ */
+function toggleContrast() {
+  document.body.classList.toggle('high-contrast');
+  const isHC = document.body.classList.contains('high-contrast');
+  localStorage.setItem('scpb_high_contrast', isHC ? 'true' : 'false');
+  
+  const btn = document.getElementById('btn-contrast-toggle');
+  if (btn) {
+    btn.innerText = isHC ? 'Standard Contrast' : 'High Contrast';
+  }
+}
+
+/**
+ * Restores saved contrast and text size options from LocalStorage on initial load.
+ */
+function initAccessibility() {
+  const savedSize = localStorage.getItem('scpb_text_size') || 'normal';
+  applyTextSize(savedSize);
+
+  const savedHC = localStorage.getItem('scpb_high_contrast');
+  if (savedHC === 'true') {
+    document.body.classList.add('high-contrast');
+    const btn = document.getElementById('btn-contrast-toggle');
+    if (btn) btn.innerText = 'Standard Contrast';
+  }
+}
+
+// --- SECRET ADMIN UNLOCK GESTURE ---
+let secretTapCount = 0;
+let secretTapTimer = null;
+
+/**
+ * Triggers hidden Admin tab button when main title header is tapped 5 times within 2 seconds.
+ */
+function handleSecretTap(e) {
+  secretTapCount++;
+  if (secretTapCount === 1) {
+    secretTapTimer = setTimeout(() => {
+      secretTapCount = 0;
+    }, 2000);
+  }
+  if (secretTapCount >= 5) {
+    clearTimeout(secretTapTimer);
+    secretTapCount = 0;
+    const adminBtn = document.getElementById('tabAdminBtn');
+    if (adminBtn) {
+      adminBtn.style.display = 'inline-block';
+      alert('🔓 Admin Mode Unlocked!');
+      switchTab('admin');
     }
   }
-};
+}
+
+/**
+ * Attaches initial app event listeners and boots background data loading.
+ */
+
+function setupEventListeners() {
+  initAccessibility();
+  loadFromCache();
+
+  // Parallelize initial metadata requests to cut startup time in half
+  Promise.all([
+    apiCall('getSchedTabNames', {}),
+    apiCall('getAvailableGroups', {})
+  ])
+  .then(([sheetsRes, groupsRes]) => {
+    if (sheetsRes) populateSheets(sheetsRes);
+    if (groupsRes) populateGroups(groupsRes);
+    autoSelectStoredGroup();
+  })
+  .catch(err => {
+    console.warn("Failed loading initial metadata:", err);
+  })
+  .finally(() => {
+    isInitialLoading = false;
+    updateGlobalLoaderStatus();
+    const loader = document.getElementById('globalLoader');
+    if (loader) loader.style.display = 'none';
+
+    // Defer non-critical background processes
+    setTimeout(checkAppVersion, 3000);
+    startCheckInAutoRefresh();
+  });
+}
 
 
-function populateSheetsWithCache(sheetsData) {
-  if (sheetsData) {
-    localStorage.setItem('cached_sheets', JSON.stringify(sheetsData));
-    populateSheets(sheetsData);
+/**
+ * Filters and renders cached Admin player manager rows based on search input.
+ */
+function filterAdminPlayers() {
+  const listEl = document.getElementById('adminPlayerStatusList');
+  const searchInput = document.getElementById('adminPlayerSearch');
+  if (!listEl || !searchInput) return;
+
+  const query = searchInput.value.toLowerCase().trim();
+  
+  if (!adminPlayersCache || adminPlayersCache.length === 0) {
+    listEl.innerHTML = '<i>No players found for this group.</i>';
+    return;
+  }
+
+  const filtered = adminPlayersCache.filter(p => {
+    const fullName = `${p.first || ''} ${p.last || ''}`.toLowerCase();
+    return fullName.includes(query);
+  });
+
+  if (filtered.length === 0) {
+    listEl.innerHTML = '<i>No matching players found.</i>';
+    return;
+  }
+
+  let html = '';
+  filtered.forEach(p => {
+    const isActive = (p.status || '').toLowerCase() === 'active';
+    const statusClass = isActive ? 'status-active' : 'status-inactive';
+    const btnText = isActive ? 'Set Inactive' : 'Set Active';
+    const btnClass = isActive ? 'btn-danger' : 'btn-main';
+
+    html += `
+      <div style="display:flex; align-items:center; justify-space-between; padding:0.5rem; border-bottom:1px solid var(--row-border); gap:0.5rem;">
+        <div style="flex:1;">
+          <b>${p.first || ''} ${p.last || ''}</b>
+          <div style="font-size:0.85rem; color:#666;">${p.phone || ''}</div>
+        </div>
+        <div>
+          <span class="status-badge ${statusClass}" style="margin-right:0.5rem;">${p.status || 'Inactive'}</span>
+          <button class="${btnClass}" style="min-height:36px; padding:0.25rem 0.5rem; font-size:0.85rem; width:auto;" onclick="toggleAdminStatus('${p.phone}', this)">${btnText}</button>
+        </div>
+      </div>
+    `;
+  });
+
+  listEl.innerHTML = html;
+}
+
+/**
+ * Toggles a player's Active / Inactive status directly from Admin panel.
+ */
+async function toggleAdminStatus(phone, btnEl) {
+  if (!phone) return;
+  const origText = btnEl.innerText;
+  btnEl.disabled = true;
+  btnEl.innerText = '...';
+
+  const selectedGroup = document.getElementById('adminGlobalGroupSelect').value || getSavedGroup();
+
+  try {
+    const res = await apiCall('togglePlayerStatus', { phone, groupName: selectedGroup });
+    if (res && res.success) {
+      const p = adminPlayersCache.find(x => String(x.phone) === String(phone));
+      if (p) {
+        p.status = res.newStatus;
+      }
+      filterAdminPlayers();
+    } else {
+      alert('Failed to update status: ' + (res.message || 'Unknown error'));
+      btnEl.innerText = origText;
+      btnEl.disabled = false;
+    }
+  } catch(err) {
+    alert('Error connecting to backend.');
+    btnEl.innerText = origText;
+    btnEl.disabled = false;
   }
 }
 
-// Load cached options instantly on script execution before the network responds
-(function loadFromCache() {
-  const cachedSheets = localStorage.getItem('cached_sheets');
-  const cachedGroups = localStorage.getItem('cached_groups');
+/**
+ * Registers a new pending player via Admin panel.
+ */
+async function submitAdminRegistration() {
+  const first = document.getElementById('adminRegFirst').value.trim();
+  const last = document.getElementById('adminRegLast').value.trim();
+  const phone = document.getElementById('adminRegPhone').value.trim();
+  const email = document.getElementById('adminRegEmail').value.trim();
+  const group = document.getElementById('adminGlobalGroupSelect').value || getSavedGroup();
 
-  if (cachedSheets) populateSheets(JSON.parse(cachedSheets));
-  if (cachedGroups) populateGroups(JSON.parse(cachedGroups));
-})();
-
-
-function handleSecretTap(e) {
-  if (e && e.cancelable) e.preventDefault(); 
-  tapCount++;
-  clearTimeout(tapTimer);
-  if (tapCount >= 5) {
-    document.getElementById('tabAdminBtn').style.display = 'block';
-    document.getElementById('adminStatus').innerText = "Admin unlocked!";
-    tapCount = 0;
+  if (!first || !last || !phone) {
+    alert('Please provide first name, last name, and phone number.');
+    return;
   }
-  tapTimer = setTimeout(() => { tapCount = 0; }, 2000);
+
+  const statusEl = document.getElementById('adminStatus');
+  if (statusEl) statusEl.innerText = 'Adding pending player...';
+
+  try {
+    const res = await apiCall('registerPlayer', { first, last, phone, email, group });
+    if (res && res.success) {
+      if (statusEl) statusEl.innerText = '✅ Player added successfully!';
+      document.getElementById('adminRegFirst').value = '';
+      document.getElementById('adminRegLast').value = '';
+      document.getElementById('adminRegPhone').value = '';
+      document.getElementById('adminRegEmail').value = '';
+      loadAdminPlayerStatusCache(group);
+    } else {
+      if (statusEl) statusEl.innerText = '❌ Failed: ' + (res.message || 'Error');
+    }
+  } catch (err) {
+    if (statusEl) statusEl.innerText = '❌ Network error adding player.';
+  }
 }
 
+// --- CHECK-IN TAB SYSTEM ---
+let checkInPlayersCache = [];
+
+/**
+ * Fetches checked-in states and foursome assignments for current selected group.
+ */
+async function loadCheckInPlayers() {
+  const groupName = document.getElementById('sheetSelect').value || getSavedGroup();
+  const listEl = document.getElementById('playerList');
+  const statusEl = document.getElementById('checkInStatus');
+
+  if (!groupName) {
+    if (listEl) listEl.innerHTML = '<i>Select a group above...</i>';
+    return;
+  }
+
+  // Don't overwrite the UI while a player is actively tapping a row
+  if (listEl && listEl.querySelector('.saving')) return;
+
+  if (listEl && listEl.children.length === 0) {
+    listEl.innerHTML = '<span class="loading-spinner"></span> Loading players...';
+  }
+
+  try {
+    const res = await apiCall('getPlayersForCheckIn', { groupName });
+    if (res && res.players) {
+      checkInPlayersCache = res.players;
+      renderCheckInPlayers(res.players);
+      if (statusEl) statusEl.innerText = '';
+    } else {
+      if (listEl) listEl.innerHTML = '<i>No check-in data found for group.</i>';
+    }
+  } catch (err) {
+    if (statusEl) statusEl.innerText = '❌ Error loading check-in list.';
+  }
+}
+
+/**
+ * Renders player check-in rows grouped by numeric courts, BYEs, or unchecked status.
+ * // Sort logic: Active numeric court foursomes at top, all BYE and unchecked players at bottom
+ */
+function renderCheckInPlayers(players) {
+  const listEl = document.getElementById('playerList');
+  if (!listEl) return;
+
+  if (!players || players.length === 0) {
+    listEl.innerHTML = '<i>No players active in this group.</i>';
+    return;
+  }
+
+  // Group players by court assignment
+  const courts = {};
+  players.forEach(p => {
+    const c = p.court || 'Unassigned';
+    if (!courts[c]) courts[c] = [];
+    courts[c].push(p);
+  });
+
+  let html = '';
+  const sortedKeys = Object.keys(courts).sort((a, b) => {
+    if (a.startsWith('Court') && b.startsWith('Court')) {
+      return parseInt(a.replace('Court ', ''), 10) - parseInt(b.replace('Court ', ''), 10);
+    }
+    return a.localeCompare(b);
+  });
+
+  sortedKeys.forEach(courtKey => {
+    const isBye = courtKey.toLowerCase().includes('bye') || courtKey === 'Unassigned';
+    const headerClass = isBye ? 'court-header bye-header' : 'court-header';
+    
+    html += `<div class="${headerClass}">${courtKey}</div>`;
+
+    courts[courtKey].forEach(p => {
+      const isChecked = p.checkedIn === true || p.checkedIn === 'true';
+      const rowClass = isChecked ? 'player-row checked' : 'player-row';
+      const icon = isChecked ? '✅' : '⬜';
+
+      html += `
+        <div class="${rowClass}" data-phone="${p.phone}" data-checked="${isChecked}" onclick="handlePlayerRowClick(this, '${p.phone}')">
+          <span class="player-name">${p.first || ''} ${p.last || ''}</span>
+          <span class="check-icon">${icon}</span>
+        </div>
+      `;
+    });
+  });
+
+  listEl.innerHTML = html;
+}
+
+/**
+ * Handles tap event on individual player row to check-in or check-out.
+ * Enforces geofencing check prior to marking check-in.
+ */
+async function handlePlayerRowClick(rowEl, phone) {
+  // Prevent double-clicking while request is saving
+  if (rowEl.style.pointerEvents === 'none') return;
+
+  let curState = rowEl.getAttribute('data-checked') === "true";
+  let newState = !curState;
+  let iconSpan = rowEl.querySelector('.check-icon');
+
+  // Geofence check enforced when checking in
+  if (newState) {
+    const allowed = await checkGeofence();
+    if (!allowed) return;
+  }
+
+  // 1. Instant UI update + Show "Saving..." indicator
+  rowEl.setAttribute('data-checked', newState ? "true" : "false");
+  rowEl.className = newState ? "player-row checked saving" : "player-row saving";
+  rowEl.style.opacity = '0.6';
+  rowEl.style.pointerEvents = 'none'; // Lock row during API request
+  iconSpan.innerText = "⏳"; // Visual feedback that network call is working
+
+  const groupName = document.getElementById('sheetSelect').value || getSavedGroup();
+
+  try {
+    const res = await apiCall('toggleSingleCheckIn', { phone, groupName, status: newState });
+    if (res && res.success) {
+      // 2. Success: Confirm visual state
+      rowEl.style.opacity = '1';
+      iconSpan.innerText = newState ? '✅' : '⬜';
+    } else {
+      // 3. Revert state on failure
+      rowEl.setAttribute('data-checked', curState ? "true" : "false");
+      rowEl.className = curState ? "player-row checked" : "player-row";
+      iconSpan.innerText = curState ? '✅' : '⬜';
+      alert('Failed to update check-in state.');
+    }
+  } catch (err) {
+    rowEl.setAttribute('data-checked', curState ? "true" : "false");
+    rowEl.className = curState ? "player-row checked" : "player-row";
+    iconSpan.innerText = curState ? '✅' : '⬜';
+    alert('Network error toggling check-in state.');
+  } finally {
+    rowEl.style.pointerEvents = 'auto'; // Unlock row
+    rowEl.classList.remove('saving');
+    rowEl.style.opacity = '1';
+  }
+}
+
+// --- SCORES & PHONE LOOKUP TAB ---
+let activeLookupPlayer = null;
+
+/**
+ * Searches player assignment by phone number input.
+ */
+async function lookupPhone() {
+  const input = document.getElementById('phoneInput').value.trim();
+  if (!input) {
+    alert('Please enter a phone number.');
+    return;
+  }
+
+  const statusEl = document.getElementById('phoneStatus');
+  if (statusEl) statusEl.innerText = 'Searching for player...';
+
+  try {
+    const res = await apiCall('findFoursomeByPhone', { phone: input });
+    if (res && res.found) {
+      activeLookupPlayer = res.player;
+      localStorage.setItem('scpb_saved_phone', input);
+      renderLookupResult(res.player, res.courtFoursome);
+      if (statusEl) statusEl.innerText = '';
+    } else {
+      if (statusEl) statusEl.innerText = '';
+      document.getElementById('lookupResult').style.display = 'none';
+      document.getElementById('registrationSection').style.display = 'block';
+      document.getElementById('regPhone').value = input;
+    }
+  } catch (err) {
+    if (statusEl) statusEl.innerText = '❌ Error looking up phone number.';
+  }
+}
+
+/**
+ * Renders player match details and score input fields.
+ */
+function renderLookupResult(player, foursome) {
+  document.getElementById('phoneEntrySection').style.display = 'none';
+  document.getElementById('registrationSection').style.display = 'none';
+  document.getElementById('lookupResult').style.display = 'block';
+
+  document.getElementById('pNameDisplay').innerText = `${player.first || ''} ${player.last || ''}`;
+  document.getElementById('pGroupDisplay').innerText = player.group || 'N/A';
+  document.getElementById('pCourtDisplay').innerText = player.court || 'N/A';
+
+  const badge = document.getElementById('pStatusDisplay');
+  const isActive = (player.status || '').toLowerCase() === 'active';
+  badge.innerText = isActive ? 'Active' : 'Inactive';
+  badge.className = isActive ? 'status-badge status-active' : 'status-badge status-inactive';
+
+  const scoreContainer = document.getElementById('scoreInputsContainer');
+  scoreContainer.innerHTML = '';
+
+  if (foursome && foursome.length === 4) {
+    let html = '<div class="card"><p style="margin-top:0;"><b>Foursome Players:</b></p><ol style="padding-left:1.2rem; margin-bottom:0.5rem;">';
+    foursome.forEach(f => {
+      html += `<li>${f.first || ''} ${f.last || ''}</li>`;
+    });
+    html += '</ol></div>';
+
+    html += `
+      <div class="score-grid">
+        <span><b>Game 1 Score:</b></span>
+        <input type="number" id="sc1_p1" placeholder="Us">
+        <span>-</span>
+        <input type="number" id="sc1_p2" placeholder="Them">
+      </div>
+      <div class="score-grid">
+        <span><b>Game 2 Score:</b></span>
+        <input type="number" id="sc2_p1" placeholder="Us">
+        <span>-</span>
+        <input type="number" id="sc2_p2" placeholder="Them">
+      </div>
+      <div class="score-grid">
+        <span><b>Game 3 Score:</b></span>
+        <input type="number" id="sc3_p1" placeholder="Us">
+        <span>-</span>
+        <input type="number" id="sc3_p2" placeholder="Them">
+      </div>
+    `;
+    scoreContainer.innerHTML = html;
+  } else {
+    scoreContainer.innerHTML = '<i>No active 4-player court match assignment found for score entry.</i>';
+  }
+}
+
+/**
+ * Saves entered match scores to backend Google Sheet.
+ */
+async function saveScores() {
+  if (!activeLookupPlayer) return;
+
+  const g1_1 = document.getElementById('sc1_p1')?.value;
+  const g1_2 = document.getElementById('sc1_p2')?.value;
+  const g2_1 = document.getElementById('sc2_p1')?.value;
+  const g2_2 = document.getElementById('sc2_p2')?.value;
+  const g3_1 = document.getElementById('sc3_p1')?.value;
+  const g3_2 = document.getElementById('sc3_p2')?.value;
+
+  const statusEl = document.getElementById('phoneStatus');
+  if (statusEl) statusEl.innerText = 'Submitting scores...';
+
+  try {
+    const res = await apiCall('submitScores', {
+      phone: activeLookupPlayer.phone,
+      group: activeLookupPlayer.group,
+      court: activeLookupPlayer.court,
+      scores: [
+        [g1_1, g1_2],
+        [g2_1, g2_2],
+        [g3_1, g3_2]
+      ]
+    });
+
+    if (res && res.success) {
+      if (statusEl) statusEl.innerText = '✅ Scores submitted successfully!';
+    } else {
+      if (statusEl) statusEl.innerText = '❌ Failed to submit scores: ' + (res.message || 'Error');
+    }
+  } catch (err) {
+    if (statusEl) statusEl.innerText = '❌ Error submitting scores.';
+  }
+}
+
+/**
+ * Toggles self active/inactive status from phone lookup panel.
+ */
+async function toggleStatus() {
+  if (!activeLookupPlayer) return;
+  const statusEl = document.getElementById('phoneStatus');
+  if (statusEl) statusEl.innerText = 'Updating status...';
+
+  try {
+    const res = await apiCall('togglePlayerStatus', {
+      phone: activeLookupPlayer.phone,
+      groupName: activeLookupPlayer.group
+    });
+    if (res && res.success) {
+      activeLookupPlayer.status = res.newStatus;
+      renderLookupResult(activeLookupPlayer, null);
+      if (statusEl) statusEl.innerText = '✅ Status updated to ' + res.newStatus;
+    } else {
+      if (statusEl) statusEl.innerText = '❌ Failed to update status.';
+    }
+  } catch (err) {
+    if (statusEl) statusEl.innerText = '❌ Error updating status.';
+  }
+}
+
+/**
+ * Clears saved phone number from LocalStorage and resets lookup UI.
+ */
+function clearPhoneCache() {
+  localStorage.removeItem('scpb_saved_phone');
+  activeLookupPlayer = null;
+  document.getElementById('lookupResult').style.display = 'none';
+  document.getElementById('phoneEntrySection').style.display = 'block';
+  document.getElementById('phoneInput').value = '';
+  document.getElementById('phoneStatus').innerText = '';
+}
+
+/**
+ * Registers a new self-registered player.
+ */
+async function submitRegistration() {
+  const first = document.getElementById('regFirst').value.trim();
+  const last = document.getElementById('regLast').value.trim();
+  const phone = document.getElementById('regPhone').value.trim();
+  const email = document.getElementById('regEmail').value.trim();
+  const group = document.getElementById('regGroup').value;
+
+  if (!first || !last || !phone || !group) {
+    alert('Please fill out all required fields.');
+    return;
+  }
+
+  const statusEl = document.getElementById('phoneStatus');
+  if (statusEl) statusEl.innerText = 'Submitting registration...';
+
+  try {
+    const res = await apiCall('registerPlayer', { first, last, phone, email, group });
+    if (res && res.success) {
+      alert('Registration submitted! You are now registered as Pending.');
+      cancelRegistration();
+      if (statusEl) statusEl.innerText = '✅ Registration complete!';
+    } else {
+      if (statusEl) statusEl.innerText = '❌ Registration failed: ' + (res.message || 'Error');
+    }
+  } catch (err) {
+    if (statusEl) statusEl.innerText = '❌ Error submitting registration.';
+  }
+}
+
+/**
+ * Cancels registration form view.
+ */
+function cancelRegistration() {
+  document.getElementById('registrationSection').style.display = 'none';
+  document.getElementById('phoneEntrySection').style.display = 'block';
+}
+
+// --- TAB 3: RANKINGS & SCHEDULE VIEWER ---
+/**
+ * Loads published court schedule and ladder standings for selected group.
+ */
+async function loadRankingsAndSched() {
+  const groupName = document.getElementById('groupViewerSelect').value || getSavedGroup();
+  const contentEl = document.getElementById('viewerContent');
+  const statusEl = document.getElementById('viewerStatus');
+
+  if (!groupName) {
+    if (contentEl) contentEl.innerHTML = '<i>Select a group above...</i>';
+    return;
+  }
+
+  if (contentEl) contentEl.innerHTML = '<span class="loading-spinner"></span> Loading schedule and ranks...';
+
+  try {
+    const res = await apiCall('getRankingsAndSchedule', { groupName });
+    if (res && res.html) {
+      if (contentEl) contentEl.innerHTML = res.html;
+      if (statusEl) statusEl.innerText = '';
+    } else {
+      if (contentEl) contentEl.innerHTML = '<i>No published schedule found for group.</i>';
+    }
+  } catch (err) {
+    if (statusEl) statusEl.innerText = '❌ Error loading schedule.';
+  }
+}
+
+// --- ADMIN CONTROL ACTIONS ---
+/**
+ * Runs reschedule routine for checked-in players only using override courts.
+ */
+async function runRescheduleCheckedIn() {
+  const groupName = document.getElementById('adminGlobalGroupSelect').value || getSavedGroup();
+  const selectedCourts = getSelectedCourts();
+
+  if (!groupName) {
+    alert('Please select a target group.');
+    return;
+  }
+
+  if (selectedCourts.length === 0) {
+    alert('Please select at least one court checkbox.');
+    return;
+  }
+
+  const statusEl = document.getElementById('adminStatus');
+  if (statusEl) statusEl.innerText = 'Rescheduling checked-in players...';
+
+  try {
+    const res = await apiCall('rescheduleFromCheckIns', {
+      groupName,
+      courts: selectedCourts,
+      checkedInOnly: true
+    });
+    if (res && res.success) {
+      if (statusEl) statusEl.innerText = '✅ Rescheduled checked-in players successfully!';
+      // Refresh admin players cache
+      loadAdminPlayerStatusCache(groupName);
+    } else {
+      if (statusEl) statusEl.innerText = '❌ Reschedule failed: ' + (res.message || 'Error');
+    }
+  } catch (err) {
+    if (statusEl) statusEl.innerText = '❌ Error performing reschedule.';
+  }
+}
+
+/**
+ * Runs reschedule routine for all active players in group using override courts.
+ */
+async function runRescheduleActive() {
+  const groupName = document.getElementById('adminGlobalGroupSelect').value || getSavedGroup();
+  const selectedCourts = getSelectedCourts();
+
+  if (!groupName) {
+    alert('Please select a target group.');
+    return;
+  }
+
+  if (selectedCourts.length === 0) {
+    alert('Please select at least one court checkbox.');
+    return;
+  }
+
+  const statusEl = document.getElementById('adminStatus');
+  if (statusEl) statusEl.innerText = 'Rescheduling all active players...';
+
+  try {
+    const res = await apiCall('generateScheduleTabs', {
+      groupName,
+      courts: selectedCourts,
+      checkedInOnly: false
+    });
+    if (res && res.success) {
+      if (statusEl) statusEl.innerText = '✅ Rescheduled all active players successfully!';
+      // Refresh admin players cache
+      loadAdminPlayerStatusCache(groupName);
+    } else {
+      if (statusEl) statusEl.innerText = '❌ Reschedule failed: ' + (res.message || 'Error');
+    }
+  } catch (err) {
+    if (statusEl) statusEl.innerText = '❌ Error performing reschedule.';
+  }
+}
+
+/**
+ * Triggers general administrative macro commands on backend.
+ */
+/**
+ * Generic admin command runner with built-in UI status updates and automatic group context.
+ * Calls backend actions directly without needing a 'runAdminCommand' switch wrapper.
+ * 
+ * @param {string} actionName - The exact action/function name expected by Code.js
+ * @param {Object} [extraPayload={}] - Optional parameters (e.g. { numCourts: 4, weekCol: "W10", shift: true })
+ */
+async function runAdmin(actionName, extraPayload = {}) {
+  const statusEl = document.getElementById('adminStatus');
+  
+  // 1. Resolve current active group context
+  const groupName = extraPayload.groupName || extraPayload.group || 
+                    (document.getElementById('adminGlobalGroupSelect') ? document.getElementById('adminGlobalGroupSelect').value : null) || 
+                    getSavedGroup();
+
+  if (statusEl) statusEl.innerText = `Executing ${actionName}...`;
+
+  // 2. Build normalized payload so callers don't need manual string formatting
+  const payload = {
+    group: groupName,
+    groupName: groupName,
+    scoreSheetName: "Score " + groupName.replace(/^Score\s*/i, ""),
+    sheet: "Sched " + groupName.replace(/^Sched\s*/i, ""),
+    ...extraPayload
+  };
+
+  try {
+    // 3. Direct API call to backend action
+    const res = await apiCall(actionName, payload);
+
+    if (res && (res.success !== false && !res.error)) {
+      if (statusEl) statusEl.innerText = `✅ Command ${actionName} completed successfully!`;
+      return res;
+    } else {
+      const errMsg = (res && (res.message || res.error)) ? (res.message || res.error) : 'Error';
+      if (statusEl) statusEl.innerText = `❌ Command failed: ${errMsg}`;
+      return res;
+    }
+  } catch (err) {
+    console.error(`runAdmin error [${actionName}]:`, err);
+    if (statusEl) statusEl.innerText = `❌ Network error executing ${actionName}.`;
+    throw err;
+  }
+}
+
+
+/**
+ * Triggers PDF schedule generation download.
+ */
+async function getAdminPdf() {
+  const groupName = document.getElementById('adminGlobalGroupSelect').value || getSavedGroup();
+  const statusEl = document.getElementById('adminStatus');
+  if (statusEl) statusEl.innerText = 'Generating PDF schedule...';
+
+  try {
+    const res = await apiCall('generatePdfSchedule', { groupName });
+    if (res && res.pdfUrl) {
+      window.open(res.pdfUrl, '_blank');
+      if (statusEl) statusEl.innerText = '✅ PDF generated!';
+    } else {
+      if (statusEl) statusEl.innerText = '❌ Failed to generate PDF.';
+    }
+  } catch (err) {
+    if (statusEl) statusEl.innerText = '❌ Error requesting PDF.';
+  }
+}
+
+// --- AUTO-REFRESH POLLING FOR CHECK-IN TAB ---
+let checkInRefreshTimer = null;
+
+/**
+ * Starts 15-second background polling timer for real-time check-in updates across devices.
+ * // Refresh every 15 seconds
+ */
+function startCheckInAutoRefresh() {
+  stopCheckInAutoRefresh();
+  checkInRefreshTimer = setInterval(() => {
+    // Only fetch if on Check-In tab, browser active, and not currently tapping
+    // Silent background reload
+    if (document.visibilityState === 'visible' && document.getElementById('checkinTab').classList.contains('active')) {
+      loadCheckInPlayers();
+    }
+  }, 15000);
+}
+
+/**
+ * Stops background polling timer when tab is hidden or changed to conserve battery/quota.
+ * // Pause polling when app is backgrounded to save quota/battery
+ */
+function stopCheckInAutoRefresh() {
+  if (checkInRefreshTimer) {
+    clearInterval(checkInRefreshTimer);
+    checkInRefreshTimer = null;
+  }
+}
+
+// Start timer on initial launch
+startCheckInAutoRefresh();
+
+// --- UNIFIED GROUP CONTEXT & ROUTING ---
+/**
+ * Sets primary active ladder group and synchronizes context across all tab views.
+ */
+function setSelectedGroup(groupName) {
+  if (!groupName) return;
+  setSavedGroup(groupName);
+  syncAllGroupDropdowns(groupName);
+  onGroupContextUpdated(groupName);
+}
+
+/**
+ * Synchronizes selected group option across all dropdown selectors.
+ */
+function syncAllGroupDropdowns(groupName) {
+  const ids = ['sheetSelect', 'regGroup', 'groupViewerSelect', 'adminGlobalGroupSelect'];
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.value = groupName;
+    }
+  });
+
+  const sheetLink = document.getElementById('adminSheetLink');
+  if (sheetLink) {
+    sheetLink.href = `${API_URL}?action=editSheet&group=${encodeURIComponent(groupName)}`;
+  }
+
+  // Assign default courts for Admin override grid
+  renderAdminCourts(groupName);
+}
+
+/**
+ * Dropdown onchange handler.
+ */
+function onGroupChange(sourceId) {
+  const el = document.getElementById(sourceId);
+  if (el && el.value) {
+    setSelectedGroup(el.value);
+  }
+}
+
+/**
+ * Persists selected group to LocalStorage.
+ */
+function setSavedGroup(groupName) {
+  localStorage.setItem('scpb_selected_group', groupName);
+}
+
+/**
+ * Triggers re-rendering of active tab data when group context changes.
+ * // On group context update, only trigger admin data fetching IF admin tab is actively visible
+ */
+function onGroupContextUpdated(groupName) {
+  const activeTab = document.querySelector('.tab-content.active');
+  if (!activeTab) return;
+
+  if (activeTab.id === 'checkinTab') {
+    loadCheckInPlayers();
+  } else if (activeTab.id === 'rankschedTab') {
+    loadRankingsAndSched();
+  } else if (activeTab.id === 'adminTab') {
+    loadAdminTabData(groupName);
+  }
+}
+
+/**
+ * Dedicated Admin Data Loader: Called ONLY when Admin tab is active.
+ */
+function loadAdminTabData(groupName) {
+  loadAdminPlayerStatusCache(groupName);
+}
 
 async function loadAdminPlayerStatusCache(group) {
   if (!group) return;
@@ -902,679 +1689,251 @@ async function loadAdminPlayerStatusCache(group) {
   }
 }
 
-function filterAdminPlayers() {
-  const input = document.getElementById('adminPlayerSearch');
-  const query = input ? input.value.trim().toLowerCase() : '';
-  const container = document.getElementById('adminPlayerStatusList');
-  if (!container) return;
 
-  if (!query) {
-    container.innerHTML = "<i style='display:block; padding:0.75rem; text-align:center;'>Type in the search box above to display players...</i>";
-    return;
-  }
+/**
+ * Switches active application view tab.
+ */
+function switchTab(tabId) {
+  const tabMap = {
+    'checkin': 'checkinTab',
+    'phone': 'phoneTab',
+    'ranksched': 'rankschedTab',
+    'help': 'helpTab',
+    'admin': 'adminTab'
+  };
 
-  const matches = adminPlayersCache.filter(p => 
-    (p.name && p.name.toLowerCase().includes(query)) || 
-    (p.phone && String(p.phone).includes(query))
-  );
+  const targetId = tabMap[tabId] || 'checkinTab';
 
-  if (matches.length === 0) {
-    container.innerHTML = "<p style='padding:0.75rem; text-align:center;'>No matching players found.</p>";
-    return;
-  }
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.nav button').forEach(el => el.classList.remove('active'));
 
-  container.innerHTML = "";
-  matches.forEach(p => {
-    let div = document.createElement('div');
-    let isActive = (p.status === "ACTIVE");
-    div.className = "player-row " + (isActive ? "checked" : "");
-    let uiColor = isActive ? '#00c853' : '#9e9e9e';
-    let uiWeight = isActive ? 'bold' : 'normal';
+  const activeContent = document.getElementById(targetId);
+  if (activeContent) activeContent.classList.add('active');
 
-    div.innerHTML = '<span class="player-name" style="color: ' + uiColor + '; font-weight: ' + uiWeight + ';">' + p.name + ' (' + p.status + ')</span>' +
-                    '<button class="btn-sub" ' +
-                    'style="min-width:auto; min-height:auto; padding:0.4rem 0.75rem; margin:0; background-color: ' + uiColor + '; border: none; color: white;" ' +
-                    'onclick="toggleAdminStatus(\'' + p.phone + '\', this)">' + 
-                    p.status + 
-                    '</button>';
+  const btnMap = {
+    'checkin': 'tab1Btn',
+    'phone': 'tab2Btn',
+    'ranksched': 'tab3Btn',
+    'help': 'tab4Btn',
+    'admin': 'tabAdminBtn'
+  };
 
-    container.appendChild(div);
-  });
-  }
+  const activeBtn = document.getElementById(btnMap[tabId]);
+  if (activeBtn) activeBtn.classList.add('active');
 
-
-
-  async function toggleAdminStatus(phone, buttonElement) {
-    buttonElement.innerText = "...";
-    try {
-      const res = await apiCall('togglePlayerStatus', { phone: phone });
-      let newStatus = res.newStatus || "ACTIVE";
-      buttonElement.innerText = newStatus;
-      
-      const cached = adminPlayersCache.find(p => String(p.phone) === String(phone));
-      if (cached) cached.status = newStatus;
-
-      const nameSpan = buttonElement.parentElement.querySelector('.player-name');
-      if(newStatus === "ACTIVE") {
-        buttonElement.parentElement.classList.add('checked');
-        buttonElement.style.backgroundColor = '#00c853';
-        if (nameSpan) { nameSpan.style.color = '#00c853'; nameSpan.style.fontWeight = 'bold'; }
-      } else {
-        buttonElement.parentElement.classList.remove('checked');
-        buttonElement.style.backgroundColor = '#9e9e9e';
-        if (nameSpan) { nameSpan.style.color = '#9e9e9e'; nameSpan.style.fontWeight = 'normal'; }
-      }
-    } catch(e) { alert(e.message); }
-  }
-
-  async function submitAdminRegistration() {
-    const currentGroup = getSavedGroup();
-    let data = {
-      first: document.getElementById('adminRegFirst').value.trim(),
-      last: document.getElementById('adminRegLast').value.trim(),
-      phone: document.getElementById('adminRegPhone').value.trim(),
-      email: document.getElementById('adminRegEmail').value.trim(),
-      group: currentGroup,
-      status: 'pending'
-    };
-
-    if (!data.group) {
-      alert("Please select a group at the top of the Admin controls first.");
-      return;
-    }
-
-    if (!data.first || !data.last) {
-      alert("First and Last Name are required.");
-      return;
-    }
-
-    document.getElementById('adminStatus').innerHTML = '<span class="loading-spinner"></span>Adding player as pending...';
-    try {
-      const res = await apiCall('addNewUser', data);
-      document.getElementById('adminStatus').innerText = res || "Player added successfully!";
-      document.getElementById('adminRegFirst').value = "";
-      document.getElementById('adminRegLast').value = "";
-      document.getElementById('adminRegPhone').value = "";
-      document.getElementById('adminRegEmail').value = "";
-      
-      // Refresh admin players cache
-      loadAdminPlayerStatusCache(currentGroup);
-    } catch(e) {
-      document.getElementById('adminStatus').innerText = e.message;
-    }
-  }
-
-   let isSavingCheckIn = false;
-
-
-  async function loadCheckInPlayers(isSilent = false) {
-      const sheet = document.getElementById('sheetSelect').value;
-      if (!sheet) return;
-    
-      // Don't overwrite the UI while a player is actively tapping a row
-      if (isSilent && isSavingCheckIn) return;
-      
-      if (!isSilent) {
-          document.getElementById('checkInStatus').innerHTML = '<span class="loading-spinner"></span>Loading players...';
-      }
-      
-      try {
-          const rawData = await apiCall('getPlayersForCheckIn', { sheet: sheet }) || [];
-          
-          // Safely extract the array whether its direct data or wrapped in an object
-          let checkInData = Array.isArray(rawData) ? rawData : (rawData.players || []);
-          
-          checkInData.forEach(p => {
-              let val = (p.checkedIn !== undefined) ? p.checkedIn : p.checked;
-              p.checked = !!val;
-              p.checkedIn = !!val;
-          });
-                            
-          renderCheckInPlayers(checkInData, sheet);
-      } catch(e) {
-          if (!isSilent) {
-              document.getElementById('checkInStatus').innerText = "Error: " + e.message;
-          } else {
-              console.warn("Silent check-in polling failed:", e.message);
-          }
-      } 
-  }  
-
-
-
-
-
-
-function renderCheckInPlayers(data, sheetName) {
-  document.getElementById('checkInStatus').innerText = "";
-  const container = document.getElementById('playerList');
-  container.innerHTML = "";
-  if (!data || data.length === 0) {
-    container.innerHTML = "<p style='text-align:center;'>No players found.</p>";
-    return;
-  }
-
-  // Sort logic: Active numeric court foursomes at top, all BYE and unchecked players at bottom
-  data.sort((a, b) => {
-    let courtA = String(a.court || '').toUpperCase();
-    let courtB = String(b.court || '').toUpperCase();
-
-    let isByeA = courtA.includes("BYE") || courtA.includes("UNCHECKED");
-    let isByeB = courtB.includes("BYE") || courtB.includes("UNCHECKED");
-
-    if (isByeA && !isByeB) return 1;
-    if (!isByeA && isByeB) return -1;
-
-    if (courtA === courtB) {
-      if (a.checked !== b.checked) return a.checked ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    }
-
-    let numA = parseInt(courtA.replace(/\D/g, ''), 10);
-    let numB = parseInt(courtB.replace(/\D/g, ''), 10);
-    if (!isNaN(numA) && !isNaN(numB) && numA !== numB) {
-      return numA - numB;
-    }
-
-    return courtA.localeCompare(courtB);
-  });
-
-  let currentCourt = "";
-  data.forEach((p) => {
-    if (p.court !== currentCourt) {
-      currentCourt = p.court;
-      let isBye = String(currentCourt).toUpperCase().includes("BYE") || String(currentCourt).toUpperCase().includes("UNCHECKED");
-      let ch = document.createElement('div');
-      ch.className = isBye ? "court-header bye-header" : "court-header";
-      ch.innerText = isBye ? "⏸️ BYE / Unchecked (Sitting Out)" : "Court: " + currentCourt;
-      container.appendChild(ch);
-    }
-
-    let div = document.createElement('div');
-    let isChecked = (p.checked !== undefined) ? p.checked : p.checkedIn;
-    div.className = isChecked ? "player-row checked" : "player-row";
-    div.setAttribute('data-checked', isChecked ? "true" : "false");
-    div.setAttribute('data-name', p.name);
-
-    div.onclick = async function() {
-      // Prevent double-clicking while request is saving
-      if (this.style.pointerEvents === 'none') return;
-
-      let curState = this.getAttribute('data-checked') === "true";
-      let newState = !curState;
-      let iconSpan = this.querySelector('.check-icon');
-
-      // 1. Instant UI update + Show "Saving..." indicator
-      this.setAttribute('data-checked', newState ? "true" : "false");
-      this.className = newState ? "player-row checked saving" : "player-row saving";
-      this.style.opacity = '0.6';
-      this.style.pointerEvents = 'none'; // Lock row during API request
-      iconSpan.innerText = "⏳"; // Visual feedback that network call is working
-
-      try {
-        let activeSheet = sheetName || document.getElementById('sheetSelect')?.value || "";
-        let res = await apiCall('toggleSingleCheckIn', {
-          sheet: activeSheet,
-          playerName: p.name,
-          isCheckedIn: newState
-        });
-
-        if (res && res.status === "error") throw new Error(res.message);
-
-        // 2. Success: Confirm visual state
-        iconSpan.innerText = newState ? "✅" : "❌";
-      } catch(err) {
-        console.error("Auto-save check-in failed:", err);
-        alert("Check-in failed: " + (err.message || "Network Error"));
-
-        // 3. Revert state on failure
-        this.setAttribute('data-checked', curState ? "true" : "false");
-        this.className = curState ? "player-row checked" : "player-row";
-        iconSpan.innerText = curState ? "✅" : "❌";
-      } finally {
-        // Unlock row
-        this.style.opacity = '1';
-        this.style.pointerEvents = 'auto';
-      }
-    };
-
-    div.innerHTML = `<span class="player-name">${p.name}</span>
-                     <span class="check-icon">${isChecked ? '✅' : '❌'}</span>`;
-    container.appendChild(div);
-  });
+  refreshActiveTabData();
 }
 
+/**
+ * Refreshes data for newly focused tab view.
+ */
+function refreshActiveTabData() {
+  const currentGroup = getSavedGroup();
+  syncAllGroupDropdowns(currentGroup);
 
-  async function submitCheckIns() {
-    const sheetName = document.getElementById('sheetSelect').value;
-    const rows = document.querySelectorAll('#playerList .player-row');
-    let checkedNames = [];
-    rows.forEach(r => { if (r.getAttribute('data-checked') === "true") checkedNames.push(r.getAttribute('data-name')); });
-    
-    document.getElementById('checkInStatus').innerHTML = '<span class="loading-spinner"></span>Saving check-ins...';
-    try {
-      const res = await apiCall('saveCheckIns', { sheet: sheetName, checkedNames: checkedNames });
-      document.getElementById('checkInStatus').innerText = res;
-      setTimeout(loadCheckInPlayers, 1000);
-    } catch(e) {
-      document.getElementById('checkInStatus').innerText = e.message;
-    }
-  }
+  const activeTab = document.querySelector('.tab-content.active');
+  if (!activeTab) return;
 
-  async function lookupPhone() {
-    const phone = document.getElementById('phoneInput').value;
-    document.getElementById('phoneStatus').innerHTML = '<span class="loading-spinner"></span>Searching player...';
-    
-    try {
-      const res = await apiCall('findFoursomeByPhone', { phone: phone });
-      document.getElementById('phoneStatus').innerText = "";
-      localStorage.setItem('foursome_phone', phone);
-      document.getElementById('phoneEntrySection').style.display = "none";
-      document.getElementById('lookupResult').style.display = "block";
-      
-      currentPlayerData = res;
-      document.getElementById('pNameDisplay').innerText = res.playerName;
-      document.getElementById('pGroupDisplay').innerText = res.groupName || "N/A";
-      document.getElementById('pCourtDisplay').innerText = res.court || "N/A";
-      
-      if (res.groupName) setSavedGroup(res.groupName);
-      
-      const statBadge = document.getElementById('pStatusDisplay');
-      statBadge.innerText = res.status || "ACTIVE";
-      statBadge.className = "status-badge " + ((res.status || "ACTIVE") === "ACTIVE" ? "status-active" : "status-inactive");
-      
-      const scoreContainer = document.getElementById('scoreInputsContainer');
-      scoreContainer.innerHTML = "";
-
-      if (res.foursome && res.foursome.length > 0) {
-        document.getElementById('scoreEntrySection').style.display = "block";
-        scoreContainer.innerHTML = "<div class='score-grid' style='font-weight:bold; font-size:1rem;'><div>Player</div><div>G1</div><div>G2</div><div>G3</div></div>";
-        res.foursome.forEach(p => {
-          scoreContainer.innerHTML += `<div class="score-grid card">
-            <div><b>${p.name}</b></div>
-            <input type="number" id="g1_${p.name}" value="${p.g1 || ''}">
-            <input type="number" id="g2_${p.name}" value="${p.g2 || ''}">
-            <input type="number" id="g3_${p.name}" value="${p.g3 || ''}">
-          </div>`;
-        });
-      } else {
-        document.getElementById('scoreEntrySection').style.display = "none";
-      }
-    } catch(e) {
-      document.getElementById('phoneStatus').innerText = e.message;
-    }
-  }
-
-  async function saveScores() {
-    if (!currentPlayerData || !currentPlayerData.foursome) return;
-    let scores = {};
-    currentPlayerData.foursome.forEach(p => {
-      scores[p.name] = {
-        g1: document.getElementById(`g1_${p.name}`).value,
-        g2: document.getElementById(`g2_${p.name}`).value,
-        g3: document.getElementById(`g3_${p.name}`).value
-      };
-    });
-
-    document.getElementById('phoneStatus').innerHTML = '<span class="loading-spinner"></span>Submitting scores...';
-    try {
-      const res = await apiCall('submitCourtScores', {
-        groupName: currentPlayerData.groupName,
-        court: currentPlayerData.court,
-        submitter: currentPlayerData.playerName,
-        scores: scores
-      });
-      document.getElementById('phoneStatus').innerText = res;
-    } catch(e) {
-      document.getElementById('phoneStatus').innerText = e.message;
-    }
-  }
-
-
-
-
-  async function toggleStatus() {
-    const phone = document.getElementById('phoneInput').value;
-    try {
-      const res = await apiCall('togglePlayerStatus', { phone: phone });
-      alert(`Status updated for ${res.name}: Now ${res.newStatus}`);
-      lookupPhone();
-    } catch(e) { alert(e.message); }
-  }
-
-  function clearPhoneCache() {
-    localStorage.removeItem('foursome_phone');
-    document.getElementById('phoneInput').value = "";
-    document.getElementById('lookupResult').style.display = "none";
-    document.getElementById('phoneEntrySection').style.display = "block";
-  }
-
-  async function loadRankingsAndSched() {
-    const group = document.getElementById('groupViewerSelect').value;
-    if (!group) return;
-    document.getElementById('viewerStatus').innerHTML = '<span class="loading-spinner"></span>Loading schedule & standings...';
-    try {
-      const res = await apiCall('getRankingsAndSchedData', { group: group });
-      document.getElementById('viewerStatus').innerText = "";
-      let html = `<h3>Week ${res.weekNum || ''}</h3>`;
-
-      if (res.sched && res.sched.length > 0) {
-        html += `<h4>🗓️ Schedule</h4><table class="data-table"><tr><th>Court</th><th>Player</th></tr>`;
-        res.sched.forEach(s => html += `<tr><td>${s.court}</td><td>${s.name}</td></tr>`);
-        html += `</table>`;
-      }
-
-      if (res.rankings && res.rankings.length > 0) {
-        html += `<h4 style="margin-top:1.5rem;">🏆 Standings</h4><table class="data-table"><tr><th>Rank</th><th>Player</th><th>Win %</th><th>Pts</th></tr>`;
-        res.rankings.forEach(r => html += `<tr><td>${r.rank}</td><td>${r.name}</td><td>${r.pct}</td><td>${r.pts}</td></tr>`);
-        html += `</table>`;
-      }
-
-      document.getElementById('viewerContent').innerHTML = html;
-    } catch(e) {
-      document.getElementById('viewerStatus').innerText = e.message;
-    }
-  }
-
-  async function runRescheduleCheckedIn() {
-    const group = getSavedGroup();
-    if (!group) return alert("Select a group first.");
-    
-    const courts = getSelectedCourts();
-    if (courts.length === 0) return alert("Please select at least 1 court to use.");
-
-    document.getElementById('adminStatus').innerHTML = '<span class="loading-spinner"></span>Rescheduling checked-in players...';
-    try {
-      const res = await apiCall('rescheduleFromCheckIns', { group: group, courts: courts });
-      document.getElementById('adminStatus').innerText = res;
-    } catch(e) { document.getElementById('adminStatus').innerText = e.message; }
-  }
-
-  async function runRescheduleActive() {
-    const group = getSavedGroup();
-    if (!group) return alert("Select a group first.");
-
-    const courts = getSelectedCourts();
-    if (courts.length === 0) return alert("Please select at least 1 court to use.");
-
-    document.getElementById('adminStatus').innerHTML = '<span class="loading-spinner"></span>Generating schedule...';
-    try {
-      const res = await apiCall('generateScheduleTabs', { group: group, courts: courts });
-      document.getElementById('adminStatus').innerText = res;
-    } catch(e) { document.getElementById('adminStatus').innerText = e.message; }
-  }
-
-  async function runAdmin(action) {
-    if (!action) return alert("No admin action specified.");
-    const group = getSavedGroup();
-    document.getElementById('adminStatus').innerHTML = '<span class="loading-spinner"></span>Executing administrative command...';
-    try {
-      const res = await apiCall(action, { group: group });
-      document.getElementById('adminStatus').innerText = res;
-    } catch(e) { document.getElementById('adminStatus').innerText = e.message; }
-  }
-
-  async function getAdminPdf() {
-    document.getElementById('adminStatus').innerHTML = '<span class="loading-spinner"></span>Generating PDF...';
-    try {
-      const res = await apiCall('webExportSchedulePdf');
-      const a = document.createElement('a');
-      a.href = "data:application/pdf;base64," + res.base64;
-      a.download = res.fileName;
-      a.click();
-      document.getElementById('adminStatus').innerText = "PDF downloaded!";
-    } catch(e) { document.getElementById('adminStatus').innerText = e.message; }
-  }
-
-  function cancelRegistration() {
-    document.getElementById('registrationSection').style.display = "none";
-  }
-
-  async function submitRegistration() {
-    let data = {
-      first: document.getElementById('regFirst').value.trim(),
-      last: document.getElementById('regLast').value.trim(),
-      phone: document.getElementById('regPhone').value.trim(),
-      email: document.getElementById('regEmail').value.trim(),
-      group: document.getElementById('regGroup').value
-    };
-    try {
-      const res = await apiCall('addNewUser', data);
-      alert(res);
-      cancelRegistration();
-    } catch(e) { alert(e.message); }
-  }
-
-let autoRefreshTimer = null;
-
-function startCheckInAutoRefresh() {
-  if (autoRefreshTimer) return;
-  
-  // Refresh every 15 seconds
-  autoRefreshTimer = setInterval(() => {
-    const isCheckInActive = document.getElementById('checkinTab').classList.contains('active');
-    const isTabVisible = document.visibilityState === 'visible';
-    const isUserSelecting = document.querySelector('.saving') !== null;
-
-    // Only fetch if on Check-In tab, browser active, and not currently tapping
-    if (isCheckInActive && isTabVisible && !isUserSelecting) {
-      loadCheckInPlayers(true); // Silent background reload
-    }
-  }, 15000);
-}
-
-function stopCheckInAutoRefresh() {
-  if (autoRefreshTimer) {
-    clearInterval(autoRefreshTimer);
-    autoRefreshTimer = null;
-  }
-}
-
-// Pause polling when app is backgrounded to save quota/battery
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') {
+  if (activeTab.id === 'checkinTab') {
+    loadCheckInPlayers();
     startCheckInAutoRefresh();
   } else {
     stopCheckInAutoRefresh();
   }
-});
 
-// Start timer on initial launch
-startCheckInAutoRefresh();  
-
-function initializeGroupCourts(groupName) {
-  const availableCourts = getCourtsForGroup(groupName);
-  
-  // Assign the first court of the groups assigned set as default if none set
-  if (currentPlayerData && (!currentPlayerData.court || currentPlayerData.court === 1)) {
-    currentPlayerData.court = availableCourts[0];
-  }
-
-  // Optional: Render court dropdown dynamically
-  const courtSelect = document.getElementById('courtSelect');
-  if (courtSelect) {
-    courtSelect.innerHTML = availableCourts.map(c => 
-      `<option value="${c}">Court ${c}</option>`
-    ).join('');
-    courtSelect.value = currentPlayerData.court;
-  }
-}  
-
-window.loadCheckInPlayers = loadCheckInPlayers;
-
-let currentActiveGroup = null;
-
-function setSelectedGroup(newGroup, forceRefresh = false) {
-  if (!newGroup) return;
-
-  // Short-circuit if group hasn't changed and force refresh isn't set
-  if (newGroup === currentActiveGroup && !forceRefresh) {
-    return;
-  }
-
-  currentActiveGroup = newGroup;
-  localStorage.setItem('foursome_group', newGroup);
-
-  // Sync UI components without re-triggering fetch loops
-  syncAllGroupDropdowns(newGroup);
-
-  // Load data strictly for the currently visible tab
-  refreshActiveTabData();
-}
-
-  // --- OPTIMIZED GROUP CONTEXT & TAB ROUTING ---
-
-function syncAllGroupDropdowns(groupName) {
-  const selectIds = [
-    'sheetSelect', 
-    'groupViewerSelect', 
-    'regGroup', 
-    'adminRegGroup', 
-    'adminStatusGroupSelect', 
-    'adminSchedSelect',
-    'adminGlobalGroupSelect'
-  ];
-  selectIds.forEach(id => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    for (let i = 0; i < el.options.length; i++) {
-      let optVal = el.options[i].value.replace(/^Sched[\s_-]*/i, '').replace(/^Score[\s_-]*/i, '').trim();
-      if (optVal.toLowerCase() === groupName.toLowerCase()) {
-        el.selectedIndex = i;
-        break;
-      }
+  if (activeTab.id === 'rankschedTab') {
+    loadRankingsAndSched();
+  } else if (activeTab.id === 'adminTab') {
+    loadAdminTabData(currentGroup);
+  } else if (activeTab.id === 'phoneTab') {
+    const savedPhone = localStorage.getItem('scpb_saved_phone');
+    if (savedPhone && !activeLookupPlayer) {
+      document.getElementById('phoneInput').value = savedPhone;
+      lookupPhone();
     }
-  });
-}
-
-function onGroupChange(sourceSelectId) {
-  const el = document.getElementById(sourceSelectId);
-  if (el && el.value) {
-    setSavedGroup(el.value);
-    localStorage.setItem('foursome_last_group', el.value);
-  }
-}
-
-function setSavedGroup(groupName) {
-  if (!groupName) return;
-  let cleanGroup = groupName.replace(/^Sched[\s_-]*/i, '').replace(/^Score[\s_-]*/i, '').trim();
-  try { localStorage.setItem('scpb_selected_group', cleanGroup); } catch(e) {}
-  syncAllGroupDropdowns(cleanGroup);
-  onGroupContextUpdated(cleanGroup);
-}
-
-// On group context update, only trigger admin data fetching IF admin tab is actively visible
-function onGroupContextUpdated(groupName) {
-  if (!groupName) return;
-  
-  const adminTab = document.getElementById('adminTab');
-  if (adminTab && adminTab.classList.contains('active')) {
-    loadAdminTabData(groupName);
-  }
-}
-
-// Dedicated Admin Data Loader: Called ONLY when Admin tab is active
-async function loadAdminTabData(groupName) {
-  const targetGroup = groupName || getSavedGroup();
-  if (!targetGroup) return;
-
-  renderAdminCourts(targetGroup);
-
-  try {
-    const url = await apiCall('getAdminSheetUrl', { group: targetGroup });
-    const link = document.getElementById('adminSheetLink');
-    if (link && url) link.href = url;
-  } catch(e) { 
-    console.warn("Failed to load admin sheet URL."); 
-  }
-
-  loadAdminPlayerStatusCache(targetGroup);
-}
-
-function switchTab(tab) {
-  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
-
-  document.getElementById(tab + 'Tab').classList.add('active');
-  let btnId = tab === 'ranksched' ? 'tab3Btn' : tab === 'checkin' ? 'tab1Btn' : tab === 'phone' ? 'tab2Btn' : tab === 'help' ? 'tab4Btn' : 'tabAdminBtn';
-  const btn = document.getElementById(btnId);
-  if (btn) btn.classList.add('active');
-  
-  refreshActiveTabData();
-}
-
-function refreshActiveTabData() {
-  const activeTab = document.querySelector('.tab-content.active')?.id;
-
-  switch (activeTab) {
-    case 'checkinTab':
-      loadCheckInPlayers();
-      break;
-    case 'rankschedTab':
-      loadRankingsAndSched();
-      break;
-    case 'adminTab':
-      loadAdminTabData();
-      break;
-  }
-}
-
-function autoSelectStoredGroup() {
-  const savedGroup = getSavedGroup();
-  if (savedGroup) {
-    syncAllGroupDropdowns(savedGroup);
-    refreshActiveTabData();
   }
 }
 
 /**
- * Purges client-side localStorage and in-memory caches, then re-fetches fresh tab data.
+ * Automatically sets initial dropdown states from saved LocalStorage context.
  */
-async function forceRefresh() {
-  const btn = document.getElementById('forceRefreshBtn');
-  const originalText = btn ? btn.innerHTML : '';
-
-  try {
-    if (btn) {
-      btn.disabled = true;
-      btn.innerHTML = '🔄 Refreshing...';
-    }
-
-    // 1. Clear LocalStorage keys used for sheets/groups
-    localStorage.removeItem('cached_sheets');
-    localStorage.removeItem('cached_groups');
-
-    // 2. Reset frontend JS memory cache
-    if (typeof adminPlayersCache !== 'undefined') {
-      adminPlayersCache = [];
-    }
-
-    // 3. Clear Service Worker / Cache API storage if present
-    if ('caches' in window) {
-      const keys = await caches.keys();
-      await Promise.all(keys.map(key => caches.delete(key)));
-    }
-
-    // 4. Re-fetch fresh data from Google Apps Script for the active tab
-    const currentGroup = typeof getSavedGroup === 'function' ? getSavedGroup() : '';
-    if (currentGroup && typeof syncAllGroupDropdowns === 'function') {
-      syncAllGroupDropdowns(currentGroup);
-    }
-    
-    refreshActiveTabData();
-
-  } catch (err) {
-    console.error("Force refresh error:", err);
-  } finally {
-    if (btn) {
-      setTimeout(() => {
-        btn.disabled = false;
-        btn.innerHTML = originalText;
-      }, 500);
-    }
-  }
+function autoSelectStoredGroup() {
+  const savedGroup = getSavedGroup();
+  syncAllGroupDropdowns(savedGroup);
+  refreshActiveTabData();
 }
 
+/**
+ * Clears LocalStorage caches and triggers full hard refresh.
+ * // 1. Clear LocalStorage keys used for sheets/groups
+ * // 2. Reset frontend JS memory cache
+ * // 3. Clear Service Worker / Cache API storage if present
+ * // 4. Re-fetch fresh data from Google Apps Script for the active tab
+ */
+function forceRefresh() {
+  localStorage.clear();
+  sessionStorage.clear();
+  
+  if ('caches' in window) {
+    caches.keys().then(names => {
+      for (let name of names) caches.delete(name);
+    });
+  }
+  
+  window.location.reload(true);
+}
+
+  // --- GEOFENCING CONFIGURATION & GEOLOCATION HELPER ---
+  /**
+   * Configuration for Geofencing validation.
+   * ASSUMPTION: Check-ins are restricted to specific physical pickleball court locations.
+   * ASSUMPTION: Distance tolerance is 500 meters (~0.31 miles or ~1,640 feet) to accommodate GPS drift or sitting in the parking lot.
+   */
+  const GEOFENCE_RADIUS_METERS = 500;
+  
+  /**
+   * Array of authorized court coordinates (Latitude & Longitude).
+   * ASSUMPTION: Players must be near at least one of these coordinate points to successfully check in.
+   * Add additional locations here in the future
+   */
+  const ALLOWED_GEOFENCE_LOCATIONS = [
+    { lat: 33.61307848954948, lng: -112.27041275583566, name: "Mountain View Pickleball Courts" },
+    { lat: 33.65362909476011, lng: -112.27699205631843, name: "Marinette Pickleball Courts" }
+  ];
+
+  /**
+   * Computes the great-circle distance between two point coordinates on Earth using the Haversine formula.
+   * Radius of the Earth in meters = 6,371,000 meters.
+   * ASSUMPTION: Haversine calculation provides sufficient mathematical precision over short distances for geofence validation.
+   * @param {number} lat1 Latitude of point 1 in degrees
+   * @param {number} lon1 Longitude of point 1 in degrees
+   * @param {number} lat2 Latitude of point 2 in degrees
+   * @param {number} lon2 Longitude of point 2 in degrees
+   * @returns {number} Distance in meters
+   */
+  function haversineDistanceMeters(lat1, lon1, lat2, lon2) {
+    const R = 6371000; // Radius of the Earth in meters
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  }
+
+  /**
+   * Verifies if the user's current physical position is within the authorized geofence radius.
+   * ASSUMPTION: Modern smartphones and browsers support HTML5 navigator.geolocation with user permission.
+   * ASSUMPTION: Providing clear distance metrics (meters, feet, miles) and detailed status messages helps players understand why check-in was restricted if they are not at the courts.
+   * @returns {Promise<boolean>} Resolves to true if user is within geofence, false otherwise.
+   */
+  function checkGeofence() {
+    return new Promise((resolve) => {
+      const statusElement = document.getElementById('checkInStatus');
+
+      if (!navigator.geolocation) {
+        const errMsg = "❌ Geolocation Error: Location services are not supported by your browser or device.";
+        if (statusElement) {
+          statusElement.innerHTML = `<div style="color: var(--btn-danger-bg); background: #ffe6e6; border: 1px solid var(--btn-danger-bg); padding: 0.75rem; border-radius: 0.5rem; text-align: left;">${errMsg}</div>`;
+        }
+        alert("Geolocation is not supported by your browser/device.");
+        resolve(false);
+        return;
+      }
+
+      // Provide immediate visual feedback while fetching GPS location coordinates
+      if (statusElement) {
+        statusElement.innerHTML = '<span class="loading-spinner"></span> Verifying your location at the courts...';
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const userLat = position.coords.latitude;
+          const userLng = position.coords.longitude;
+
+          let isWithinFence = false;
+          let minDistanceMeters = Infinity;
+          let nearestLocName = "";
+
+          // Iterate through all allowed court locations to find the closest venue
+          for (const loc of ALLOWED_GEOFENCE_LOCATIONS) {
+            const dist = haversineDistanceMeters(userLat, userLng, loc.lat, loc.lng);
+            if (dist < minDistanceMeters) {
+              minDistanceMeters = dist;
+              nearestLocName = loc.name || "Pickleball Courts";
+            }
+            if (dist <= GEOFENCE_RADIUS_METERS) {
+              isWithinFence = true;
+              break;
+            }
+          }
+
+          if (!isWithinFence) {
+            // Convert distance to user-friendly units for display (meters, feet, and miles)
+            const distMeters = Math.round(minDistanceMeters);
+            const distFeet = Math.round(minDistanceMeters * 3.28084);
+            const distMiles = (minDistanceMeters / 1609.34).toFixed(2);
+            const maxMeters = GEOFENCE_RADIUS_METERS;
+            const maxFeet = Math.round(GEOFENCE_RADIUS_METERS * 3.28084);
+
+            const userNotice = `📍 <b>Check-In Location Restriction</b><br>` +
+              `You must be physically at the Sun City Pickleball Courts to check in.<br><br>` +
+              `• <b>Nearest Venue:</b> ${nearestLocName}<br>` +
+              `• <b>Your Current Distance:</b> ~${distMeters} meters (~${distFeet} ft / ${distMiles} miles) away<br>` +
+              `• <b>Allowed Check-In Distance:</b> Within ${maxMeters} meters (~${maxFeet} ft)<br><br>` +
+              `<i>Please move closer to the pickleball courts and try again once you arrive at the courts.</i>`;
+
+            // Display persistent warning card on the Check-In tab
+            if (statusElement) {
+              statusElement.innerHTML = `<div style="color: #721c24; background-color: #f8d7da; border: 2px solid #f5c6cb; padding: 0.85rem; border-radius: 0.5rem; text-align: left; font-size: 0.95rem; line-height: 1.4;">${userNotice}</div>`;
+            }
+
+            // Show immediate alert popup explaining why check-in was blocked
+            alert(`📍 Check-In Blocked: Not At Courts\n\nYou must be within ${maxMeters} meters (~${maxFeet} ft) of the pickleball courts to check in.\n\nYour current distance is ~${distMeters} meters (${distMiles} miles) away from ${nearestLocName}.\n\nPlease check in once you arrive at the courts!`);
+            
+            resolve(false);
+          } else {
+            // Geofence check passed; clear temporary geofence verification status
+            if (statusElement) {
+              statusElement.innerHTML = '';
+            }
+            resolve(true);
+          }
+        },
+        (error) => {
+          let errorDetail = "Could not verify location.";
+          let detailedInstruction = "";
+
+          if (error.code === error.PERMISSION_DENIED) {
+            errorDetail = "Location permission denied.";
+            detailedInstruction = "To check in, please enable Location / GPS permissions for this app or browser in your mobile device settings.";
+          } else if (error.code === error.POSITION_UNAVAILABLE) {
+            errorDetail = "Location position unavailable.";
+            detailedInstruction = "Your device could not get a GPS fix. Ensure GPS / Location services are enabled and you have a clear view of the sky.";
+          } else if (error.code === error.TIMEOUT) {
+            errorDetail = "Location request timed out.";
+            detailedInstruction = "GPS location request timed out. Please try tapping check-in again.";
+          }
+
+          const fullErrorMsg = `⚠️ <b>Location Access Needed</b><br>${errorDetail}<br><br>${detailedInstruction}`;
+
+          if (statusElement) {
+            statusElement.innerHTML = `<div style="color: #856404; background-color: #fff3bf; border: 2px solid #ffeba0; padding: 0.85rem; border-radius: 0.5rem; text-align: left; font-size: 0.95rem; line-height: 1.4;">${fullErrorMsg}</div>`;
+          }
+
+          alert(`Geofence Location Error:\n\n${errorDetail}\n\n${detailedInstruction}`);
+          resolve(false);
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 0
+        }
+      );
+    });
+  }
+
 </script>
-</body>
+  </body>
 </html>
