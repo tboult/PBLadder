@@ -1853,3 +1853,25 @@ function getCheckInCacheKey(inputName) {
 }
 
 
+/**
+ * Automatically invalidates script cache when a user directly edits the spreadsheet.
+ */
+function onEdit(e) {
+  if (!e || !e.range) return;
+
+  const sheetName = e.range.getSheet().getName();
+
+  // Limit trigger execution to sheets that impact app state
+  if (/^(Score|Sched|Rankings|Admin)/i.test(sheetName)) {
+    const cache = CacheService.getScriptCache();
+    
+    // 1. Remove specific cached data keys used across your web app
+    cache.remove("admin_player_status_cache");
+    cache.remove("ranks_sched_cache");
+    
+    // 2. Set an updated timestamp so client-side code can detect backend edits
+    PropertiesService.getScriptProperties().setProperty("LAST_SHEET_UPDATE", Date.now().toString());
+    
+    logDebug("onEdit", "Cache cleared due to direct sheet edit on:", sheetName);
+  }
+}
