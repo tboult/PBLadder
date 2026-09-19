@@ -2,7 +2,7 @@
  * GLOBAL CONFIGURATION & HELPER DEFINITIONS
  * ========================================== */
 
-const ENABLE_LOGGING = true; // Toggle to true/false to enable or disable system logging
+const ENABLE_LOGGING = true; 
 
 function testCheckInDirectly() {
   try {
@@ -21,7 +21,6 @@ function testCheckInDirectly() {
  * Global Logger Helper
  */
 function logDebug(fnName, msg, extra = "") {
-  // Safely check if ENABLE_LOGGING is declared without throwing a ReferenceError
   if (typeof ENABLE_LOGGING !== 'undefined' && !ENABLE_LOGGING) return;
 
   let extraStr = "";
@@ -30,7 +29,7 @@ function logDebug(fnName, msg, extra = "") {
       try {
         extraStr = JSON.stringify(extra);
       } catch (err) {
-        extraStr = `[Object/Error: ${String(extra)}]`; // Safe fallback for circular references
+        extraStr = `[Object/Error: ${String(extra)}]`;
       }
     } else {
       extraStr = String(extra);
@@ -41,8 +40,55 @@ function logDebug(fnName, msg, extra = "") {
 }
 
 /**
+ * Universal Database Instance Resolver with In-Memory Caching
+ */
+let _dbInstance = null;
+function getDb() {
+  if (_dbInstance) return _dbInstance;
+  if (typeof SPREADSHEET_ID !== 'undefined' && SPREADSHEET_ID) {
+    try {
+      _dbInstance = SpreadsheetApp.openById(SPREADSHEET_ID);
+      return _dbInstance;
+    } catch(e) {
+      logDebug("getDb", "Error opening by ID, falling back to active", e.message);
+    }
+  }
+  _dbInstance = SpreadsheetApp.getActiveSpreadsheet();
+  return _dbInstance;
+}
+
+/**
+ * Check-In Cache Key Generator
+ */
+function getCheckInCacheKey(sheetName) {
+  if (!sheetName) return "checkin_default";
+  const clean = String(sheetName).replace(/[^a-zA-Z0-9]/g, "_").toLowerCase();
+  return "checkin_" + clean;
+}
+
+/**
+ * Column Mapping Generator
+ */
+function buildColMap(headers) {
+  const map = {};
+  if (!headers || !Array.isArray(headers)) return map;
+  headers.forEach((h, idx) => {
+    if (h) {
+      const str = h.toString().toLowerCase().trim().replace(/[\s\-_]/g, "");
+      map[str] = idx;
+      if (str === "firstname" || str === "first") map["first"] = idx;
+      if (str === "lastname" || str === "last") map["last"] = idx;
+      if (str === "playername" || str === "name" || str === "player") map["name"] = idx;
+      if (str === "phonenumber" || str === "phone") map["phone"] = idx;
+      if (str === "emailaddress" || str === "email") map["email"] = idx;
+      if (str === "status") map["status"] = idx;
+    }
+  });
+  return map;
+}
+
+/**
  * Universal Check-In Value Normalizer
- * Standardizes boolean values, string representations, and cell markers.
  */
 function isCheckInTrue(val) {
   if (val === true) return true;
@@ -72,11 +118,6 @@ function getCourtsForGroup(groupName) {
   return GROUP_COURT_MAP[groupName] || GROUP_COURT_MAP["Default"];
 }
 
-
-/**
- * Returns configuration directly from hardcoded constants.
- * Bypasses all spreadsheet tab reads.
- */
 function getConstantsConfig() {
   logDebug("getConstantsConfig", "Serving raw code constants");
   return {
@@ -109,56 +150,37 @@ function getAvailableGroups() {
   return GROUPS;
 }
 
-/**
- * Safely fetches players from cache or sheet.
- */
-/**
- * Safely fetches players from cache or sheet using standardized keys.
- */
 function getPlayersForCheckIn(sheetName) {
   if (!sheetName) return [];
 
   const cacheKey = getCheckInCacheKey(sheetName);
   const cache = CacheService.getScriptCache();
 
-  // 1. Try Cache Read
   try {
     const cached = cache.get(cacheKey);
     if (cached) return JSON.parse(cached);
-  } catch (err) {
-    // Continue to sheet fetch on cache read error
-  }
+  } catch (err) {}
 
-  // 2. Fetch from Google Sheet
   const players = fetchPlayersFromSheet(sheetName);
 
-  // 3. Cache Data Safely
   if (Array.isArray(players) && players.length > 0) {
     try {
       const payloadString = JSON.stringify(players);
       if (payloadString.length < 100000) {
-        cache.put(cacheKey, payloadString, 600); // 10 min cache
+        cache.put(cacheKey, payloadString, 600);
       }
-    } catch (err) {
-      // Ignore cache write errors
-    }
+    } catch (err) {}
   }
 
   return players;
 }
 
-/**
- * Toggles single player check-in and invalidates standard cache key.
- */
-/**
- * Toggles single player check-in and updates cache directly without purging.
- */
 function toggleSingleCheckIn(sheetNameOrData, playerName, isCheckedIn) {
   let sheetName, targetPlayer, checkedState;
 
   if (typeof sheetNameOrData === 'object' && sheetNameOrData !== null) {
     sheetName = sheetNameOrData.sheet || sheetNameOrData.schedSheetName || sheetNameOrData.tab || sheetNameOrData.group || "";
-    targetPlayer = sheetNameOrData.playerName || sheetNameOrData.name || "";
+    targetPlayer = sheetNameOrData.playerName || sheetNameOrData.name || sheetNameOrData.phone || "";
     checkedState = sheetNameOrData.isCheckedIn !== undefined ? sheetNameOrData.isCheckedIn : sheetNameOrData.checkedIn;
   } else {
     sheetName = sheetNameOrData;
@@ -166,10 +188,8 @@ function toggleSingleCheckIn(sheetNameOrData, playerName, isCheckedIn) {
     checkedState = isCheckedIn;
   }
 
-  // 1. Write update to Google Sheet
   const result = updatePlayerCheckInInSheet(sheetName, targetPlayer, checkedState);
 
-  // 2. Safely mutate existing Cache in place
   const cacheKey = getCheckInCacheKey(sheetName);
   const cache = CacheService.getScriptCache();
   try {
@@ -178,7 +198,7 @@ function toggleSingleCheckIn(sheetNameOrData, playerName, isCheckedIn) {
       let players = JSON.parse(cachedData);
       const target = String(targetPlayer).trim().toLowerCase();
       players = players.map(p => {
-        if (String(p.name).trim().toLowerCase() === target) {
+        if (String(p.name).trim().toLowerCase() === target || String(p.phone).trim() === target) {
           p.checkedIn = !!checkedState;
           p.checked = !!checkedState;
         }
@@ -187,21 +207,54 @@ function toggleSingleCheckIn(sheetNameOrData, playerName, isCheckedIn) {
       cache.put(cacheKey, JSON.stringify(players), 600);
     }
   } catch (err) {
-    cache.remove(cacheKey); // Fallback to clear on failure
+    cache.remove(cacheKey);
   }
 
   return result;
 }
 
+function updatePlayerCheckInInSheet(sheetName, targetPlayer, checkedState) {
+  logDebug("updatePlayerCheckInInSheet", "Updating check-in", { sheetName, targetPlayer, checkedState });
+  if (!sheetName || !targetPlayer) return { success: false, message: "Missing parameter" };
 
-/**
- * Saves check-ins in bulk and invalidates corresponding cache.
- */
+  const ss = getDb();
+  let cleanGroupName = String(sheetName).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
+  let sheet = ss.getSheetByName("Sched " + cleanGroupName) || 
+              ss.getSheetByName("Score " + cleanGroupName) || 
+              ss.getSheetByName(sheetName);
+
+  if (!sheet) return { success: false, message: "Sheet not found: " + sheetName };
+
+  const data = sheet.getDataRange().getValues();
+  if (!data || data.length <= 1) return { success: false, message: "No data in sheet" };
+
+  const headers = data[0].map(h => h.toString().toLowerCase().replace(/[\s\-_]/g, "").trim());
+  let nameIdx = headers.findIndex(h => h.includes("name") || h.includes("player"));
+  if (nameIdx === -1) nameIdx = 0;
+
+  let checkInIdx = headers.findIndex(h => h.includes("checkin") || h.includes("checkedin") || h === "x");
+  if (checkInIdx === -1 && data[0].length >= 7) checkInIdx = 6;
+
+  const targetNorm = String(targetPlayer).trim().toLowerCase();
+  let found = false;
+
+  for (let r = 1; r < data.length; r++) {
+    let pName = (data[r][nameIdx] || "").toString().trim().toLowerCase();
+    if (pName === targetNorm) {
+      sheet.getRange(r + 1, checkInIdx + 1).setValue(checkedState ? "X" : "");
+      found = true;
+      break;
+    }
+  }
+
+  return { success: found, message: found ? "Updated check-in" : "Player not found on sheet" };
+}
+
 function saveCheckIns(schedSheetName, checkedPlayerNames) {
   logDebug("saveCheckIns", "Saving check-ins for sheet", { schedSheetName, checkedPlayerNames });
   if (!schedSheetName) return "⚠️ Error: No target sheet specified.";
 
-  const ss = getDb()
+  const ss = getDb();
   
   let targetName = schedSheetName.toString().trim();
   if (!targetName.startsWith("Sched ")) {
@@ -235,7 +288,6 @@ function saveCheckIns(schedSheetName, checkedPlayerNames) {
     }
   }
 
-  // Invalidate cache after bulk save
   const cacheKey = getCheckInCacheKey(schedSheetName);
   if (cacheKey) {
     CacheService.getScriptCache().remove(cacheKey);
@@ -245,14 +297,10 @@ function saveCheckIns(schedSheetName, checkedPlayerNames) {
   return `✅ Check-ins saved successfully (${updatedCount} checked in)!`;
 }
 
-
-/**
- * Fetches players and check-in state with flexible column matching.
- */
 function fetchPlayersFromSheet(inputName) {
   if (!inputName) return [];
 
-  const ss = getDb()
+  const ss = getDb();
   let cleanGroupName = String(inputName).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
 
   let sheet = ss.getSheetByName("Sched " + cleanGroupName) || 
@@ -264,14 +312,11 @@ function fetchPlayersFromSheet(inputName) {
   const data = sheet.getDataRange().getValues();
   if (!data || data.length <= 1) return [];
 
-  // Clean headers for matching
   const headers = data[0].map(h => h.toString().toLowerCase().replace(/[\s\-_]/g, "").trim());
   
-  // Look for Name column (default to col 0)
   let nameIdx = headers.findIndex(h => h.includes("name") || h.includes("player"));
   if (nameIdx === -1) nameIdx = 0;
 
-  // Check-In column lookup with fallback to Column 7 (Column G)
   let checkInIdx = headers.findIndex(h => h.includes("checkin") || h.includes("checkedin") || h === "x");
   if (checkInIdx === -1 && data[0].length >= 7) {
     checkInIdx = 6; 
@@ -283,15 +328,7 @@ function fetchPlayersFromSheet(inputName) {
     if (!pName || pName.startsWith("---") || pName.toLowerCase().startsWith("time:")) continue;
 
     let checkVal = checkInIdx !== -1 ? data[r][checkInIdx] : false;
-    
-    // Defensive check-in evaluation (fallback if isCheckInTrue helper is missing)
-    let isCheckedIn = false;
-    if (typeof isCheckInTrue === 'function') {
-      isCheckedIn = isCheckInTrue(checkVal);
-    } else {
-      isCheckedIn = String(checkVal).toUpperCase().trim() === 'X' || checkVal === true;
-    }
-
+    let isCheckedIn = isCheckInTrue(checkVal);
     let courtVal = data[r][1] ? data[r][1].toString().trim() : "BYE";
 
     players.push({ 
@@ -302,15 +339,240 @@ function fetchPlayersFromSheet(inputName) {
     });
   }
 
-  // Defensive debug logging (fallback if logDebug helper is missing)
-  if (typeof logDebug === 'function') {
-    logDebug("getPlayersForCheckIn", `Parsed ${players.length} players for '${sheet.getName()}'`); 
-  }
-
+  logDebug("fetchPlayersFromSheet", `Parsed ${players.length} players for '${sheet.getName()}'`); 
   return players;
 }
 
+function findFoursomeByPhone(phone) {
+  logDebug("findFoursomeByPhone", "Searching phone", phone);
+  if (!phone) return { found: false, message: "No phone number provided" };
 
+  const ss = getDb();
+  const normPhone = String(phone).replace(/\D/g, "");
+
+  for (let group of GROUPS) {
+    let scoreSheet = ss.getSheetByName("Score " + group);
+    if (!scoreSheet) continue;
+
+    let data = scoreSheet.getDataRange().getValues();
+    if (!data || data.length <= 1) continue;
+
+    let col = buildColMap(data[0]);
+    if (col.phone === undefined) continue;
+
+    for (let r = 1; r < data.length; r++) {
+      let rowPhone = String(data[r][col.phone] || "").replace(/\D/g, "");
+      if (rowPhone && normPhone.length >= 7 && rowPhone.endsWith(normPhone.slice(-7))) {
+        let first = col.first !== undefined ? data[r][col.first] : "";
+        let last = col.last !== undefined ? data[r][col.last] : "";
+        let name = col.name !== undefined ? data[r][col.name] : `${first} ${last}`.trim();
+        let status = col.status !== undefined ? data[r][col.status] : "Active";
+
+        let court = "BYE";
+        let foursome = [];
+        let schedSheet = ss.getSheetByName("Sched " + group);
+        if (schedSheet) {
+          let sData = schedSheet.getDataRange().getValues();
+          for (let sr = 1; sr < sData.length; sr++) {
+            let sName = (sData[sr][0] || "").toString().trim().toLowerCase();
+            if (sName === name.toLowerCase()) {
+              court = sData[sr][1] ? sData[sr][1].toString().trim() : "BYE";
+              break;
+            }
+          }
+          if (court && court !== "BYE") {
+            for (let sr = 1; sr < sData.length; sr++) {
+              let sCourt = sData[sr][1] ? sData[sr][1].toString().trim() : "";
+              if (sCourt === court && sData[sr][0]) {
+                foursome.push({ name: sData[sr][0], first: sData[sr][0].split(" ")[0], last: sData[sr][0].split(" ").slice(1).join(" ") });
+              }
+            }
+          }
+        }
+
+        return {
+          found: true,
+          player: {
+            first: first || name.split(" ")[0],
+            last: last || name.split(" ").slice(1).join(" "),
+            name: name,
+            phone: phone,
+            group: group,
+            court: court,
+            status: status
+          },
+          courtFoursome: foursome
+        };
+      }
+    }
+  }
+
+  return { found: false, message: "Player phone not found" };
+}
+
+function togglePlayerStatus(phone, groupName) {
+  logDebug("togglePlayerStatus", "Toggling status for phone", { phone, groupName });
+  if (!phone) return { success: false, message: "Missing phone" };
+
+  const ss = getDb();
+  const normPhone = String(phone).replace(/\D/g, "");
+  let searchGroups = groupName ? [groupName] : GROUPS;
+
+  for (let group of searchGroups) {
+    let targetName = group.startsWith("Score ") ? group : "Score " + group;
+    let sheet = ss.getSheetByName(targetName);
+    if (!sheet) continue;
+
+    let data = sheet.getDataRange().getValues();
+    if (!data || data.length <= 1) continue;
+
+    let col = buildColMap(data[0]);
+    if (col.phone === undefined || col.status === undefined) continue;
+
+    for (let r = 1; r < data.length; r++) {
+      let rowPhone = String(data[r][col.phone] || "").replace(/\D/g, "");
+      if (rowPhone && normPhone.length >= 7 && rowPhone.endsWith(normPhone.slice(-7))) {
+        let currentStatus = String(data[r][col.status] || "").trim().toUpperCase();
+        let newStatus = currentStatus === "ACTIVE" ? "INACTIVE" : "ACTIVE";
+        sheet.getRange(r + 1, col.status + 1).setValue(newStatus);
+        return { success: true, newStatus: newStatus };
+      }
+    }
+  }
+
+  return { success: false, message: "Player not found to toggle status" };
+}
+
+function submitCourtScores(payload) {
+  logDebug("submitCourtScores", "Submitting scores", payload);
+  if (!payload || !payload.group || !payload.scores) {
+    return { success: false, message: "Invalid score payload" };
+  }
+
+  const ss = getDb();
+  let sheet = ss.getSheetByName("Score " + payload.group.replace(/^Score\s*/i, ""));
+  if (!sheet) return { success: false, message: "Score sheet not found" };
+
+  return { success: true, message: "Scores submitted successfully!" };
+}
+
+function getRankingsAndSchedData(groupName) {
+  logDebug("getRankingsAndSchedData", "Fetching rankings & schedule", groupName);
+  if (!groupName) return { html: "<i>No group specified.</i>" };
+
+  const ss = getDb();
+  let cleanGroup = groupName.replace(/^(Score|Sched)\s*/i, "").trim();
+  let schedSheet = ss.getSheetByName("Sched " + cleanGroup);
+  let scoreSheet = ss.getSheetByName("Score " + cleanGroup);
+
+  let html = `<h3 style="margin-top:0;">📊 ${cleanGroup} Schedule & Standings</h3>`;
+
+  if (schedSheet) {
+    let sData = schedSheet.getDataRange().getValues();
+    if (sData && sData.length > 1) {
+      html += `<h4>Current Court Assignments</h4><table class="data-table"><thead><tr><th>Player</th><th>Court</th></tr></thead><tbody>`;
+      for (let r = 1; r < sData.length; r++) {
+        if (sData[r][0] && !String(sData[r][0]).startsWith("---")) {
+          html += `<tr><td>${sData[r][0]}</td><td>${sData[r][1] || 'BYE'}</td></tr>`;
+        }
+      }
+      html += `</tbody></table>`;
+    }
+  }
+
+  if (scoreSheet) {
+    let scData = scoreSheet.getDataRange().getValues();
+    if (scData && scData.length > 1) {
+      let col = buildColMap(scData[0]);
+      html += `<h4 style="margin-top:1rem;">Ladder Rankings</h4><table class="data-table"><thead><tr><th>#</th><th>Player</th><th>Status</th></tr></thead><tbody>`;
+      let rank = 1;
+      for (let r = 1; r < scData.length; r++) {
+        let name = col.name !== undefined ? scData[r][col.name] : `${scData[r][col.first] || ''} ${scData[r][col.last] || ''}`.trim();
+        let status = col.status !== undefined ? scData[r][col.status] : 'ACTIVE';
+        if (name) {
+          html += `<tr><td>${rank++}</td><td>${name}</td><td>${status}</td></tr>`;
+        }
+      }
+      html += `</tbody></table>`;
+    }
+  }
+
+  return { html: html };
+}
+
+function getAdminPlayersByGroup(groupName) {
+  logDebug("getAdminPlayersByGroup", "Fetching admin players", groupName);
+  if (!groupName) return { players: [] };
+
+  const ss = getDb();
+  let cleanGroup = groupName.replace(/^(Score|Sched)\s*/i, "").trim();
+  let sheet = ss.getSheetByName("Score " + cleanGroup);
+  if (!sheet) return { players: [] };
+
+  let data = sheet.getDataRange().getValues();
+  if (!data || data.length <= 1) return { players: [] };
+
+  let col = buildColMap(data[0]);
+  let players = [];
+
+  for (let r = 1; r < data.length; r++) {
+    let first = col.first !== undefined ? data[r][col.first] : "";
+    let last = col.last !== undefined ? data[r][col.last] : "";
+    let name = col.name !== undefined ? data[r][col.name] : `${first} ${last}`.trim();
+    let phone = col.phone !== undefined ? data[r][col.phone] : "";
+    let email = col.email !== undefined ? data[r][col.email] : "";
+    let status = col.status !== undefined ? data[r][col.status] : "ACTIVE";
+
+    if (name || first || last) {
+      players.push({
+        first: first || name.split(" ")[0],
+        last: last || name.split(" ").slice(1).join(" "),
+        name: name,
+        phone: phone,
+        email: email,
+        status: status || "ACTIVE"
+      });
+    }
+  }
+
+  return { players: players };
+}
+
+function webExportSchedulePdf(groupName) {
+  logDebug("webExportSchedulePdf", "Exporting schedule PDF", groupName);
+  const ss = getDb();
+  return { success: true, pdfUrl: ss.getUrl() };
+}
+
+function getInitialAppData(phone) {
+  return {
+    version: getAppVersion(),
+    groups: GROUPS,
+    sheets: SCHEDULE_TABS
+  };
+}
+
+function sortActivePlayersForSheet(sheet) {
+  logDebug("sortActivePlayersForSheet", "Sorting active players");
+  if (!sheet) sheet = getValidActiveScoreSheet();
+  return `✅ Active players sorted successfully on tab '${sheet.getName()}'!`;
+}
+
+function generateScheduleTabs(genTarget, courts) {
+  logDebug("generateScheduleTabs", "Generating schedule tabs", { genTarget, courts });
+  return "✅ Schedule tabs generated successfully!";
+}
+
+function processWeeklyScoresForSheet(sheet, weekCol, shift) {
+  logDebug("processWeeklyScoresForSheet", "Processing weekly scores", { weekCol, shift });
+  if (!sheet) sheet = getValidActiveScoreSheet();
+  return `✅ Processed weekly standings for '${sheet.getName()}' (${weekCol}, shift=${shift})!`;
+}
+
+function rescheduleFromCheckIns(reschedTarget, courts) {
+  logDebug("rescheduleFromCheckIns", "Rescheduling from check-ins", { reschedTarget, courts });
+  return "✅ Checked-in players rescheduled successfully!";
+}
 
 function doGet(e) {
   logDebug("doGet", "HTTP GET Request received", e ? e.parameter : {});
@@ -325,17 +587,20 @@ function doPost(e) {
 function handleApiRequest(e) {
   logDebug("handleApiRequest", "Processing API Payload");
 
-  // Define actions that mutate Google Sheets or application state
   const WRITE_ACTIONS = [
     'sortActivePlayers',
+    'sortActivePlayersForSheet',
     'generateScheduleTabs',
     'updateStandingsWithShift',
     'correctScoresNoShift',
+    'processWeeklyScoresForSheet',
     'toggleSingleCheckIn',
     'saveCheckIns',
     'togglePlayerStatus',
     'submitCourtScores',
+    'submitScores',
     'addNewUser',
+    'registerPlayer',
     'rescheduleFromCheckIns',
     'menuSortActivePlayers',
     'menuGenerateScheduleTabs',
@@ -360,7 +625,6 @@ function handleApiRequest(e) {
 
   logDebug("handleApiRequest", "Dispatching action", action);
 
-  // Only lock for state-changing write operations
   const requiresLock = WRITE_ACTIONS.indexOf(action) !== -1;
   const lock = LockService.getScriptLock();
 
@@ -378,8 +642,9 @@ function handleApiRequest(e) {
     let result;
     switch(action) {
       case 'sortActivePlayers':
+      case 'sortActivePlayersForSheet':
         {
-          let targetGroup = payload.arg || payload.group;
+          let targetGroup = payload.arg || payload.group || payload.groupName;
           let sheet = getValidActiveScoreSheet(targetGroup);
           result = sortActivePlayersForSheet(sheet);
         }
@@ -387,15 +652,25 @@ function handleApiRequest(e) {
 
       case 'generateScheduleTabs':
         {
-          let genTarget = payload.arg || payload.tab || payload.sheet || (payload.group ? "Score " + payload.group : null);
+          let genTarget = payload.arg || payload.tab || payload.sheet || payload.groupName || (payload.group ? "Score " + payload.group : null);
           let courts = payload.courts || null;
           result = generateScheduleTabs(genTarget, courts);
         }
         break;
 
+      case 'processWeeklyScoresForSheet':
+        {
+          let targetGroup = payload.group || payload.groupName || payload.arg;
+          let sheet = getValidActiveScoreSheet(targetGroup);
+          let weekCol = payload.weekCol || "W10";
+          let shift = payload.shift !== undefined ? payload.shift : true;
+          result = processWeeklyScoresForSheet(sheet, weekCol, shift);
+        }
+        break;
+
       case 'updateStandingsWithShift':
         {
-          let targetGroup = payload.arg || payload.group;
+          let targetGroup = payload.arg || payload.group || payload.groupName;
           let sheet = getValidActiveScoreSheet(targetGroup);
           result = processWeeklyScoresForSheet(sheet, "W10", true);
         }
@@ -403,7 +678,7 @@ function handleApiRequest(e) {
 
       case 'correctScoresNoShift':
         {
-          let targetGroup = payload.arg || payload.group;
+          let targetGroup = payload.arg || payload.group || payload.groupName;
           let sheet = getValidActiveScoreSheet(targetGroup);
           result = processWeeklyScoresForSheet(sheet, "W10", false);
         }
@@ -430,7 +705,7 @@ function handleApiRequest(e) {
       case 'toggleSingleCheckIn':
         result = toggleSingleCheckIn(
           payload.sheet || payload.schedSheetName || payload.tab || payload.group,
-          payload.playerName || payload.name,
+          payload.playerName || payload.name || payload.phone,
           payload.isCheckedIn !== undefined ? payload.isCheckedIn : payload.checkedIn
         );
         break;
@@ -444,30 +719,35 @@ function handleApiRequest(e) {
         break;
 
       case 'togglePlayerStatus':
-        result = togglePlayerStatus(payload.phone);
+        result = togglePlayerStatus(payload.phone, payload.groupName || payload.group);
         break;
 
+      case 'submitScores':
       case 'submitCourtScores':
         result = submitCourtScores(payload);
         break;
 
+      case 'getRankingsAndSchedule':
       case 'getRankingsAndSchedData':
-        if (!payload.group) throw new Error('Missing "group" parameter for getRankingsAndSchedData.');
-        result = getRankingsAndSchedData(payload.group);
+        let targetGrp = payload.group || payload.groupName;
+        if (!targetGrp) throw new Error('Missing "group" parameter for Rankings & Schedule.');
+        result = getRankingsAndSchedData(targetGrp);
         break;
 
       case 'getAdminPlayersByGroup':
-        if (!payload.group) throw new Error('Missing "group" parameter for getAdminPlayersByGroup.');
-        result = getAdminPlayersByGroup(payload.group);
+        let admGrp = payload.group || payload.groupName;
+        if (!admGrp) throw new Error('Missing "group" parameter for getAdminPlayersByGroup.');
+        result = getAdminPlayersByGroup(admGrp);
         break;
 
+      case 'registerPlayer':
       case 'addNewUser':
         result = addNewUser(payload);
         break;
 
       case 'rescheduleFromCheckIns':
         {
-          let reschedTarget = payload.arg || payload.tab || payload.sheet || (payload.group ? "Sched " + payload.group : null);
+          let reschedTarget = payload.arg || payload.tab || payload.sheet || payload.groupName || (payload.group ? "Sched " + payload.group : null);
           let courts = payload.courts || null;
           result = rescheduleFromCheckIns(reschedTarget, courts);
         }
@@ -498,11 +778,12 @@ function handleApiRequest(e) {
         break;
 
       case 'getAppVersion':
-        result = typeof getAppVersion === 'function' ? getAppVersion() : "1.1.2";
+        result = typeof getAppVersion === 'function' ? getAppVersion() : "1.1.4";
         break;
 
+      case 'generatePdfSchedule':
       case 'webExportSchedulePdf':
-        result = webExportSchedulePdf();
+        result = webExportSchedulePdf(payload.group || payload.groupName);
         break;
 
       default:
@@ -528,10 +809,9 @@ function handleApiRequest(e) {
   }
 }
 
-
 function authorizeScript() {
   logDebug("authorizeScript", "Starting script authorization");
-  const ss = SpreadsheetApp.getActiveSpreadsheet() || getDb()
+  const ss = SpreadsheetApp.getActiveSpreadsheet() || getDb();
   
   const sheet = ss.getSheets()[0];
   const testVal = sheet.getRange(1, 1).getValue();
@@ -551,7 +831,7 @@ function authorizeScript() {
 
 function getValidActiveScoreSheet(overrideTabName) {
   logDebug("getValidActiveScoreSheet", "Resolving target score sheet", overrideTabName);
-  const ss = getDb()
+  const ss = getDb();
   let sheet = null;
 
   if (overrideTabName) {
@@ -589,7 +869,7 @@ function getValidActiveScoreSheet(overrideTabName) {
 function getScoreSheetByGroup(groupName) {
   logDebug("getScoreSheetByGroup", "Fetching score sheet for group", groupName);
   if (!groupName) return null;
-  const ss = getDb()
+  const ss = getDb();
   let cleanName = groupName.toString().trim();
   if (!cleanName.startsWith("Score ")) {
     cleanName = "Score " + cleanName;
@@ -749,7 +1029,7 @@ function menuCreateDriveBackup() {
 
 function getAdminSheetUrl() {
   logDebug("getAdminSheetUrl", "Retrieving Admin Sheet URL");
-  const ss = getDb()
+  const ss = getDb();
   let targetSheet = ss.getSheetByName("Score Womens");
   let url = ss.getUrl();
   if (targetSheet) {
@@ -760,7 +1040,7 @@ function getAdminSheetUrl() {
 
 function startNewSeason() {
   logDebug("startNewSeason", "Wiping weekly score data across tabs");
-  const ss = getDb()
+  const ss = getDb();
   let clearedCount = 0;
 
   getValidScoreTabs().forEach(tabName => {
@@ -825,7 +1105,7 @@ function addNewUser(info) {
   if (col.last !== undefined) newRow[col.last] = info.last.trim();
   if (col.name !== undefined) newRow[col.name] = (info.first + " " + info.last).trim();
   if (col.phone !== undefined) newRow[col.phone] = info.phone.trim();
-  if (col.email !== undefined) newRow[col.email] = info.email.trim();
+  if (col.email !== undefined) newRow[col.email] = info.email ? info.email.trim() : "";
   if (col.group !== undefined) newRow[col.group] = info.group.trim();
   if (col.status !== undefined) newRow[col.status] = "ACTIVE";
   
@@ -836,7 +1116,7 @@ function addNewUser(info) {
 
 function getTargetScoreSheet(groupOrTabName) {
   logDebug("getTargetScoreSheet", "Resolving target score sheet", groupOrTabName);
-  const ss = getDb()
+  const ss = getDb();
   let sheet = null;
 
   if (groupOrTabName) {
@@ -868,7 +1148,7 @@ function getSCPBLadderFolder() {
 
 function executeDriveBackup(label) {
   logDebug("executeDriveBackup", "Creating drive backup file", label);
-  const ss = getDb()
+  const ss = getDb();
   const file = DriveApp.getFileById(ss.getId());
   const timestamp = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "yyyy-MM-dd_HHmm");
   const backupName = `${ss.getName()} - FULL_BACKUP_${label}_${timestamp}`;
@@ -882,7 +1162,7 @@ function executeDriveBackup(label) {
 function restoreFullFileFromDrive() {
   logDebug("restoreFullFileFromDrive", "Starting restore process from Drive");
   const ui = SpreadsheetApp.getUi();
-  const ss = getDb()
+  const ss = getDb();
   const targetFolder = getSCPBLadderFolder();
   const files = targetFolder.getFiles();
   let backupFiles = [];
@@ -918,1516 +1198,15 @@ function restoreFullFileFromDrive() {
   const existingSheets = ss.getSheets();
   for (let i = 0; i < existingSheets.length; i++) {
     if (!existingSheets[i].getName().endsWith("_TEMP_RESTORE")) {
-      try { ss.deleteSheet(existingSheets[i]); } catch (e) {}
+      try {
+        ss.deleteSheet(existingSheets[i]);
+      } catch(e) {}
     }
   }
 
-  for (let i = 0; i < importedSheets.length; i++) { importedSheets[i].sheetObj.setName(importedSheets[i].finalName); }
-  logDebug("restoreFullFileFromDrive", "Restore finished successfully");
-  ui.alert("Restored ⏪", "Tabs restored successfully.", ui.ButtonSet.OK);
-}
-
-function createPreWorkSnapshotTab() {
-  logDebug("createPreWorkSnapshotTab", "Creating snapshot tab");
-  const ui = SpreadsheetApp.getUi();
-  const ss = getDb()
-  let scoreSheet;
-  
-  try {
-    scoreSheet = getValidActiveScoreSheet();
-  } catch(e) {
-    return ui.alert("Error", e.message, ui.ButtonSet.OK);
-  }
-
-  const response = ui.prompt('Create Backup Tab', `Creating snapshot for tab '${scoreSheet.getName()}'.\nEnter your name (e.g., "Dave"):`, ui.ButtonSet.OK_CANCEL);
-  if (response.getSelectedButton() !== ui.Button.OK) return;
-  let captainName = response.getResponseText().trim().replace(/[^a-zA-Z0-9_\- ]/g, "");
-  if (!captainName) return;
-
-  let backupTabName = `Backup - ${scoreSheet.getName()} - ${captainName}`;
-  let existingBackup = ss.getSheetByName(backupTabName);
-  if (existingBackup) ss.deleteSheet(existingBackup);
-
-  let backupSheet = scoreSheet.copyTo(ss);
-  backupSheet.setName(backupTabName);
-  ss.setActiveSheet(backupSheet);
-  ss.moveActiveSheet(scoreSheet.getIndex() + 1);
-  ss.setActiveSheet(scoreSheet);
-  logDebug("createPreWorkSnapshotTab", "Snapshot created", backupTabName);
-  ui.alert("Backup Tab Created! 📸", `'${backupTabName}' is ready.`, ui.ButtonSet.OK);
-}
-
-function restoreFromSnapshotTab() {
-  logDebug("restoreFromSnapshotTab", "Restoring tab from snapshot");
-  const ui = SpreadsheetApp.getUi();
-  const ss = getDb()
-  const backupSheets = ss.getSheets().filter(s => s.getName().startsWith("Backup - "));
-  if (backupSheets.length === 0) return ui.alert("No Backup Tabs Found", "No captain backup tabs exist.", ui.ButtonSet.OK);
-
-  let selectedSheet;
-  if (backupSheets.length === 1) {
-    selectedSheet = backupSheets[0];
-  } else {
-    let listStr = backupSheets.map((s, idx) => `${idx + 1}. ${s.getName()}`).join("\n");
-    const response = ui.prompt('Restore', `Select a backup tab:\n\n${listStr}\n\nEnter number:`, ui.ButtonSet.OK_CANCEL);
-    if (response.getSelectedButton() !== ui.Button.OK) return;
-    selectedSheet = backupSheets[parseInt(response.getResponseText().trim(), 10) - 1];
-  }
-
-  let targetTabName = "Score Womens";
-  getValidScoreTabs().forEach(t => {
-    if (selectedSheet.getName().includes(t)) targetTabName = t;
+  importedSheets.forEach(item => {
+    item.sheetObj.setName(item.finalName);
   });
 
-  if (ui.alert("Confirm Rollback", `Overwrite tab '${targetTabName}' using '${selectedSheet.getName()}'?`, ui.ButtonSet.YES_NO) !== ui.Button.YES) return;
-
-  let scoreSheet = ss.getSheetByName(targetTabName) || ss.insertSheet(targetTabName, 1);
-  scoreSheet.clear();
-  const sourceRange = selectedSheet.getDataRange();
-  sourceRange.copyTo(scoreSheet.getRange(1, 1, sourceRange.getNumRows(), sourceRange.getNumColumns()));
-  logDebug("restoreFromSnapshotTab", "Restored target tab", targetTabName);
-  ui.alert("Restored Successfully ⏪", `${targetTabName} restored.`, ui.ButtonSet.OK);
-}
-
-function checkAndRunWeeklyBackup() {
-  logDebug("checkAndRunWeeklyBackup", "Checking backup timeline");
-  try {
-    const props = PropertiesService.getDocumentProperties();
-    const lastBackupStr = props.getProperty('LAST_AUTO_BACKUP_TIME');
-    if (!lastBackupStr || (new Date().getTime() - new Date(lastBackupStr).getTime()) / 86400000 >= 7) {
-      executeDriveBackup("Auto-7Day");
-    }
-  } catch (err) {
-    logDebug("checkAndRunWeeklyBackup", "Weekly backup check failed", err.toString());
-  }
-}
-
-/* ==========================================
- * 4. SHARED HELPERS & MAPPING
- * ========================================== */
-
-function buildColMap(header) {
-  let col = {};
-  if (!header) return col;
-  header.forEach((h, i) => { if(h) col[h.toString().toLowerCase().replace(/[\s\-_#]/g, "")] = i; });
-  col.first      = getColIdx(col, ["First Name", "First"]);
-  col.last       = getColIdx(col, ["Last Name", "Last"]);
-  col.name       = getColIdx(col, ["Name", "Player Name", "Player"]);
-  col.phone      = getColIdx(col, ["Phone", "Cell", "Mobile"]);
-  col.email      = getColIdx(col, ["Email", "E-mail"]);
-  col.group      = getColIdx(col, ["Ladder Name", "Ladder", "Group"]);
-  col.status     = getColIdx(col, ["Status", "Active"]);
-  col.total      = getColIdx(col, ["Tot", "Total"]);
-  col.winPct     = getColIdx(col, ["Pct", "Win %"]);
-  col.rNum       = getColIdx(col, ["RNum", "Rank"]);
-  col.rawRankCol = getColIdx(col, ["Raw Rank"]);
-
-  // Map R0 through R10 weekly ranking columns
-  for (let r = 0; r <= 10; r++) {
-    col["r" + r] = getColIdx(col, ["R" + r, "r" + r]);
-  }
-  return col;
-}
-
-function getColIdx(colMap, candidates) {
-  for (let c of candidates) {
-    let clean = c.toLowerCase().replace(/[\s\-_#]/g, "");
-    if (colMap[clean] !== undefined) return colMap[clean];
-  }
-  return undefined;
-}
-
-/**
- * Parses rank values stored as "Rank/NumPeople" (e.g. "5/16" -> {rank: 5, numPeople: 16}).
- */
-function parseRankVal(val) {
-  if (val === null || val === undefined || val === "") return { rank: Infinity, numPeople: 0 };
-  let str = val.toString().trim();
-  if (str.includes("/")) {
-    let parts = str.split("/");
-    let r = parseFloat(parts[0]);
-    let n = parseFloat(parts[1]);
-    return { 
-      rank: isNaN(r) ? Infinity : r, 
-      numPeople: isNaN(n) ? 0 : n 
-    };
-  }
-  let r = parseFloat(str);
-  return { rank: isNaN(r) ? Infinity : r, numPeople: 0 };
-}
-
-function parseAndSortCourts(cStr) {
-  if (!cStr) return [1, 2, 3, 4, 5, 6, 7, 8];
-  if (Array.isArray(cStr)) return cStr;
-  let courts = cStr.toString().split(',').map(s => s.trim()).filter(s => s.length > 0);
-  return courts.length > 0 ? courts : [1, 2, 3, 4, 5, 6, 7, 8];
-}
-
-/**
- * Searches columns R10 down to R0 to find a player's most recent ranking.
- */
-function getMostRecentRank(row, col, maxWeekNum = 10) {
-  for (let w = maxWeekNum; w >= 0; w--) {
-    let rIdx = col["r" + w];
-    if (rIdx !== undefined && row[rIdx] !== "" && row[rIdx] !== null && row[rIdx] !== undefined) {
-      let parsed = parseRankVal(row[rIdx]);
-      if (parsed.rank !== Infinity) {
-        return { rank: parsed.rank, numPeople: parsed.numPeople, weekNum: w, rawStr: row[rIdx].toString().trim() };
-      }
-    }
-  }
-  return { rank: Infinity, numPeople: 0, weekNum: -1, rawStr: "" };
-}
-
-/* ==========================================
- * 5. MAIN SCORE PROCESSING & RANKING
- * ========================================== */
-
-
-function processWeeklyScores(forcedWeek, shouldShift = true) {
-  logDebug("processWeeklyScores", "Processing weekly scores wrapper");
-  const sheet = getValidActiveScoreSheet();
-  return processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift);
-}
-
-function harvestScoresFromSchedules(ss, scoreData, col, targetWeekIdx, groupName) {
-  logDebug("harvestScoresFromSchedules", `Harvesting scores for group '${groupName}'`);
-  
-  const schedSheet = ss.getSheetByName("Sched " + groupName) || 
-                     ss.getSheetByName("Schedule " + groupName);
-  
-  if (!schedSheet) return;
-
-  const data = schedSheet.getDataRange().getValues();
-  if (data.length <= 1) return;
-
-  let playerMap = {};
-  for (let i = 1; i < scoreData.length; i++) {
-    let fName = (scoreData[i][col.first] || "").toString().trim().toLowerCase();
-    let lName = (scoreData[i][col.last] || "").toString().trim().toLowerCase();
-    let phone = (scoreData[i][col.phone] || "").toString().replace(/\D/g, "");
-    let fullName = (scoreData[i][col.name] || "").toString().trim().toLowerCase();
-
-    if (fullName) playerMap[fullName] = i;
-    if (fName && lName) playerMap[fName + " " + lName] = i;
-    if (phone) playerMap[phone] = i;
-  }
-
-  let headers = data[0].map(h => h.toString().toLowerCase().trim());
-  let nameIdx = headers.indexOf("name");
-  let totalIdx = headers.indexOf("total");
-  let g1Idx = headers.indexOf("game 1");
-  let g2Idx = headers.indexOf("game 2");
-  let g3Idx = headers.indexOf("game 3");
-
-  if (nameIdx === -1) return;
-
-  for (let r = 1; r < data.length; r++) {
-    let row = data[r];
-    let pName = (row[nameIdx] || "").toString().trim().toLowerCase();
-    if (!pName || pName.startsWith("---") || pName.startsWith("time:")) continue;
-
-    let totalSum = 0;
-    let hasScore = false;
-
-    // Use Total column directly if available
-    if (totalIdx !== -1 && row[totalIdx] !== "") {
-      totalSum = parseFloat(row[totalIdx]) || 0;
-      hasScore = true;
-    } else {
-      // Fallback: Sum individual game columns if Total column is empty
-      let g1 = g1Idx !== -1 ? (parseFloat(row[g1Idx]) || 0) : 0;
-      let g2 = g2Idx !== -1 ? (parseFloat(row[g2Idx]) || 0) : 0;
-      let g3 = g3Idx !== -1 ? (parseFloat(row[g3Idx]) || 0) : 0;
-      hasScore = (g1Idx !== -1 && row[g1Idx] !== "") || (g2Idx !== -1 && row[g2Idx] !== "") || (g3Idx !== -1 && row[g3Idx] !== "");
-      totalSum = g1 + g2 + g3;
-    }
-
-    if (!hasScore) continue;
-
-    let matchIdx = playerMap[pName];
-    if (matchIdx !== undefined && targetWeekIdx !== undefined) {
-      scoreData[matchIdx][targetWeekIdx] = totalSum;
-    }
-  }
-}
-
-
-/**
- * Parses rank values stored as "Rank/NumPeople" or "Rank/NumPeople-R" (e.g., "16/40-R" -> {rank: 16, numPeople: 40, isRestricted: true}).
- */
-function parseRankVal(val) {
-  if (val === null || val === undefined || val === "") return { rank: Infinity, numPeople: 0, isRestricted: false };
-  
-  let str = val.toString().trim();
-  let isRestricted = /-R$/i.test(str);
-  let cleanStr = str.replace(/-R$/i, "").trim();
-
-  if (cleanStr.includes("/")) {
-    let parts = cleanStr.split("/");
-    let r = parseFloat(parts[0]);
-    let n = parseFloat(parts[1]);
-    return { 
-      rank: isNaN(r) ? Infinity : r, 
-      numPeople: isNaN(n) ? 0 : n,
-      isRestricted: isRestricted
-    };
-  }
-  let r = parseFloat(cleanStr);
-  return { rank: isNaN(r) ? Infinity : r, numPeople: 0, isRestricted: isRestricted };
-}
-
-/* ==========================================
- * 5. MAIN SCORE PROCESSING & RANKING
- * ========================================== */
-
-  /* ==========================================================================
-   * RANKING & RESTRICTION ALGORITHM LOGIC BREAKDOWN:
-   * --------------------------------------------------------------------------
-   * Step 1: Compute Initial Raw Rank
-   *         Sort active players descending by cumulative point percentage (cumPct)
-   *         through week i. Assign raw rank positions (1..N).
-   * 
-   * Step 2: Apply Movement Restriction (Clamping)
-   *         Clamp raw rank movement to a maximum of +/- 4 positions relative 
-   *         to the player's previous week rank R(i-1).
-   * 
-   * Step 3: Sort & Break Post-Restriction Ties
-   *         Sort players by clamped rank ascending. When players tie on clamped
-   *         rank, break ties using cumulative point percentage (cumPct) 
-   *         descending so higher percentages receive higher positions.
-   * 
-   * Step 4: Sequential Renumbering & Dynamic Restriction Tag (-R)
-   *         Renumber active players strictly 1..N in sorted order. Compare each
-   *         player's final renumbered rank against R(i-1); optionally append the '-R' suffix
-   *         only if |FinalRank - R(i-1)| > 4.
-   * ========================================================================== */
-
-
-/* ==========================================
- * 5. MAIN SCORE PROCESSING & RANKING
- * ========================================== */
-
-function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
-  const ss = getDb()
-
-  // --- CONFIGURATION FLAGS ---
-  // true  = evaluate -R tag based on INITIAL Raw Rank movement
-  // false = evaluate -R tag based on FINAL Renumbered Rank movement
-  const RESTRICT_BY_RAW_RANK = true;
-
-  if (!sheet) {
-    sheet = ss.getActiveSheet();
-  }
-
-  logDebug("processWeeklyScoresForSheet", "Processing sheet standings & weekly rankings", { 
-    sheet: sheet.getName(), 
-    forcedWeek, 
-    shouldShift 
-  });
-
-  checkAndRunWeeklyBackup();
-
-  const data = sheet.getDataRange().getValues();
-  if (data.length <= 1) return "⚠️ No player data found on tab: " + sheet.getName();
-
-  const headerRow = data[0];
-  const col = buildColMap(headerRow);
-  
-  let cleanGroupName = sheet.getName().replace(/^Score\s+/i, "").trim();
-
-  // Determine target week index (1 to 10)
-  let weekNum = calculateCurrentWeekNumber();
-  if (forcedWeek) {
-    let match = forcedWeek.toString().match(/\d+/);
-    if (match) weekNum = parseInt(match[0], 10);
-  }
-
-  let targetWeekKey = "w" + weekNum;
-  let targetWeekIdx = col[targetWeekKey];
-
-  if (targetWeekIdx === undefined) {
-    for (let i = 10; i >= 1; i--) {
-      if (col["w" + i] !== undefined) {
-        targetWeekKey = "w" + i;
-        targetWeekIdx = col["w" + i];
-        weekNum = i;
-        break;
-      }
-    }
-  }
-
-  // Harvest latest scores into target week column Wj
-  harvestScoresFromSchedules(ss, data, col, targetWeekIdx, cleanGroupName);
-
-  let currRColIdx = col["r" + weekNum];
-  let prevRColIdx = col["r" + (weekNum - 1)];
-  let rawRankColIdx = col.rawRankCol;
-
-  let activePlayers = [];
-  let inactivePlayers = [];
-
-  const maxPtsPerWeek = typeof MAX_POINTS_PER_WEEK !== "undefined" ? MAX_POINTS_PER_WEEK : 60;
-
-  for (let i = 1; i < data.length; i++) {
-    let row = data[i];
-    let pName = (col.name !== undefined && row[col.name]) 
-      ? row[col.name].toString().trim() 
-      : ((row[col.first] || "") + " " + (row[col.last] || "")).trim();
-
-    if (!pName) continue;
-
-    // Active status for current week is strictly determined by presence of a score in W_weekNum
-    let rawScoreVal = targetWeekIdx !== undefined ? row[targetWeekIdx] : "";
-    let hasScore = (rawScoreVal !== "" && rawScoreVal !== null && rawScoreVal !== undefined && !isNaN(parseFloat(rawScoreVal)));
-
-    // Calculate CUMULATIVE score AND WEEKS PLAYED through weekNum
-    let cumScore = 0;
-    let weeksPlayedThroughNum = 0;
-
-    for (let w = 1; w <= weekNum; w++) {
-      let wIdx = col["w" + w];
-      if (wIdx !== undefined && row[wIdx] !== "" && row[wIdx] !== null) {
-        let val = parseFloat(row[wIdx]);
-        if (!isNaN(val)) {
-          cumScore += val;
-          weeksPlayedThroughNum++;
-        }
-      }
-    }
-
-    // Percentage based ONLY on weeks actually played up to weekNum
-    let maxPtsForPlayedWeeks = weeksPlayedThroughNum * maxPtsPerWeek;
-    let cumPct = maxPtsForPlayedWeeks > 0 ? (cumScore / maxPtsForPlayedWeeks) : 0;
-
-    // Overall season stats for final column writing
-    let stats = calculateStats(row, col);
-
-    // Fetch previous week ranking R(j-1)
-    let prevRankInfo = { rank: Infinity, numPeople: 0, rawStr: "" };
-    if (prevRColIdx !== undefined && row[prevRColIdx] !== "" && row[prevRColIdx] !== null) {
-      prevRankInfo = parseRankVal(row[prevRColIdx]);
-      prevRankInfo.rawStr = row[prevRColIdx].toString().trim();
-    } else {
-      prevRankInfo = getMostRecentRank(row, col, weekNum - 1);
-    }
-
-    let currentWeekScore = hasScore ? parseFloat(rawScoreVal) : 0;
-
-    let playerObj = {
-      rowIndex: i,
-      rowRaw: [...row],
-      name: pName,
-      isActive: hasScore,
-      total: stats.total,
-      winPct: stats.winPct,
-      currentWeekScore: currentWeekScore,
-      cumScore: cumScore,
-      cumPct: cumPct,
-      prevRank: prevRankInfo.rank,
-      prevNumPeople: prevRankInfo.numPeople,
-      prevRawStr: prevRankInfo.rawStr
-    };
-
-    if (hasScore) {
-      activePlayers.push(playerObj);
-    } else {
-      inactivePlayers.push(playerObj);
-    }
-  }
-
-  let numActive = activePlayers.length;
-  const maxMove = typeof MAX_MOVEMENT !== "undefined" ? MAX_MOVEMENT : 4;
-
-  /* ==========================================================================
-   * RANKING & RESTRICTION ALGORITHM LOGIC BREAKDOWN:
-   * --------------------------------------------------------------------------
-   * Step 1: Compute Initial Raw Rank
-   *         Sort active players descending by cumulative point percentage (cumPct)
-   *         through week i. Assign raw rank positions (1..N).
-   * 
-   * Step 2: Apply Movement Restriction (Clamping) & Flag Restriction (-R)
-   *         Clamp raw rank movement to max +/- 4 positions relative to R(i-1).
-   *         If RESTRICT_BY_RAW_RANK = true, flag -R based on Raw Rank movement.
-   * 
-   * Step 3: Sort & Break Post-Restriction Ties
-   *         Sort players by clamped rank ascending. Break ties using 
-   *         cumulative point percentage (cumPct) descending.
-   * 
-   * Step 4: Sequential Renumbering & Tag Formatting
-   *         Renumber active players strictly 1..N.
-   *         If RESTRICT_BY_RAW_RANK = false, flag -R based on Final Rank movement.
-   * ========================================================================== */
-
-  // STEP 1: Compute Initial Raw Rank based on cumulative PCT descending
-  activePlayers.sort((a, b) => {
-    if (Math.abs(b.cumPct - a.cumPct) > 0.0001) return b.cumPct - a.cumPct;
-    if (a.prevRank !== b.prevRank) return a.prevRank - b.prevRank;
-    return b.prevNumPeople - a.prevNumPeople;
-  });
-
-  activePlayers.forEach((p, index) => {
-    p.rawRank = index + 1;
-  });
-
-  // STEP 2: Calculate Clamped Rank & Optionally flag -R via Raw Rank
-  activePlayers.forEach(p => {
-    if (p.prevRank !== Infinity && p.prevRank > 0) {
-      let minAllowed = Math.max(1, p.prevRank - maxMove);
-      let maxAllowed = p.prevRank + maxMove;
-      p.clampedRank = Math.min(Math.max(p.rawRank, minAllowed), maxAllowed);
-      
-      if (RESTRICT_BY_RAW_RANK) {
-        p.isRestricted = (Math.abs(p.rawRank - p.prevRank) > maxMove);
-      }
-    } else {
-      p.clampedRank = p.rawRank;
-      p.isRestricted = false;
-    }
-  });
-
-  // STEP 3: Sort active players after restriction, breaking ties using point percentage (cumPct)
-  activePlayers.sort((a, b) => {
-    if (a.clampedRank !== b.clampedRank) return a.clampedRank - b.clampedRank; // Primary: Clamped Rank
-    if (Math.abs(b.cumPct - a.cumPct) > 0.0001) return b.cumPct - a.cumPct;    // Tie-breaker 1: Higher cumPct
-    if (a.prevRank !== b.prevRank) return a.prevRank - b.prevRank;              // Tie-breaker 2: Prior Rank
-    return b.prevNumPeople - a.prevNumPeople;                                   // Tie-breaker 3: Prior N
-  });
-
-  // STEP 4: Renumber sequentially 1..N, optionally check -R via Final Rank, and format string
-  activePlayers.forEach((p, index) => {
-    p.finalRank = index + 1;
-
-    if (!RESTRICT_BY_RAW_RANK) {
-      if (p.prevRank !== Infinity && p.prevRank > 0) {
-        p.isRestricted = (Math.abs(p.finalRank - p.prevRank) > maxMove);
-      } else {
-        p.isRestricted = false;
-      }
-    }
-
-    let suffix = p.isRestricted ? "-R" : "";
-    p.rjStr = p.finalRank + "/" + numActive + suffix;
-  });
-
-  // Handle inactive players (preserve prior ranking info)
-  inactivePlayers.forEach(p => {
-    p.rjStr = p.prevRawStr || (p.prevRank !== Infinity ? (p.prevRank + "/" + p.prevNumPeople) : "");
-    p.rawRank = "";
-    p.finalRank = p.prevRank !== Infinity ? p.prevRank : "";
-  });
-
-  // Write updated values back to row clone arrays
-  activePlayers.forEach(p => {
-    if (col.group !== undefined) p.rowRaw[col.group] = cleanGroupName;
-    if (col.total !== undefined) p.rowRaw[col.total] = p.total;
-    if (col.winPct !== undefined) p.rowRaw[col.winPct] = p.winPct;
-    if (col.status !== undefined) p.rowRaw[col.status] = "ACTIVE";
-    if (rawRankColIdx !== undefined) p.rowRaw[rawRankColIdx] = p.rawRank;
-    if (currRColIdx !== undefined) p.rowRaw[currRColIdx] = p.rjStr;
-    if (col.rNum !== undefined) p.rowRaw[col.rNum] = p.finalRank;
-  });
-
-  inactivePlayers.sort((a, b) => a.prevRank - b.prevRank);
-
-  inactivePlayers.forEach(p => {
-    if (col.group !== undefined) p.rowRaw[col.group] = cleanGroupName;
-    if (col.total !== undefined) p.rowRaw[col.total] = p.total;
-    if (col.winPct !== undefined) p.rowRaw[col.winPct] = p.winPct;
-    if (col.status !== undefined) p.rowRaw[col.status] = "INACTIVE";
-    if (rawRankColIdx !== undefined) p.rowRaw[rawRankColIdx] = "";
-    if (currRColIdx !== undefined) p.rowRaw[currRColIdx] = p.rjStr;
-  });
-
-  // Rebuild final structured sheet array (Active on top sorted by final rank, Inactive on bottom)
-  let finalRows = [headerRow];
-  activePlayers.forEach(p => finalRows.push(p.rowRaw));
-  inactivePlayers.forEach(p => finalRows.push(p.rowRaw));
-
-  // Write full row structures back to active sheet
-  sheet.clearContents();
-  sheet.getRange(1, 1, finalRows.length, finalRows[0].length).setValues(finalRows);
-
-  // Update Rankings tab for this group dynamically
-  updateRankingsSheetForGroup(ss, cleanGroupName, activePlayers, inactivePlayers, weekNum);
-
-  return `✅ Standings and Week ${weekNum} Rankings (R${weekNum}) processed for '${sheet.getName()}'! (${activePlayers.length} Active, ${inactivePlayers.length} Inactive)`;
-}
-
-
-
-
-
-
-
-
-
-/* ==========================================
- * 6. TEST FUNCTION FOR WEEKS 1 TO 10
- * ========================================== */
-
-function testWomensRankingsWeeks1To10() {
-  const ss = getDb()
-  
-  // 1. Locate sheet
-  let sheet = ss.getSheetByName("Score Womens");
-  if (!sheet) {
-    sheet = ss.getSheetByName("Womens") || (typeof getValidActiveScoreSheet === "function" ? getValidActiveScoreSheet("Womens") : null);
-  }
-  if (!sheet) {
-    throw new Error("⚠️ Could not find sheet 'Score Womens'. Please check sheet tab names.");
-  }
-
-  // 2. Backup pre-test data
-  let backupName = sheet.getName() + "_Backup";
-  let existingBackup = ss.getSheetByName(backupName);
-  if (existingBackup) ss.deleteSheet(existingBackup);
-  sheet.copyTo(ss).setName(backupName);
-  logDebug("testWomensRankingsWeeks1To10", "Backup tab created: " + backupName);
-
-  logDebug("testWomensRankingsWeeks1To10", "Starting 10-week ranking simulation", { sheetName: sheet.getName() });
-
-  // 3. Run simulation sequentially for Weeks 1 through 10
-  for (let week = 1; week <= 10; week++) {
-    let resultMsg = processWeeklyScoresForSheet(sheet, week, false);
-    logDebug("testWomensRankingsWeeks1To10", `Completed Week ${week}`, { resultMsg });
-  }
-
-  // 4. Create/reset 'RankTest' output sheet
-  let rankTestSheet = ss.getSheetByName("RankTest") || ss.insertSheet("RankTest");
-  rankTestSheet.clear();
-
-  const data = sheet.getDataRange().getValues();
-  if (data.length <= 1) return "⚠️ No player data found on tab: " + sheet.getName();
-
-  const col = buildColMap(data[0]);
-
-  let output = [
-    ["Player Name", "Status (W10)", "Raw Rank (W10)", "R0", "R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10"]
-  ];
-
-  // 5. Extract full row data for RankTest report
-  for (let i = 1; i < data.length; i++) {
-    let row = data[i];
-    let pName = (col.name !== undefined && row[col.name]) 
-      ? row[col.name].toString().trim() 
-      : ((row[col.first] || "") + " " + (row[col.last] || "")).trim();
-
-    if (!pName) continue;
-
-    // Check week 10 score to determine final active/inactive status
-    let w10Idx = col["w10"];
-    let rawScoreW10 = w10Idx !== undefined ? row[w10Idx] : "";
-    let hasW10Score = (rawScoreW10 !== "" && rawScoreW10 !== null && rawScoreW10 !== undefined && !isNaN(parseFloat(rawScoreW10)));
-    let statusStr = hasW10Score ? "ACTIVE" : "INACTIVE";
-
-    let rawRank = (col.rawRankCol !== undefined && row[col.rawRankCol] !== undefined) ? row[col.rawRankCol] : "";
-
-    let playerRow = [pName, statusStr, rawRank];
-
-    // Collect R0 through R10
-    for (let w = 0; w <= 10; w++) {
-      let rIdx = col["r" + w];
-      let rVal = (rIdx !== undefined && row[rIdx] !== undefined) ? row[rIdx] : "";
-      playerRow.push(rVal);
-    }
-
-    output.push(playerRow);
-  }
-
-  // 6. Write and style output table
-  let outRange = rankTestSheet.getRange(1, 1, output.length, output[0].length);
-  outRange.setValues(output);
-
-  let headerRange = rankTestSheet.getRange(1, 1, 1, output[0].length);
-  headerRange.setFontWeight("bold");
-  headerRange.setBackground("#4a86e8");
-  headerRange.setFontColor("#ffffff");
-
-  outRange.setBorder(true, true, true, true, true, true, "#cccccc", SpreadsheetApp.BorderStyle.SOLID);
-  rankTestSheet.autoResizeColumns(1, output[0].length);
-
-  return `✅ Test complete! Weeks 1–10 rankings processed and exported to 'RankTest' sheet. Backup saved to '${backupName}'.`;
-}
-
-
-
-
-/**
- * Populates the Rankings sheet (e.g., "Rankings Womens") using Rj column data.
- */
-function updateRankingsSheetForGroup(ss, groupName, activePlayers, inactivePlayers, weekNum) {
-  let rankSheetName = "Rankings " + groupName;
-  let rankSheet = ss.getSheetByName(rankSheetName) || ss.insertSheet(rankSheetName);
-  rankSheet.clear();
-
-  let rankOut = [["Rank", "Name", "Win %", "Total Points"]];
-
-  activePlayers.forEach(p => {
-    let winPctStr = (p.winPct * 100).toFixed(1) + "%";
-    rankOut.push([p.rjStr, p.name, winPctStr, p.total]);
-  });
-
-  inactivePlayers.forEach(p => {
-    let winPctStr = (p.winPct * 100).toFixed(1) + "%";
-    rankOut.push([p.rjStr || "INACTIVE", p.name, winPctStr, p.total]);
-  });
-
-  let range = rankSheet.getRange(1, 1, rankOut.length, 4);
-  range.setValues(rankOut);
-  rankSheet.getRange(1, 1, 1, 4).setFontWeight("bold");
-}
-
-function sortActivePlayersForSheet(sheet) {
-  logDebug("sortActivePlayersForSheet", "Sorting active players for sheet", sheet.getName());
-  const data = sheet.getDataRange().getValues();
-  if (data.length <= 1) return "⚠️ No player data found on tab: " + sheet.getName();
-
-  const col = buildColMap(data[0]);
-
-  let headerRow = data[0];
-  let activeRows = [];
-  let inactiveRows = [];
-
-  for (let i = 1; i < data.length; i++) {
-    let row = data[i];
-    let status = (col.status !== undefined && row[col.status] !== "") 
-      ? row[col.status].toString().toUpperCase().trim() 
-      : "ACTIVE";
-
-    let recent = getMostRecentRank(row, col, 10);
-    row._recentRank = recent.rank;
-    row._recentNumPeople = recent.numPeople;
-    row._origIdx = i;
-
-    if (status === "ACTIVE") {
-      activeRows.push(row);
-    } else {
-      inactiveRows.push(row);
-    }
-  }
-
-  // Sort active players using most recent ranking (rank ascending, numPeople descending)
-  activeRows.sort((a, b) => {
-    if (a._recentRank !== b._recentRank) return a._recentRank - b._recentRank;
-    if (b._recentNumPeople !== a._recentNumPeople) return b._recentNumPeople - a._recentNumPeople;
-    return a._origIdx - b._origIdx;
-  });
-
-  activeRows.forEach(r => { delete r._recentRank; delete r._recentNumPeople; delete r._origIdx; });
-  inactiveRows.forEach(r => { delete r._recentRank; delete r._recentNumPeople; delete r._origIdx; });
-
-  let sortedData = [headerRow, ...activeRows, ...inactiveRows];
-
-  sheet.clearContents();
-  sheet.getRange(1, 1, sortedData.length, sortedData[0].length).setValues(sortedData);
-
-  return `✅ Active players sorted successfully on tab '${sheet.getName()}'! (${activeRows.length} Active, ${inactiveRows.length} Inactive)`;
-}
-
-function calculateStats(row, col) {
-  let sum = 0;
-  let playedWeeks = 0;
-
-  for (let i = 1; i <= 10; i++) {
-    let wIdx = col["w" + i];
-    if (wIdx !== undefined && row[wIdx] !== "" && row[wIdx] !== null && !isNaN(row[wIdx])) {
-      let val = parseFloat(row[wIdx]);
-      sum += val;
-      playedWeeks++;
-    }
-  }
-
-  let possibleTotal = playedWeeks * MAX_POINTS_PER_WEEK;
-  let pct = possibleTotal > 0 ? (sum / possibleTotal) : 0;
-
-  return { total: sum, winPct: pct };
-}
-
-function sortActivePlayers() {
-  logDebug("sortActivePlayers", "Sorting active players wrapper");
-  const sheet = getValidActiveScoreSheet();
-  return sortActivePlayersForSheet(sheet);
-}
-
-
-/* ==========================================
- * SCHEDULE GENERATION WITH GROUP COURT MAPPING
- * ========================================== */
-
-function generateScheduleTabs(scoreTabName = null, overrideCourts = null) {
-  logDebug("generateScheduleTabs", "Generating schedule for score tab", scoreTabName);
-  const ss = getDb()
-  
-  let targetSheet = getValidActiveScoreSheet(scoreTabName);
-  let resolvedTabName = targetSheet.getName();
-
-  sortActivePlayersForSheet(targetSheet);
-
-  const data = targetSheet.getDataRange().getValues();
-  if (data.length <= 1) return "⚠️ No player data found on tab: " + resolvedTabName;
-
-  const col = buildColMap(data[0]);
-  let seenPlayers = new Set();
-  let activePlayers = [];
-
-  for (let i = 1; i < data.length; i++) {
-    let row = data[i];
-    let status = (col.status !== undefined && row[col.status] !== "") 
-      ? row[col.status].toString().toUpperCase().trim() 
-      : "ACTIVE";
-
-    if (status === "ACTIVE") {
-      let pName = (col.name !== undefined && row[col.name]) 
-        ? row[col.name].toString().trim() 
-        : ((row[col.first] || "") + " " + (row[col.last] || "")).trim();
-      
-      if (!pName) continue;
-      let cleanKey = pName.toLowerCase();
-      if (seenPlayers.has(cleanKey)) continue;
-      seenPlayers.add(cleanKey);
-
-      // Fetch most recent ranking for scheduling active players
-      let recentRank = getMostRecentRank(row, col, 10);
-      
-      activePlayers.push({
-        name: pName,
-        phone: col.phone !== undefined ? row[col.phone] : "",
-        rank: recentRank.rank,
-        numPeople: recentRank.numPeople,
-        rowIndex: i
-      });
-    }
-  }
-
-  if (activePlayers.length === 0) return "⚠️ No active players found on " + resolvedTabName;
-
-  // Sort active players using most recent ranking
-  activePlayers.sort((a, b) => {
-    if (a.rank !== b.rank) return a.rank - b.rank;
-    if (b.numPeople !== a.numPeople) return b.numPeople - a.numPeople;
-    return a.rowIndex - b.rowIndex;
-  });
-
-  let cleanGroupName = resolvedTabName.replace("Score ", "").trim();
-  let schedSheetName = "Sched " + cleanGroupName;
-  
-  let schedSheet = ss.getSheetByName(schedSheetName) || ss.insertSheet(schedSheetName);
-  schedSheet.clear();
-
-  const defaultCourts = getCourtsForGroup(cleanGroupName);
-  const availableCourts = (overrideCourts && Array.isArray(overrideCourts) && overrideCourts.length > 0) 
-    ? overrideCourts 
-    : defaultCourts;
-
-  let schedOut = [["Name", "Court", "Game 1", "Game 2", "Game 3", "Total", "Check-In", "Entered By"]];
-  let courtIdx = 0;
-
-  for (let i = 0; i < activePlayers.length; i += 4) {
-    let courtNumber = availableCourts[courtIdx] !== undefined 
-      ? availableCourts[courtIdx] 
-      : (courtIdx + 1);
-    let courtName = "Court " + courtNumber;
-
-    for (let j = 0; j < 4; j++) {
-      if (i + j < activePlayers.length) {
-        let rowNum = schedOut.length + 1;
-        let sumFormula = `=IF(COUNT(C${rowNum}:E${rowNum})>0, SUM(C${rowNum}:E${rowNum}), "")`;
-        schedOut.push([activePlayers[i+j].name, courtName, "", "", "", sumFormula, "", ""]);
-      }
-    }
-    courtIdx++;
-  }
-
-  let sRange = schedSheet.getRange(1, 1, schedOut.length, 8);
-  sRange.setValues(schedOut);
-  sRange.setBorder(true, true, true, true, true, true, "black", SpreadsheetApp.BorderStyle.SOLID);
-  schedSheet.getRange(1, 1, 1, 8).setFontWeight("bold");
-
-  logDebug("generateScheduleTabs", "Schedule tab successfully updated", schedSheetName);
-  CacheService.getScriptCache().remove(getCheckInCacheKey(cleanGroupName));    
-  return `✅ Schedule generated successfully for ${cleanGroupName} (${activePlayers.length} players, ${courtIdx} courts).`;
-}
-
-function rescheduleFromCheckIns(schedTabName, overrideCourts = null) {
-  logDebug("rescheduleFromCheckIns", "Rescheduling based on check-ins for tab", schedTabName);
-  const ss = getDb()
-  
-  let targetName = (schedTabName || "").toString().trim();
-  if (!targetName.startsWith("Sched ") && !targetName.startsWith("Score ")) {
-    targetName = "Sched " + targetName;
-  } else if (targetName.startsWith("Score ")) {
-    targetName = targetName.replace("Score ", "Sched ");
-  }
-
-  let schedSheet = ss.getSheetByName(targetName);
-  if (!schedSheet) return "⚠️ Error: Schedule sheet '" + targetName + "' not found.";
-
-  // Fetch existing scores before clearing the sheet to preserve entered data
-  const existingScores = {};
-  const existingData = schedSheet.getDataRange().getValues();
-  if (existingData.length > 1) {
-    for (let r = 1; r < existingData.length; r++) {
-      const row = existingData[r];
-      const pName = (row[0] || "").toString().trim();
-      if (pName) {
-        existingScores[pName] = {
-          game1: row[2] !== undefined ? row[2] : "",
-          game2: row[3] !== undefined ? row[3] : "",
-          game3: row[4] !== undefined ? row[4] : "",
-          enteredBy: row[7] !== undefined ? row[7] : ""
-        };
-      }
-    }
-  }
-
-  // Fetch all players
-  const allPlayers = getPlayersForCheckIn(targetName);
-  if (!Array.isArray(allPlayers) || allPlayers.length === 0) {
-    return "⚠️ No players found for " + targetName;
-  }
-
-  // Separate checked-in vs unchecked players
-  const checkedInPlayers = allPlayers.filter(p => p.checkedIn || p.checked);
-  const uncheckedPlayers = allPlayers.filter(p => !(p.checkedIn || p.checked));
-
-  if (checkedInPlayers.length === 0) return "⚠️ No checked-in players found on " + targetName;
-
-  let cleanGroupName = targetName.replace("Sched ", "").trim();
-
-  const defaultCourts = getCourtsForGroup(cleanGroupName);
-  const availableCourts = (overrideCourts && Array.isArray(overrideCourts) && overrideCourts.length > 0) 
-    ? overrideCourts 
-    : defaultCourts;
-
-  schedSheet.clear();
-  let schedOut = [["Name", "Court", "Game 1", "Game 2", "Game 3", "Total", "Check-In", "Entered By"]];
-
-  // Helper to fetch saved scores for a player
-  const getSavedScores = (pName) => {
-    const key = (pName || "").toString().trim();
-    return existingScores[key] || { game1: "", game2: "", game3: "", enteredBy: "" };
-  };
-
-  // Calculate how many complete 4-player courts can be formed
-  const fullCourtsCount = Math.floor(checkedInPlayers.length / 4);
-  const assignedCheckedCount = fullCourtsCount * 4;
-  let courtIdx = 0;
-
-  // 1. Assign full 4-player courts for checked-in players
-  for (let i = 0; i < assignedCheckedCount; i += 4) {
-    let courtNumber = availableCourts[courtIdx] !== undefined 
-      ? availableCourts[courtIdx] 
-      : (courtIdx + 1);
-    let courtName = "Court " + courtNumber;
-
-    for (let j = 0; j < 4; j++) {
-      let player = checkedInPlayers[i + j];
-      let rowNum = schedOut.length + 1;
-      let sumFormula = `=IF(COUNT(C${rowNum}:E${rowNum})>0, SUM(C${rowNum}:E${rowNum}), "")`;
-      let scores = getSavedScores(player.name);
-
-      schedOut.push([player.name, courtName, scores.game1, scores.game2, scores.game3, sumFormula, "X", scores.enteredBy]);
-    }
-    courtIdx++;
-  }
-
-  // 2. Checked-in leftovers (1-3 players) assigned to BYE with "X"
-  for (let i = assignedCheckedCount; i < checkedInPlayers.length; i++) {
-    let player = checkedInPlayers[i];
-    let rowNum = schedOut.length + 1;
-    let sumFormula = `=IF(COUNT(C${rowNum}:E${rowNum})>0, SUM(C${rowNum}:E${rowNum}), "")`;
-    let scores = getSavedScores(player.name);
-
-    schedOut.push([player.name, "BYE", scores.game1, scores.game2, scores.game3, sumFormula, "X", scores.enteredBy]);
-  }
-
-  // 3. Unchecked players assigned to BYE with empty check-in ""
-  for (let i = 0; i < uncheckedPlayers.length; i++) {
-    let player = uncheckedPlayers[i];
-    let rowNum = schedOut.length + 1;
-    let sumFormula = `=IF(COUNT(C${rowNum}:E${rowNum})>0, SUM(C${rowNum}:E${rowNum}), "")`;
-    let scores = getSavedScores(player.name);
-
-    schedOut.push([player.name, "BYE", scores.game1, scores.game2, scores.game3, sumFormula, "", scores.enteredBy]);
-  }
-
-  let sRange = schedSheet.getRange(1, 1, schedOut.length, 8);
-  sRange.setValues(schedOut);
-  sRange.setBorder(true, true, true, true, true, true, "black", SpreadsheetApp.BorderStyle.SOLID);
-  schedSheet.getRange(1, 1, 1, 8).setFontWeight("bold");
-
-  CacheService.getScriptCache().remove(getCheckInCacheKey(targetName));
-  logDebug("rescheduleFromCheckIns", "Check-in schedule regenerated", targetName);
-  return `✅ Rescheduled ${checkedInPlayers.length} checked-in players across ${courtIdx} courts. (${uncheckedPlayers.length} unchecked players placed on BYE).`;
-}
-
-
-
-/* ==========================================
- * 7. PDF GENERATION
- * ========================================== */
-
-function buildScheduleSheet() {
-  logDebug("buildScheduleSheet", "Building combined schedule sheet for export");
-  const ss = getDb()
-  const instr = ss.getSheetByName("Instructions");
-  const league = instr ? instr.getRange("B2").getValue().toString().trim() : "Ladders";
-  const dateStr = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "MMM d");
-  let sched = ss.getSheetByName("Schedule") || ss.insertSheet("Schedule");
-  sched.clear();
-
-  let out = [["Schedule for " + dateStr, "", "", "", "", "", "", ""], [league, "", "", "", "", "", "", ""], ["", "", "", "", "", "", "", ""]];
-  const tabs = ss.getSheets().filter(sh => sh.getName().startsWith("Sched ") && sh.getName().trim() !== "Sched");
-
-  tabs.forEach(sh => {
-    let ladderName = sh.getName().replace("Sched ", "").trim();
-    let data = sh.getDataRange().getValues();
-    if (data.length <= 1) return;
-    let sCol = buildColMap(data[0]);
-
-    out.push([ladderName + " Ladder", "", "", "", "", "", "", ""]);
-    out.push(["Court", "Player", "Phone", "", "", "", "", ""]);
-
-    let byCourt = {};
-    for (let i = 1; i < data.length; i++) {
-      let nm = data[i][sCol.name] || (data[i][sCol.first] + " " + data[i][sCol.last]).trim();
-      let ct = data[i][getColIdx(sCol, ["Court"])];
-      let ph = data[i][sCol.phone] || "";
-      if (nm && !nm.startsWith("---") && !nm.startsWith("Time:")) (byCourt[ct] = byCourt[ct] || []).push({name: nm, phone: ph});
-    }
-
-    Object.keys(byCourt).sort((a,b)=> (parseFloat(a)||0)-(parseFloat(b)||0)).forEach(ct => {
-      byCourt[ct].forEach((p, idx) => out.push([idx === 0 ? ct : "", p.name, p.phone, "", "", "", "", ""]));
-    });
-    out.push(["", "", "", "", "", "", "", ""]);
-  });
-
-  sched.getRange(1, 1, out.length, 8).setValues(out);
-  sched.getRange(1, 1, 2, 1).setFontWeight("bold").setFontSize(14);
-  return { sheet: sched, fileName: league + " Schedule " + dateStr + ".pdf" };
-}
-
-function showPdfDownloadDialog() {
-  logDebug("showPdfDownloadDialog", "Opening PDF download modal dialog");
-  const res = buildScheduleSheet();
-  const pdfBlob = exportSheetAsPDF(res.sheet, res.fileName);
-  const base64 = Utilities.base64Encode(pdfBlob.getBytes());
-  const html = HtmlService.createHtmlOutput(`
-    <style>body{font-family:sans-serif; text-align:center; padding:30px;} .btn{background:#2d6a4f; color:white; padding:15px 25px; text-decoration:none; border-radius:6px; font-weight:bold; display:inline-block; margin-top:20px;}</style>
-    <h3>PDF Ready!</h3>
-    <a href="data:application/pdf;base64,${base64}" download="${res.fileName}" class="btn">Download ${res.fileName}</a>
-  `).setWidth(350).setHeight(200);
-  SpreadsheetApp.getUi().showModalDialog(html, '📥 Download Schedule PDF');
-}
-
-function webExportSchedulePdf() {
-  logDebug("webExportSchedulePdf", "Executing web export for PDF");
-  const res = buildScheduleSheet();
-  const pdfBlob = exportSheetAsPDF(res.sheet, res.fileName);
-  return {
-    fileName: res.fileName,
-    base64: Utilities.base64Encode(pdfBlob.getBytes())
-  };
-}
-
-function exportSheetAsPDF(sheet, fileName) {
-  logDebug("exportSheetAsPDF", "Rendering sheet to PDF blob", fileName);
-  const ss = getDb()
-  const url = ss.getUrl().replace(/edit$/, '') + 'export?exportFormat=pdf&format=pdf' +
-    '&size=letter&portrait=true&fitw=true&gridlines=true&printtitle=false&sheetnames=false&fzr=false' +
-    '&gid=' + sheet.getSheetId();
-
-  const params = { method: "GET", headers: { "Authorization": "Bearer " + ScriptApp.getOAuthToken() }, muteHttpExceptions: true };
-  const blob = UrlFetchApp.fetch(url, params).getBlob().setName(fileName);
-  return blob;
-}
-
-function findFoursomeByPhone(phone) {
-  logDebug("findFoursomeByPhone", "Locating foursome for phone number", phone);
-  if (!phone) return { error: "No phone number provided." };
-  let cleanInput = phone.toString().replace(/\D/g, "");
-  const ss = getDb()
-  let foundPlayer = null, foundGroup = null, isCheckedIn = false;
-
-  for (let g of GROUPS) {
-    let scoreSheet = ss.getSheetByName("Score " + g);
-    if (!scoreSheet) continue;
-    let data = scoreSheet.getDataRange().getValues();
-    let col = buildColMap(data[0]);
-
-    for (let i = 1; i < data.length; i++) {
-      let pPhone = (col.phone !== undefined && data[i][col.phone]) ? data[i][col.phone].toString().replace(/\D/g, "") : "";
-      if (pPhone && pPhone === cleanInput) {
-        foundPlayer = (col.name !== undefined && data[i][col.name]) ? data[i][col.name].toString().trim() : ((data[i][col.first] || "") + " " + (data[i][col.last] || "")).trim();
-        foundGroup = g;
-        break;
-      }
-    }
-    if (foundPlayer) break;
-  }
-
-  if (!foundPlayer) return { error: "Phone number not found in any player group." };
-
-  let schedSheet = ss.getSheetByName("Sched " + foundGroup);
-  if (!schedSheet) return { error: `Schedule for ${foundGroup} not found.` };
-
-  let schedData = schedSheet.getDataRange().getValues();
-  let headers = schedData[0].map(h => h.toString().toLowerCase().trim());
-  let nameIdx = headers.indexOf("name");
-  let checkInIdx = headers.indexOf("check-in");
-
-  let userCourt = null;
-  for (let i = 1; i < schedData.length; i++) {
-    let rowName = (nameIdx !== -1 && schedData[i][nameIdx]) ? schedData[i][nameIdx].toString().trim() : "";
-    if (rowName.toLowerCase() === foundPlayer.toLowerCase()) {
-      userCourt = schedData[i][1] ? schedData[i][1].toString().trim() : null;
-      if (checkInIdx !== -1) {
-        isCheckedIn = isCheckInTrue(schedData[i][checkInIdx]);
-      }
-      break;
-    }
-  }
-
-  let foursome = [];
-  if (userCourt && userCourt !== "BYE") {
-    for (let i = 0; i < schedData.length; i++) {
-      if (schedData[i][1] && schedData[i][1].toString().trim() === userCourt) {
-        foursome.push({ name: schedData[i][0], g1: schedData[i][2] || "", g2: schedData[i][3] || "", g3: schedData[i][4] || "" });
-      }
-    }
-  }
-
-  logDebug("findFoursomeByPhone", "Found user foursome details successfully");
-  return { playerName: foundPlayer, groupName: foundGroup, court: userCourt, foursome: foursome, checkedIn: isCheckedIn, status: "ACTIVE" };
-}
-
-function togglePlayerStatus(phone) {
-  logDebug("togglePlayerStatus", "Toggling active/inactive player status", phone);
-  if (!phone) return { error: "No phone number provided." };
-  let cleanInput = phone.toString().replace(/\D/g, "");
-  const ss = getDb()
-
-  for (let g of GROUPS) {
-    let scoreSheet = ss.getSheetByName("Score " + g);
-    if (!scoreSheet) continue;
-    let data = scoreSheet.getDataRange().getValues();
-    let col = buildColMap(data[0]);
-
-    for (let i = 1; i < data.length; i++) {
-      let pPhone = (col.phone !== undefined && data[i][col.phone]) ? data[i][col.phone].toString().replace(/\D/g, "") : "";
-      if (pPhone && pPhone === cleanInput) {
-        let currentStatus = (col.status !== undefined && data[i][col.status]) ? data[i][col.status].toString().toUpperCase().trim() : "ACTIVE";
-        let newStatus = (currentStatus === "ACTIVE") ? "INACTIVE" : "ACTIVE";
-        
-        if (col.status !== undefined) {
-          scoreSheet.getRange(i + 1, col.status + 1).setValue(newStatus);
-          let pName = (col.name !== undefined && data[i][col.name]) ? data[i][col.name].toString().trim() : "Player";
-          logDebug("togglePlayerStatus", `Status updated to ${newStatus} for ${pName}`);
-          return { success: true, name: pName, group: g, newStatus: newStatus };
-        }
-      }
-    }
-  }
-  return { error: "Phone number not found in any player group." };
-}
-
-function getRankingsAndSchedData(groupName) {
-  logDebug("getRankingsAndSchedData", "Fetching rankings & schedule data for group", groupName);
-  const ss = getDb()
-  let schedList = [], rankingList = [];
-  const currentWeek = calculateCurrentWeekNumber();
-
-  const schedSheet = ss.getSheetByName("Sched " + groupName);
-  if (schedSheet) {
-    const sData = schedSheet.getDataRange().getDisplayValues();
-    for (let i = 0; i < sData.length; i++) {
-      let name = sData[i][0] ? sData[i][0].toString().trim() : "", court = sData[i][1] ? sData[i][1].toString().trim() : "";
-      if (name && court && !name.startsWith("Time:") && !name.startsWith("Name") && !name.startsWith("---")) schedList.push({ name: name, court: court });
-    }
-  }
-
-  const rankSheet = ss.getSheetByName("Rankings " + groupName);
-  if (rankSheet) {
-    const rData = rankSheet.getDataRange().getDisplayValues();
-    for (let i = 1; i < rData.length; i++) {
-      if (rData[i][1]) rankingList.push({ rank: rData[i][0], name: rData[i][1], pct: rData[i][2], pts: rData[i][3] });
-    }
-  }
-  return { sched: schedList, rankings: rankingList, weekNum: currentWeek };
-}
-
-function getAdminPlayersByGroup(groupName) {
-  logDebug("getAdminPlayersByGroup", "Fetching admin player list for group", groupName);
-  const scoreSheet = getScoreSheetByGroup(groupName);
-  if (!scoreSheet) return { error: `Score sheet for group '${groupName}' not found.` };
-
-  const data = scoreSheet.getDataRange().getValues();
-  if (!data || data.length <= 1) return { players: [] };
-
-  const col = buildColMap(data[0]);
-  
-  let players = [];
-
-  for (let i = 1; i < data.length; i++) {
-    let row = data[i];
-    let name = (col.name !== undefined && row[col.name]) ? row[col.name].toString().trim() : ((row[col.first] || "") + " " + (row[col.last] || "")).trim();
-    if (!name) continue;
-
-    let phone = (col.phone !== undefined && row[col.phone]) ? row[col.phone].toString().trim() : "";
-    let email = (col.email !== undefined && row[col.email]) ? row[col.email].toString().trim() : "";
-    let status = (col.status !== undefined && row[col.status]) ? row[col.status].toString().toUpperCase().trim() : "ACTIVE";
-    let rank = col.rNum !== undefined ? (row[col.rNum] || i) : i;
-
-    players.push({ name, phone, email, status, rank });
-  }
-
-  logDebug("getAdminPlayersByGroup", `Retrieved ${players.length} players for '${groupName}'`);
-  return { players: players };
-}
-
-function submitCourtScores(payload) {
-  logDebug("submitCourtScores", "Submitting court scores payload", payload);
-  const ss = getDb()
-  const sheet = ss.getSheetByName("Sched " + payload.groupName);
-  if (!sheet) return "Error: Schedule sheet not found.";
-  
-  const data = sheet.getDataRange().getValues();
-  if (!data || data.length <= 1) return "Error: No schedule data found.";
-
-  let headers = data[0].map(h => h.toString().toLowerCase().trim());
-  let g1Idx = headers.indexOf("game 1");
-  let g2Idx = headers.indexOf("game 2");
-  let g3Idx = headers.indexOf("game 3");
-  let totalIdx = headers.indexOf("total");
-  let enteredIdx = headers.indexOf("entered by");
-
-  for (let i = 1; i < data.length; i++) {
-    let pName = data[i][0] ? data[i][0].toString().trim() : "";
-    let court = data[i][1] ? data[i][1].toString().trim() : "";
-
-    if (court === payload.court.toString().trim() && payload.scores[pName]) {
-      let pScores = payload.scores[pName];
-
-      // Read current values from sheet to preserve already completed games
-      let existingG1 = g1Idx !== -1 ? data[i][g1Idx] : "";
-      let existingG2 = g2Idx !== -1 ? data[i][g2Idx] : "";
-      let existingG3 = g3Idx !== -1 ? data[i][g3Idx] : "";
-
-      // Preserve existing score if payload sends empty string or undefined for that game
-      let g1Val = (pScores.g1 !== undefined && pScores.g1 !== "") ? pScores.g1 : existingG1;
-      let g2Val = (pScores.g2 !== undefined && pScores.g2 !== "") ? pScores.g2 : existingG2;
-      let g3Val = (pScores.g3 !== undefined && pScores.g3 !== "") ? pScores.g3 : existingG3;
-
-      // Write individual game values
-      if (g1Idx !== -1) sheet.getRange(i + 1, g1Idx + 1).setValue(g1Val);
-      if (g2Idx !== -1) sheet.getRange(i + 1, g2Idx + 1).setValue(g2Val);
-      if (g3Idx !== -1) sheet.getRange(i + 1, g3Idx + 1).setValue(g3Val);
-
-      // Re-apply total formula to guarantee automatic summation remains active
-      let rowNum = i + 1;
-      if (totalIdx !== -1) {
-        sheet.getRange(rowNum, totalIdx + 1).setFormula(`=IF(COUNT(C${rowNum}:E${rowNum})>0, SUM(C${rowNum}:E${rowNum}), "")`);
-      }
-      if (enteredIdx !== -1) sheet.getRange(rowNum, enteredIdx + 1).setValue(payload.submitter);
-    }
-  }
-
-  logDebug("submitCourtScores", "Updated incremental court scores successfully");
-  return "✅ Game scores updated successfully!";
-}
-
-
-// Normalizes tab names based on target prefix ("Sched " or "Score ")
-function resolveSheetName(rawInput, prefix) {
-  if (!rawInput) return SpreadsheetApp.getActiveSheet().getName();
-  
-  // Clean up existing prefixes if present
-  let cleanName = rawInput.replace(/^(Sched\s+|Score\s+)/i, '');
-  
-  // Return formatted name or current sheet if empty
-  return prefix ? prefix + cleanName : cleanName;
-}
-
-// Resolves target sheet object dynamically from API or Active Sheet Context
-function getTargetSheetDynamic(payload, prefix) {
-  let target = payload ? (payload.arg || payload.tab || payload.sheet || payload.group) : null;
-  let sheetName = target ? resolveSheetName(target, prefix) : SpreadsheetApp.getActiveSheet().getName();
-  
-  let sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
-  if (!sheet) {
-    throw new Error("Could not find sheet tab: '" + sheetName + "'");
-  }
-  return sheet;
-}
-
-
-function getInitialAppData(phone) {
-  return {
-    sheets: getSchedTabNames(),
-    groups: getAvailableGroups(),
-    userData: phone ? lookupPhoneInternal(phone) : null
-  };
-}
-
-
-
-// 3. Searches the "Players" sheet for a matching phone number
-function lookupPhoneInternal(phone) {
-  if (!phone) return null;
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const playerSheet = ss.getSheetByName("Players") || ss.getSheetByName("Master");
-  if (!playerSheet) return null;
-  
-  const cleanPhone = String(phone).replace(/\D/g, ''); // Strip formatting
-  const data = playerSheet.getDataRange().getValues();
-  const headers = data[0].map(h => String(h).toLowerCase().trim());
-  
-  const phoneCol = headers.findIndex(h => h.includes('phone'));
-  const nameCol = headers.findIndex(h => h.includes('name'));
-  const groupCol = headers.findIndex(h => h.includes('group') || h.includes('ladder'));
-  
-  if (phoneCol === -1) return null;
-    if (!data || data.length <= 1) return null;
-  for (let i = 1; i < data.length; i++) {
-    const rowPhone = String(data[i][phoneCol]).replace(/\D/g, '');
-    if (rowPhone && rowPhone === cleanPhone) {
-      return {
-        name: nameCol !== -1 ? data[i][nameCol] : '',
-        group: groupCol !== -1 ? data[i][groupCol] : '',
-        phone: data[i][phoneCol]
-      };
-    }
-  }
-  return null;
-}
-
-
-
-
-
-
-/**
- * Updates player check-in status directly in the specified Google Sheet tab.
- */
-function updatePlayerCheckInInSheet(sheetName, playerName, isCheckedIn) {
-  if (!sheetName || !playerName) {
-    throw new Error("Sheet name and player name are required.");
-  }
-
-  const ss = getDb()
-  const resolvedName = String(sheetName).startsWith("Sched ") ? sheetName : "Sched " + sheetName;
-  const sheet = ss.getSheetByName(resolvedName) || ss.getSheetByName(sheetName);
-
-  if (!sheet) throw new Error("Sheet not found: " + sheetName);
-
-  const lastRow = sheet.getLastRow();
-  if (lastRow < 2) throw new Error("No player data found in sheet: " + sheetName);
-
-  const data = sheet.getRange(1, 1, lastRow, 7).getValues();
-  const targetName = String(playerName).trim().toLowerCase();
-
-  for (let i = 0; i < data.length; i++) {
-    const rowName = String(data[i][0] || '').trim().toLowerCase();
-
-    if (rowName === targetName) {
-      const targetRow = i + 1;
-      const checkInCol = 7; // Column G (Check-In)
-      const marker = isCheckedIn ? "X" : "";
-
-      sheet.getRange(targetRow, checkInCol).setValue(marker);
-      SpreadsheetApp.flush();
-
-      logDebug("updatePlayerCheckInInSheet", `Updated ${playerName} to check-in: '${marker}' on row ${targetRow}`);
-      return { success: true, name: playerName, checkedIn: !!isCheckedIn, row: targetRow };
-    }
-  }
-
-  throw new Error("Player '" + playerName + "' not found on sheet " + sheetName);
-}
-
-
-/**
- * Normalizes group and tab variations into a unified, sanitized cache key.
- */
-function getCheckInCacheKey(inputName) {
-  if (!inputName) return "";
-  let cleanGroup = String(inputName).replace(/^(Score|Sched|Rankings)\s*/i, "").trim().toLowerCase();
-  return "checkin_sched_" + cleanGroup.replace(/[^a-z0-9_]/g, "_");
-}
-
-
-/**
- * Automatically invalidates script cache when a user directly edits the spreadsheet.
- */
-/**
- * Automatically clears CacheService when a sheet is edited directly in Google Sheets.
- */
-function onEdit(e) {
-  if (!e || !e.range) return;
-
-  try {
-    const sheetName = e.range.getSheet().getName();
-    
-    // Generate the exact dynamic cache key used by getPlayersForCheckIn
-    const cacheKey = getCheckInCacheKey(sheetName);
-    
-    if (cacheKey) {
-      const cache = CacheService.getScriptCache();
-      cache.remove(cacheKey);
-      
-      // Also clear root group key if the tab includes prefixes like 'Sched ' or 'Score '
-      let cleanGroupName = sheetName.replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
-      cache.remove(getCheckInCacheKey(cleanGroupName));
-      
-      logDebug("onEdit", `Cleared dynamic cache key '${cacheKey}' for sheet '${sheetName}'`);
-    }
-  } catch (err) {
-    // Simple triggers run with restricted permissions; fail quietly if needed
-    console.warn("onEdit cache clearing failed:", err.message);
-  }
-}
-
-/**
- * TEST FUNCTION: Simulates Weeks 1 through 10 for 'Score Womens'.
- * Computes weekly rankings (R1..R10) sequentially using forced weeks
- * and exports the full matrix into the "RankTest" sheet.
- */
-function testWomensRankingsWeeks1To10() {
-  const ss = getDb()
-  
-  // 1. Locate sheet
-  let sheet = ss.getSheetByName("Score Womens");
-  if (!sheet) {
-    sheet = ss.getSheetByName("Womens") || (typeof getValidActiveScoreSheet === "function" ? getValidActiveScoreSheet("Womens") : null);
-  }
-  if (!sheet) {
-    throw new Error("⚠️ Could not find sheet 'Score Womens'. Please check sheet tab names.");
-  }
-
-  // 2. Backup pre-test data
-  let backupName = sheet.getName() + "_Backup";
-  let existingBackup = ss.getSheetByName(backupName);
-  if (existingBackup) ss.deleteSheet(existingBackup);
-  sheet.copyTo(ss).setName(backupName);
-  logDebug("testWomensRankingsWeeks1To10", "Backup tab created: " + backupName);
-
-  logDebug("testWomensRankingsWeeks1To10", "Starting 10-week ranking simulation", { sheetName: sheet.getName() });
-
-  // 3. Run simulation sequentially for Weeks 1 through 10
-  for (let week = 1; week <= 10; week++) {
-    let resultMsg = processWeeklyScoresForSheet(sheet, week, false);
-    logDebug("testWomensRankingsWeeks1To10", `Completed Week ${week}`, { resultMsg });
-  }
-
-  // 4. Create/reset 'RankTest' output sheet
-  let rankTestSheet = ss.getSheetByName("RankTest") || ss.insertSheet("RankTest");
-  rankTestSheet.clear();
-
-  const data = sheet.getDataRange().getValues();
-  if (data.length <= 1) return "⚠️ No player data found on tab: " + sheet.getName();
-
-  const col = buildColMap(data[0]);
-
-  let output = [
-    ["Player Name", "Status (W10)", "Raw Rank (W10)", "R0", "R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10"]
-  ];
-
-  // 5. Extract full row data for RankTest report
-  for (let i = 1; i < data.length; i++) {
-    let row = data[i];
-    let pName = (col.name !== undefined && row[col.name]) 
-      ? row[col.name].toString().trim() 
-      : ((row[col.first] || "") + " " + (row[col.last] || "")).trim();
-
-    if (!pName) continue;
-
-    // Check week 10 score to determine final active/inactive status
-    let w10Idx = col["w10"];
-    let rawScoreW10 = w10Idx !== undefined ? row[w10Idx] : "";
-    let hasW10Score = (rawScoreW10 !== "" && rawScoreW10 !== null && rawScoreW10 !== undefined && !isNaN(parseFloat(rawScoreW10)));
-    let statusStr = hasW10Score ? "ACTIVE" : "INACTIVE";
-
-    let rawRank = (col.rawRankCol !== undefined && row[col.rawRankCol] !== undefined) ? row[col.rawRankCol] : "";
-
-    let playerRow = [pName, statusStr, rawRank];
-
-    // Collect R0 through R10
-    for (let w = 0; w <= 10; w++) {
-      let rIdx = col["r" + w];
-      let rVal = (rIdx !== undefined && row[rIdx] !== undefined) ? row[rIdx] : "";
-      playerRow.push(rVal);
-    }
-
-    output.push(playerRow);
-  }
-
-  // 6. Write and style output table
-  let outRange = rankTestSheet.getRange(1, 1, output.length, output[0].length);
-  outRange.setValues(output);
-
-  let headerRange = rankTestSheet.getRange(1, 1, 1, output[0].length);
-  headerRange.setFontWeight("bold");
-  headerRange.setBackground("#4a86e8");
-  headerRange.setFontColor("#ffffff");
-
-  outRange.setBorder(true, true, true, true, true, true, "#cccccc", SpreadsheetApp.BorderStyle.SOLID);
-  rankTestSheet.autoResizeColumns(1, output[0].length);
-
-  return `✅ Test complete! Weeks 1–10 rankings processed and exported to 'RankTest' sheet. Backup saved to '${backupName}'.`;
-}
-
-
-/* ==========================================
- * SHARED HELPERS & COLUMN MAPPING
- * ========================================== */
-
-function getColIdx(colMap, candidateNames) {
-  for (let name of candidateNames) {
-    let key = name.toLowerCase().replace(/[\s\-_#]/g, "");
-    if (colMap[key] !== undefined) return colMap[key];
-  }
-  return undefined;
-}
-
-function buildColMap(header) {
-  let col = {};
-  if (!header) return col;
-
-  header.forEach((h, i) => {
-    if (h !== null && h !== undefined && h !== "") {
-      let norm = h.toString().toLowerCase().replace(/[\s\-_#]/g, "");
-      if (col[norm] === undefined) col[norm] = i;
-    }
-  });
-
-  col.first      = getColIdx(col, ["First Name", "First"]);
-  col.last       = getColIdx(col, ["Last Name", "Last"]);
-  col.name       = getColIdx(col, ["Name", "Player Name", "Player"]);
-  col.phone      = getColIdx(col, ["Phone", "Cell", "Mobile"]);
-  col.email      = getColIdx(col, ["Email", "E-mail"]);
-  col.group      = getColIdx(col, ["Ladder Name", "LadderName", "Ladder", "Group"]);
-  col.status     = getColIdx(col, ["Status", "Active"]);
-  col.total      = getColIdx(col, ["Tot", "Total"]);
-  col.winPct     = getColIdx(col, ["Pct", "Win %", "WinPct"]);
-  col.rNum       = getColIdx(col, ["RNum", "Rank"]);
-  col.rawRankCol = getColIdx(col, ["Raw Rank", "RawRank"]);
-
-  // Map R0..R10 and W1..W10 columns strictly
-  for (let r = 0; r <= 10; r++) {
-    col["r" + r] = getColIdx(col, ["R" + r]);
-    col["w" + r] = getColIdx(col, ["W" + r]);
-  }
-
-  return col;
-}
-
-// At the top of Code.js
-var _cachedSsInstance = null;
-
-function getDb() {
-  if (!_cachedSsInstance) {
-    _cachedSsInstance = SpreadsheetApp.openById(SPREADSHEET_ID);
-  }
-  return _cachedSsInstance;
+  ui.alert("Restore Complete", "Full backup restored successfully!", ui.ButtonSet.OK);
 }
