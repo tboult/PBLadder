@@ -150,6 +150,9 @@ function getPlayersForCheckIn(sheetName) {
 /**
  * Toggles single player check-in and invalidates standard cache key.
  */
+/**
+ * Toggles single player check-in and updates cache directly without purging.
+ */
 function toggleSingleCheckIn(sheetNameOrData, playerName, isCheckedIn) {
   let sheetName, targetPlayer, checkedState;
 
@@ -166,14 +169,30 @@ function toggleSingleCheckIn(sheetNameOrData, playerName, isCheckedIn) {
   // 1. Write update to Google Sheet
   const result = updatePlayerCheckInInSheet(sheetName, targetPlayer, checkedState);
 
-  // 2. Correctly invalidate cache using normalized key
+  // 2. Safely mutate existing Cache in place
   const cacheKey = getCheckInCacheKey(sheetName);
-  if (cacheKey) {
-    CacheService.getScriptCache().remove(cacheKey);
+  const cache = CacheService.getScriptCache();
+  try {
+    const cachedData = cache.get(cacheKey);
+    if (cachedData) {
+      let players = JSON.parse(cachedData);
+      const target = String(targetPlayer).trim().toLowerCase();
+      players = players.map(p => {
+        if (String(p.name).trim().toLowerCase() === target) {
+          p.checkedIn = !!checkedState;
+          p.checked = !!checkedState;
+        }
+        return p;
+      });
+      cache.put(cacheKey, JSON.stringify(players), 600);
+    }
+  } catch (err) {
+    cache.remove(cacheKey); // Fallback to clear on failure
   }
 
   return result;
 }
+
 
 /**
  * Saves check-ins in bulk and invalidates corresponding cache.
@@ -305,29 +324,60 @@ function doPost(e) {
 
 function handleApiRequest(e) {
   logDebug("handleApiRequest", "Processing API Payload");
-  const lock = LockService.getScriptLock();
-  lock.tryLock(10000);
-  
-  try {
-    let action = (e && e.parameter && e.parameter.action) ? e.parameter.action : "";
-    let payload = {};
 
-    if (e && e.postData && e.postData.contents) {
-      try {
-        payload = JSON.parse(e.postData.contents);
-        if (!action && payload.action) action = payload.action;
-      } catch(ex) {
-        logDebug("handleApiRequest", "JSON parse error on postData", ex.toString());
-      }
-    } else if (e && e.parameter) {
-      payload = e.parameter;
+  // Define actions that mutate Google Sheets or application state
+  const WRITE_ACTIONS = [
+    'sortActivePlayers',
+    'generateScheduleTabs',
+    'updateStandingsWithShift',
+    'correctScoresNoShift',
+    'toggleSingleCheckIn',
+    'saveCheckIns',
+    'togglePlayerStatus',
+    'submitCourtScores',
+    'addNewUser',
+    'rescheduleFromCheckIns',
+    'menuSortActivePlayers',
+    'menuGenerateScheduleTabs',
+    'menuUpdateStandingsWithShift',
+    'menuCorrectScoresNoShift',
+    'startNewSeason'
+  ];
+
+  let action = (e && e.parameter && e.parameter.action) ? e.parameter.action : "";
+  let payload = {};
+
+  if (e && e.postData && e.postData.contents) {
+    try {
+      payload = JSON.parse(e.postData.contents);
+      if (!action && payload.action) action = payload.action;
+    } catch(ex) {
+      logDebug("handleApiRequest", "JSON parse error on postData", ex.toString());
     }
+  } else if (e && e.parameter) {
+    payload = e.parameter;
+  }
 
-    logDebug("handleApiRequest", "Dispatching action", action);
+  logDebug("handleApiRequest", "Dispatching action", action);
 
+  // Only lock for state-changing write operations
+  const requiresLock = WRITE_ACTIONS.indexOf(action) !== -1;
+  const lock = LockService.getScriptLock();
+
+  if (requiresLock) {
+    const hasLock = lock.tryLock(10000);
+    if (!hasLock) {
+      return ContentService.createTextOutput(JSON.stringify({ 
+        status: "error", 
+        message: "Server busy processing another request. Please try again." 
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+
+  try {
     let result;
     switch(action) {
-       case 'sortActivePlayers':
+      case 'sortActivePlayers':
         {
           let targetGroup = payload.arg || payload.group;
           let sheet = getValidActiveScoreSheet(targetGroup);
@@ -360,7 +410,6 @@ function handleApiRequest(e) {
         break;
 
       case 'getInitialAppData':
-        // Safely check if data.phone exists before passing it
         var userPhone = (payload && payload.phone) ? payload.phone : null;
         result = getInitialAppData(userPhone);
         break;
@@ -457,8 +506,8 @@ function handleApiRequest(e) {
         break;
 
       default:
-      throw new Error("Invalid or missing API action: " + action);
-  }
+        throw new Error("Invalid or missing API action: " + action);
+    }
 
     logDebug("handleApiRequest", "Action executed successfully", action);
     return ContentService.createTextOutput(JSON.stringify({ status: "success", data: result }))
@@ -469,11 +518,16 @@ function handleApiRequest(e) {
     return ContentService.createTextOutput(JSON.stringify({ status: "error", message: err.toString() }))
       .setMimeType(ContentService.MimeType.JSON);
   } finally {
-    try {
-      lock.releaseLock();
-    } catch(e) { return e}
+    if (requiresLock) {
+      try {
+        lock.releaseLock();
+      } catch(e) {
+        logDebug("handleApiRequest", "Lock release error", e.toString());
+      }
+    }
   }
 }
+
 
 function authorizeScript() {
   logDebug("authorizeScript", "Starting script authorization");

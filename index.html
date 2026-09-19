@@ -746,18 +746,24 @@ function populateGroups(groups) {
     renderAdminCourts(groupName);
   }
 
-  async function checkAppVersion() {
-    try {
-      const serverVersion = await apiCall('getAppVersion');
-      const savedVersion = localStorage.getItem('app_installed_version');
-      if (savedVersion !== serverVersion) {
-        localStorage.setItem('app_installed_version', serverVersion);
-        window.location.reload(true);
-      }
-    } catch (e) {
-      console.warn("Version check failed.");
+
+async function checkAppVersion() {
+  try {
+    const serverVersion = await apiCall('getAppVersion');
+    const savedVersion = localStorage.getItem('app_installed_version');
+    
+    // Safety check: verify localStorage is functional before triggering reloads
+    if (savedVersion && savedVersion !== serverVersion) {
+      localStorage.setItem('app_installed_version', serverVersion);
+      window.location.reload(true);
+    } else if (!savedVersion) {
+      localStorage.setItem('app_installed_version', serverVersion);
     }
+  } catch (e) {
+    console.warn("Version check skipped/failed.");
   }
+}  
+
 
   async function forceResetApp() {
     if (confirm("This will clear cached app data and force-download the latest version. Continue?")) {
