@@ -112,39 +112,120 @@ function getAvailableGroups() {
 /**
  * Safely fetches players from cache or sheet.
  */
+/**
+ * Safely fetches players from cache or sheet using standardized keys.
+ */
 function getPlayersForCheckIn(sheetName) {
   if (!sheetName) return [];
 
-  // 1. Sanitize cache key (CacheService keys must not contain spaces/special characters)
-  const cleanKey = String(sheetName).replace(/[^a-zA-Z0-9_]/g, "_");
-  const cacheKey = "checkin_" + cleanKey;
+  const cacheKey = getCheckInCacheKey(sheetName);
   const cache = CacheService.getScriptCache();
 
-  // 2. Try Cache Read
+  // 1. Try Cache Read
   try {
     const cached = cache.get(cacheKey);
     if (cached) return JSON.parse(cached);
   } catch (err) {
-    // Continue to fetch if cache lookup fails
+    // Continue to sheet fetch on cache read error
   }
 
-  // 3. Fetch from Google Sheet
+  // 2. Fetch from Google Sheet
   const players = fetchPlayersFromSheet(sheetName);
 
-  // 4. Safely Cache (Only cache valid arrays, prevent 100KB limits from crashing script)
+  // 3. Cache Data Safely
   if (Array.isArray(players) && players.length > 0) {
     try {
       const payloadString = JSON.stringify(players);
-      if (payloadString.length < 100000) { // Stay below Apps Script 100KB limit
-        cache.put(cacheKey, payloadString, 600); // Cache for 10 mins
+      if (payloadString.length < 100000) {
+        cache.put(cacheKey, payloadString, 600); // 10 min cache
       }
     } catch (err) {
-      // Ignore cache write failures without breaking execution
+      // Ignore cache write errors
     }
   }
 
   return players;
 }
+
+/**
+ * Toggles single player check-in and invalidates standard cache key.
+ */
+function toggleSingleCheckIn(sheetNameOrData, playerName, isCheckedIn) {
+  let sheetName, targetPlayer, checkedState;
+
+  if (typeof sheetNameOrData === 'object' && sheetNameOrData !== null) {
+    sheetName = sheetNameOrData.sheet || sheetNameOrData.schedSheetName || sheetNameOrData.tab || sheetNameOrData.group || "";
+    targetPlayer = sheetNameOrData.playerName || sheetNameOrData.name || "";
+    checkedState = sheetNameOrData.isCheckedIn !== undefined ? sheetNameOrData.isCheckedIn : sheetNameOrData.checkedIn;
+  } else {
+    sheetName = sheetNameOrData;
+    targetPlayer = playerName;
+    checkedState = isCheckedIn;
+  }
+
+  // 1. Write update to Google Sheet
+  const result = updatePlayerCheckInInSheet(sheetName, targetPlayer, checkedState);
+
+  // 2. Correctly invalidate cache using normalized key
+  const cacheKey = getCheckInCacheKey(sheetName);
+  if (cacheKey) {
+    CacheService.getScriptCache().remove(cacheKey);
+  }
+
+  return result;
+}
+
+/**
+ * Saves check-ins in bulk and invalidates corresponding cache.
+ */
+function saveCheckIns(schedSheetName, checkedPlayerNames) {
+  logDebug("saveCheckIns", "Saving check-ins for sheet", { schedSheetName, checkedPlayerNames });
+  if (!schedSheetName) return "⚠️ Error: No target sheet specified.";
+
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  
+  let targetName = schedSheetName.toString().trim();
+  if (!targetName.startsWith("Sched ")) {
+    targetName = "Sched " + targetName;
+  }
+
+  let sheet = ss.getSheetByName(targetName);
+  if (!sheet) {
+    logDebug("saveCheckIns", "Target sheet not found", targetName);
+    return `⚠️ Error: Sheet '${targetName}' not found.`;
+  }
+
+  const data = sheet.getDataRange().getValues();
+  const namesArray = Array.isArray(checkedPlayerNames) 
+    ? checkedPlayerNames 
+    : JSON.parse(checkedPlayerNames || "[]");
+  const checkedSet = new Set(namesArray.map(n => n.toString().trim().toLowerCase()));
+
+  let headers = data[0].map(h => h.toString().toLowerCase().trim());
+  let checkInIdx = headers.indexOf("check-in");
+  let targetCol = checkInIdx !== -1 ? checkInIdx + 1 : 7;
+
+  let updatedCount = 0;
+  for (let i = 1; i < data.length; i++) {
+    let name = data[i][0] ? data[i][0].toString().trim() : "";
+    let court = data[i][1] ? data[i][1].toString().trim() : "";
+    if (name && court && court !== "BYE" && !name.startsWith("---") && !name.startsWith("Time:")) {
+      let isChecked = checkedSet.has(name.toLowerCase());
+      sheet.getRange(i + 1, targetCol).setValue(isChecked ? "X" : "");
+      if (isChecked) updatedCount++;
+    }
+  }
+
+  // Invalidate cache after bulk save
+  const cacheKey = getCheckInCacheKey(schedSheetName);
+  if (cacheKey) {
+    CacheService.getScriptCache().remove(cacheKey);
+  }
+
+  logDebug("saveCheckIns", `Successfully updated ${updatedCount} check-in markers on '${targetName}'`);
+  return `✅ Check-ins saved successfully (${updatedCount} checked in)!`;
+}
+
 
 /**
  * Fetches players and check-in state with flexible column matching.
@@ -211,47 +292,6 @@ function fetchPlayersFromSheet(inputName) {
 }
 
 
-function saveCheckIns(schedSheetName, checkedPlayerNames) {
-  logDebug("saveCheckIns", "Saving check-ins for sheet", { schedSheetName, checkedPlayerNames });
-  if (!schedSheetName) return "⚠️ Error: No target sheet specified.";
-
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  
-  let targetName = schedSheetName.toString().trim();
-  if (!targetName.startsWith("Sched ")) {
-    targetName = "Sched " + targetName;
-  }
-
-  let sheet = ss.getSheetByName(targetName);
-  if (!sheet) {
-    logDebug("saveCheckIns", "Target sheet not found", targetName);
-    return `⚠️ Error: Sheet '${targetName}' not found.`;
-  }
-
-  const data = sheet.getDataRange().getValues();
-  const namesArray = Array.isArray(checkedPlayerNames) 
-    ? checkedPlayerNames 
-    : JSON.parse(checkedPlayerNames || "[]");
-  const checkedSet = new Set(namesArray.map(n => n.toString().trim().toLowerCase()));
-
-  let headers = data[0].map(h => h.toString().toLowerCase().trim());
-  let checkInIdx = headers.indexOf("check-in");
-  let targetCol = checkInIdx !== -1 ? checkInIdx + 1 : 7;
-
-  let updatedCount = 0;
-  for (let i = 1; i < data.length; i++) {
-    let name = data[i][0] ? data[i][0].toString().trim() : "";
-    let court = data[i][1] ? data[i][1].toString().trim() : "";
-    if (name && court && court !== "BYE" && !name.startsWith("---") && !name.startsWith("Time:")) {
-      let isChecked = checkedSet.has(name.toLowerCase());
-      sheet.getRange(i + 1, targetCol).setValue(isChecked ? "X" : "");
-      if (isChecked) updatedCount++;
-    }
-  }
-
-  logDebug("saveCheckIns", `Successfully updated ${updatedCount} check-in markers on '${targetName}'`);
-  return `✅ Check-ins saved successfully (${updatedCount} checked in)!`;
-}
 
 function doGet(e) {
   logDebug("doGet", "HTTP GET Request received", e ? e.parameter : {});
@@ -1275,7 +1315,8 @@ function generateScheduleTabs(scoreTabName = null, overrideCourts = null) {
   sRange.setBorder(true, true, true, true, true, true, "black", SpreadsheetApp.BorderStyle.SOLID);
   schedSheet.getRange(1, 1, 1, 8).setFontWeight("bold");
 
-  logDebug("generateScheduleTabs", "Schedule tab successfully updated", schedSheetName);
+    logDebug("generateScheduleTabs", "Schedule tab successfully updated", schedSheetName);
+    CacheService.getScriptCache().remove(getCheckInCacheKey(cleanGroupName));    
   return `✅ Schedule generated successfully for ${cleanGroupName} (${activePlayers.length} players, ${courtIdx} courts).`;
 }
 
@@ -1357,6 +1398,7 @@ function rescheduleFromCheckIns(schedTabName, overrideCourts = null) {
   sRange.setBorder(true, true, true, true, true, true, "black", SpreadsheetApp.BorderStyle.SOLID);
   schedSheet.getRange(1, 1, 1, 8).setFontWeight("bold");
 
+  CacheService.getScriptCache().remove(getCheckInCacheKey(targetName));
   logDebug("rescheduleFromCheckIns", "Check-in schedule regenerated", targetName);
   return `✅ Rescheduled ${checkedInPlayers.length} checked-in players across ${courtIdx} courts. (${uncheckedPlayers.length} unchecked players placed on BYE).`;
 }
@@ -1703,28 +1745,7 @@ function lookupPhoneInternal(phone) {
 }
 
 
-function toggleSingleCheckIn(sheetNameOrData, playerName, isCheckedIn) {
-  let sheetName, targetPlayer, checkedState;
 
-  if (typeof sheetNameOrData === 'object' && sheetNameOrData !== null) {
-    sheetName = sheetNameOrData.sheet || sheetNameOrData.schedSheetName || sheetNameOrData.tab || sheetNameOrData.group || "";
-    targetPlayer = sheetNameOrData.playerName || sheetNameOrData.name || "";
-    checkedState = sheetNameOrData.isCheckedIn !== undefined ? sheetNameOrData.isCheckedIn : sheetNameOrData.checkedIn;
-  } else {
-    sheetName = sheetNameOrData;
-    targetPlayer = playerName;
-    checkedState = isCheckedIn;
-  }
-
-  // 1. Write update to Google Sheet
-  const result = updatePlayerCheckInInSheet(sheetName, targetPlayer, checkedState);
-
-  // 2. Invalidate cache to force fresh fetches
-  const cache = CacheService.getScriptCache();
-    cache.remove("checkin_" + sheetName);
-
-  return result;
-}
 
 
 
@@ -1765,4 +1786,14 @@ function updatePlayerCheckInInSheet(sheetName, playerName, isCheckedIn) {
   }
 
   throw new Error("Player '" + playerName + "' not found on sheet " + sheetName);
+}
+
+
+/**
+ * Normalizes group and tab variations into a unified, sanitized cache key.
+ */
+function getCheckInCacheKey(inputName) {
+  if (!inputName) return "";
+  let cleanGroup = String(inputName).replace(/^(Score|Sched|Rankings)\s*/i, "").trim().toLowerCase();
+  return "checkin_sched_" + cleanGroup.replace(/[^a-z0-9_]/g, "_");
 }
