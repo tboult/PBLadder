@@ -74,6 +74,14 @@
 
       * { box-sizing: border-box; }
       html { font-size: 100%; transition: font-size 0.2s ease; }
+
+      select, input, button, textarea {
+          font-size: inherit;
+          font-family: inherit;
+          line-height: inherit;
+      }      
+      
+
       
       body { 
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
@@ -129,11 +137,29 @@
         color: var(--btn-main-text);
       }
 
+      .nav button { 
+          flex: 1; 
+          min-width: 4.5rem; 
+          padding: 0.5rem 0.25rem; 
+          border: none; 
+          background: transparent; 
+          cursor: pointer; 
+          font-weight: 700;  
+          font-size: 1rem; /* Enables senior font scaling on tab labels */
+          color: var(--nav-text); 
+          border-radius: 0.4rem; 
+          transition: 0.2s; 
+          min-height: 54px; 
+      }
       .nav { display: flex; background: var(--nav-bg); border-radius: 0.5rem; padding: 0.2rem; margin-bottom: 0.75rem; overflow-x: auto;}
-      .nav button { flex: 1; min-width: 4.5rem; padding: 0.75rem 0.25rem; border: none; background: transparent; cursor: pointer; font-weight: 700;  color: var(--nav-text); border-radius: 0.4rem; transition: 0.2s; min-height: 54px; }
       .nav button.active { background: var(--nav-active-bg); color: var(--nav-active-text); box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
       .tab-content { display: none; }
       .tab-content.active { display: block; }
+
+      /* Replace fixed px values (e.g., font-size: 14px;) */
+      .tab, .tab-button, [role="tab"] {
+          font-size: 1rem; /* Scales relative to <html> font-size */
+      }      
 
       input,  button { 
       width: 100%; 
@@ -148,27 +174,27 @@
       }
 
       select {
-      width: 100%;
-      padding: 0.75rem 1rem;
-      margin-top: 0.5rem;
-      border-radius: 0.5rem;
-      border: 2px solid var(--input-border);
-      background-color: var(--input-bg);
-      color: var(--text-color);
-      min-height: 54px;
-      box-sizing: border-box;
-      
-      /* Restores predictable native dropdown picker alignment across iOS/Android/Desktop */
-      appearance: auto;
-      -webkit-appearance: auto;
-      -moz-appearance: auto;
+          width: 100%;
+          padding: 0.75rem 1rem;
+          margin-top: 0.5rem;
+          border-radius: 0.5rem;
+          border: 2px solid var(--input-border);
+          background-color: var(--input-bg);
+          color: var(--text-color);
+          font-size: 1rem; /* Enables senior font scaling on dropdown selector */
+          min-height: 54px;
+          box-sizing: border-box;
+          appearance: auto;
+          -webkit-appearance: auto;
+          -moz-appearance: auto;
       }
       
-      /* Forces options to remain legible inside OS popover windows */
       select option {
-      background-color: var(--card-bg);
-      color: var(--text-color);
+          background-color: var(--card-bg);
+          color: var(--text-color);
+          font-size: 1rem; /* Scales options list text inside popover */
       }
+
       
       button, .btn, .btn-main {
       background-color: #e8f5e9;
@@ -296,7 +322,7 @@
         font-size: 1rem; 
         margin:0;
       }
-      
+
     </style>
   </head>
   <body>
@@ -379,7 +405,7 @@
     <div id="helpTab" class="tab-content">
       <!-- Place inside your header or navigation button bar -->
       <button id="forceRefreshBtn" onclick="forceRefresh()" title="Clear browser cache and reload fresh data" style="padding: 6px 12px; cursor: pointer;">
-        🔄 Refresh Data
+         <h3> 🔄 Clean Cache & Refresh Data </h3>
       </button>
 
       <div class="access-panel">
@@ -745,8 +771,8 @@ async function checkAppVersion() {
 // ✅ Use explicit pt values for base and scaled sizes
 const sizeRatios = { 
   normal: '100%',   // ~16px baseline
-  large:  '145%',   // ~23.2px baseline
-  huge:   '175%'    // ~30
+  large:  '125%',   // ~20 
+  huge:   '150%'    // ~24
 };
 
 function applyTextSize(size) {
