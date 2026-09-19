@@ -1180,13 +1180,34 @@ function parseRankVal(val) {
 /* ==========================================
  * 5. MAIN SCORE PROCESSING & RANKING
  * ========================================== */
-/* ==========================================
- * 5. MAIN SCORE PROCESSING & RANKING
- * ========================================== */
+
+  /* ==========================================================================
+   * RANKING & RESTRICTION ALGORITHM LOGIC BREAKDOWN:
+   * --------------------------------------------------------------------------
+   * Step 1: Compute Initial Raw Rank
+   *         Sort active players descending by cumulative point percentage (cumPct)
+   *         through week i. Assign raw rank positions (1..N).
+   * 
+   * Step 2: Apply Movement Restriction (Clamping)
+   *         Clamp raw rank movement to a maximum of +/- 4 positions relative 
+   *         to the player's previous week rank R(i-1).
+   * 
+   * Step 3: Sort & Break Post-Restriction Ties
+   *         Sort players by clamped rank ascending. When players tie on clamped
+   *         rank, break ties using cumulative point percentage (cumPct) 
+   *         descending so higher percentages receive higher positions.
+   * 
+   * Step 4: Sequential Renumbering & Dynamic Restriction Tag (-R)
+   *         Renumber active players strictly 1..N in sorted order. Compare each
+   *         player's final renumbered rank against R(i-1); append the '-R' suffix
+   *         only if |FinalRank - R(i-1)| > 4.
+   * ========================================================================== */
+
 
 function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
 
+  // Resolve target sheet dynamically if omitted/null
   if (!sheet) {
     sheet = ss.getActiveSheet();
   }
@@ -1205,6 +1226,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
   const headerRow = data[0];
   const col = buildColMap(headerRow);
   
+  // Dynamically extract group name from current active sheet tab name
   let cleanGroupName = sheet.getName().replace(/^Score\s+/i, "").trim();
 
   // Determine target week index (1 to 10)
@@ -1294,7 +1316,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
       winPct: stats.winPct,
       currentWeekScore: currentWeekScore,
       cumScore: cumScore,
-      cumPct: cumPct,                  // True PCT based on played weeks through week i
+      cumPct: cumPct,
       prevRank: prevRankInfo.rank,
       prevNumPeople: prevRankInfo.numPeople,
       prevRawStr: prevRankInfo.rawStr
@@ -1308,63 +1330,62 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
   }
 
   let numActive = activePlayers.length;
+  const maxMove = typeof MAX_MOVEMENT !== "undefined" ? MAX_MOVEMENT : 4;
 
-  // 1. Compute Raw Rank based on CUMULATIVE PCT of played weeks
+  // STEP 1: Compute Initial Raw Rank based on cumulative PCT descending
   activePlayers.sort((a, b) => {
-    if (Math.abs(b.cumPct - a.cumPct) > 0.0001) return b.cumPct - a.cumPct; // Descending PCT
-    if (a.prevRank !== b.prevRank) return a.prevRank - b.prevRank;           // Tie-breaker 1: Prior Rank
-    return b.prevNumPeople - a.prevNumPeople;                                // Tie-breaker 2: Prior N
+    if (Math.abs(b.cumPct - a.cumPct) > 0.0001) return b.cumPct - a.cumPct;
+    if (a.prevRank !== b.prevRank) return a.prevRank - b.prevRank;
+    return b.prevNumPeople - a.prevNumPeople;
   });
 
   activePlayers.forEach((p, index) => {
     p.rawRank = index + 1;
   });
 
-  // 2. Limit movement to max +/- 4 positions from R(j-1)
-  const maxMove = typeof MAX_MOVEMENT !== "undefined" ? MAX_MOVEMENT : 4;
+  // STEP 2: Calculate Clamped Rank within +/- maxMove of R(j-1)
   activePlayers.forEach(p => {
     if (p.prevRank !== Infinity && p.prevRank > 0) {
       let minAllowed = Math.max(1, p.prevRank - maxMove);
       let maxAllowed = p.prevRank + maxMove;
-
-      if (p.rawRank < minAllowed) {
-        p.clampedRank = minAllowed;
-        p.isRestricted = true;
-      } else if (p.rawRank > maxAllowed) {
-        p.clampedRank = maxAllowed;
-        p.isRestricted = true;
-      } else {
-        p.clampedRank = p.rawRank;
-        p.isRestricted = false;
-      }
+      p.clampedRank = Math.min(Math.max(p.rawRank, minAllowed), maxAllowed);
     } else {
       p.clampedRank = p.rawRank;
-      p.isRestricted = false;
     }
   });
 
-  // 3. Final ranking order & tie-breaker after clamping
+  // STEP 3: Sort active players after restriction, breaking ties using point percentage (cumPct)
   activePlayers.sort((a, b) => {
-    if (a.clampedRank !== b.clampedRank) return a.clampedRank - b.clampedRank;
-    if (b.prevNumPeople !== a.prevNumPeople) return b.prevNumPeople - a.prevNumPeople;
-    if (a.prevRank !== b.prevRank) return a.prevRank - b.prevRank;
-    return b.cumPct - a.cumPct;
+    if (a.clampedRank !== b.clampedRank) return a.clampedRank - b.clampedRank; // Primary: Clamped Rank
+    if (Math.abs(b.cumPct - a.cumPct) > 0.0001) return b.cumPct - a.cumPct;    // Tie-breaker 1: Higher cumPct
+    if (a.prevRank !== b.prevRank) return a.prevRank - b.prevRank;              // Tie-breaker 2: Prior Rank
+    return b.prevNumPeople - a.prevNumPeople;                                   // Tie-breaker 3: Prior N
   });
 
-  // Format Rj string (e.g. "16/40-R")
-  activePlayers.forEach(p => {
+  // STEP 4: Renumber sequentially 1..N and check if final rank changed by > 4 from prevRank
+  activePlayers.forEach((p, index) => {
+    p.finalRank = index + 1;
+
+    // Evaluate restriction (-R) against final renumbered rank position
+    if (p.prevRank !== Infinity && p.prevRank > 0) {
+      let rankDiff = Math.abs(p.finalRank - p.prevRank);
+      p.isRestricted = (rankDiff > maxMove);
+    } else {
+      p.isRestricted = false;
+    }
+
     let suffix = p.isRestricted ? "-R" : "";
-    p.rjStr = p.clampedRank + "/" + numActive + suffix;
+    p.rjStr = p.finalRank + "/" + numActive + suffix;
   });
 
-  // Inactive players copy previous R(j-1) verbatim
+  // Handle inactive players (preserve prior ranking info)
   inactivePlayers.forEach(p => {
     p.rjStr = p.prevRawStr || (p.prevRank !== Infinity ? (p.prevRank + "/" + p.prevNumPeople) : "");
     p.rawRank = "";
-    p.clampedRank = p.prevRank !== Infinity ? p.prevRank : "";
+    p.finalRank = p.prevRank !== Infinity ? p.prevRank : "";
   });
 
-  // Write updated values to row clones
+  // Write updated values back to row clone arrays
   activePlayers.forEach(p => {
     if (col.group !== undefined) p.rowRaw[col.group] = cleanGroupName;
     if (col.total !== undefined) p.rowRaw[col.total] = p.total;
@@ -1372,7 +1393,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
     if (col.status !== undefined) p.rowRaw[col.status] = "ACTIVE";
     if (rawRankColIdx !== undefined) p.rowRaw[rawRankColIdx] = p.rawRank;
     if (currRColIdx !== undefined) p.rowRaw[currRColIdx] = p.rjStr;
-    if (col.rNum !== undefined) p.rowRaw[col.rNum] = p.clampedRank;
+    if (col.rNum !== undefined) p.rowRaw[col.rNum] = p.finalRank;
   });
 
   inactivePlayers.sort((a, b) => a.prevRank - b.prevRank);
@@ -1386,12 +1407,12 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
     if (currRColIdx !== undefined) p.rowRaw[currRColIdx] = p.rjStr;
   });
 
-  // Rebuild final structured sheet array (Active on top, Inactive on bottom)
+  // Rebuild final structured sheet array (Active on top sorted by final rank, Inactive on bottom)
   let finalRows = [headerRow];
   activePlayers.forEach(p => finalRows.push(p.rowRaw));
   inactivePlayers.forEach(p => finalRows.push(p.rowRaw));
 
-  // Write full row structures back to sheet
+  // Write full row structures back to active sheet
   sheet.clearContents();
   sheet.getRange(1, 1, finalRows.length, finalRows[0].length).setValues(finalRows);
 
@@ -1400,6 +1421,8 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
 
   return `✅ Standings and Week ${weekNum} Rankings (R${weekNum}) processed for '${sheet.getName()}'! (${activePlayers.length} Active, ${inactivePlayers.length} Inactive)`;
 }
+
+
 
 
 
