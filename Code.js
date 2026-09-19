@@ -613,7 +613,7 @@ function onOpen() {
     .addItem('5. 📥 Download Schedule PDFs', 'showPdfDownloadDialog')
     .addSeparator()
     .addItem('6. Update Standings (Current Tab - SHIFT)', 'menuUpdateStandingsWithShift')
-    .addItem('7. Correct Current Scores (Current Tab - NO SHIFT)', 'menuCorrectScoresNoShift')
+    .addItem('7. Compute Ranking from Current Scores', 'menuCorrectScoresNoShift')
     .addSeparator()
     .addItem('📸 Save Pre-Work Tab', 'createPreWorkSnapshotTab')
     .addItem('⏪ Restore Score Data from Tab', 'restoreFromSnapshotTab')
@@ -621,6 +621,7 @@ function onOpen() {
     .addItem('📁 Run Full Drive File Backup', 'menuCreateDriveBackup')
     .addItem('⏪ Restore Full File from Drive', 'restoreFullFileFromDrive')
     .addSeparator()
+    .addItem('🧪 Test: Run Weeks 1-10 (Womens -> RankTest)', 'testWomensRankingsWeeks1To10')
     .addItem('🛠️ Maint: Generate Sched Tabs (All Groups)', 'menuGenerateScheduleTabs')
     .addToUi();
 }
@@ -1020,6 +1021,11 @@ function buildColMap(header) {
   col.winPct     = getColIdx(col, ["Pct", "Win %"]);
   col.rNum       = getColIdx(col, ["RNum", "Rank"]);
   col.rawRankCol = getColIdx(col, ["Raw Rank"]);
+
+  // Map R0 through R10 weekly ranking columns
+  for (let r = 0; r <= 10; r++) {
+    col["r" + r] = getColIdx(col, ["R" + r, "r" + r]);
+  }
   return col;
 }
 
@@ -1031,6 +1037,25 @@ function getColIdx(colMap, candidates) {
   return undefined;
 }
 
+/**
+ * Parses rank values stored as "Rank/NumPeople" (e.g. "5/16" -> {rank: 5, numPeople: 16}).
+ */
+function parseRankVal(val) {
+  if (val === null || val === undefined || val === "") return { rank: Infinity, numPeople: 0 };
+  let str = val.toString().trim();
+  if (str.includes("/")) {
+    let parts = str.split("/");
+    let r = parseFloat(parts[0]);
+    let n = parseFloat(parts[1]);
+    return { 
+      rank: isNaN(r) ? Infinity : r, 
+      numPeople: isNaN(n) ? 0 : n 
+    };
+  }
+  let r = parseFloat(str);
+  return { rank: isNaN(r) ? Infinity : r, numPeople: 0 };
+}
+
 function parseAndSortCourts(cStr) {
   if (!cStr) return [1, 2, 3, 4, 5, 6, 7, 8];
   if (Array.isArray(cStr)) return cStr;
@@ -1038,9 +1063,26 @@ function parseAndSortCourts(cStr) {
   return courts.length > 0 ? courts : [1, 2, 3, 4, 5, 6, 7, 8];
 }
 
+/**
+ * Searches columns R10 down to R0 to find a player's most recent ranking.
+ */
+function getMostRecentRank(row, col, maxWeekNum = 10) {
+  for (let w = maxWeekNum; w >= 0; w--) {
+    let rIdx = col["r" + w];
+    if (rIdx !== undefined && row[rIdx] !== "" && row[rIdx] !== null && row[rIdx] !== undefined) {
+      let parsed = parseRankVal(row[rIdx]);
+      if (parsed.rank !== Infinity) {
+        return { rank: parsed.rank, numPeople: parsed.numPeople, weekNum: w, rawStr: row[rIdx].toString().trim() };
+      }
+    }
+  }
+  return { rank: Infinity, numPeople: 0, weekNum: -1, rawStr: "" };
+}
+
 /* ==========================================
  * 5. MAIN SCORE PROCESSING & RANKING
  * ========================================== */
+
 
 function processWeeklyScores(forcedWeek, shouldShift = true) {
   logDebug("processWeeklyScores", "Processing weekly scores wrapper");
@@ -1110,8 +1152,33 @@ function harvestScoresFromSchedules(ss, scoreData, col, targetWeekIdx, groupName
   }
 }
 
+
+/**
+ * Parses rank values stored as "Rank/NumPeople" or "Rank/NumPeople-R" (e.g., "16/40-R" -> {rank: 16, numPeople: 40, isRestricted: true}).
+ */
+function parseRankVal(val) {
+  if (val === null || val === undefined || val === "") return { rank: Infinity, numPeople: 0, isRestricted: false };
+  
+  let str = val.toString().trim();
+  let isRestricted = /-R$/i.test(str);
+  let cleanStr = str.replace(/-R$/i, "").trim();
+
+  if (cleanStr.includes("/")) {
+    let parts = cleanStr.split("/");
+    let r = parseFloat(parts[0]);
+    let n = parseFloat(parts[1]);
+    return { 
+      rank: isNaN(r) ? Infinity : r, 
+      numPeople: isNaN(n) ? 0 : n,
+      isRestricted: isRestricted
+    };
+  }
+  let r = parseFloat(cleanStr);
+  return { rank: isNaN(r) ? Infinity : r, numPeople: 0, isRestricted: isRestricted };
+}
+
 function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
-  logDebug("processWeeklyScoresForSheet", "Processing sheet standings", { sheet: sheet.getName(), forcedWeek, shouldShift });
+  logDebug("processWeeklyScoresForSheet", "Processing sheet standings & weekly rankings", { sheet: sheet.getName(), forcedWeek, shouldShift });
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   checkAndRunWeeklyBackup();
 
@@ -1119,10 +1186,16 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
   if (data.length <= 1) return "⚠️ No player data found on tab: " + sheet.getName();
 
   const col = buildColMap(data[0]);
-
   let cleanGroupName = sheet.getName().replace("Score ", "").trim();
 
-  let targetWeekKey = (forcedWeek || ("w" + calculateCurrentWeekNumber())).toLowerCase();
+  // Determine current week index (1 to 10)
+  let weekNum = calculateCurrentWeekNumber();
+  if (forcedWeek) {
+    let match = forcedWeek.toString().match(/\d+/);
+    if (match) weekNum = parseInt(match[0], 10);
+  }
+
+  let targetWeekKey = "w" + weekNum;
   let targetWeekIdx = col[targetWeekKey];
 
   if (targetWeekIdx === undefined) {
@@ -1130,12 +1203,18 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
       if (col["w" + i] !== undefined) {
         targetWeekKey = "w" + i;
         targetWeekIdx = col["w" + i];
+        weekNum = i;
         break;
       }
     }
   }
 
+  // Harvest latest scores from schedule sheet into target week column Wj
   harvestScoresFromSchedules(ss, data, col, targetWeekIdx, cleanGroupName);
+
+  let currRColIdx = col["r" + weekNum];
+  let prevRColIdx = col["r" + (weekNum - 1)];
+  let rawRankColIdx = col.rawRankCol;
 
   let activePlayers = [];
   let inactivePlayers = [];
@@ -1154,6 +1233,18 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
 
     let stats = calculateStats(row, col);
 
+    // Fetch previous week ranking R(j-1)
+    let prevRankInfo = { rank: Infinity, numPeople: 0, rawStr: "" };
+    if (prevRColIdx !== undefined && row[prevRColIdx] !== "" && row[prevRColIdx] !== null) {
+      prevRankInfo = parseRankVal(row[prevRColIdx]);
+      prevRankInfo.rawStr = row[prevRColIdx].toString().trim();
+    } else {
+      prevRankInfo = getMostRecentRank(row, col, weekNum - 1);
+    }
+
+    let currentWeekScore = targetWeekIdx !== undefined ? (parseFloat(row[targetWeekIdx]) || 0) : 0;
+    let currentWeekPct = currentWeekScore / MAX_POINTS_PER_WEEK;
+
     let playerObj = {
       rowIndex: i,
       rowRaw: row,
@@ -1161,8 +1252,11 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
       status: status,
       total: stats.total,
       winPct: stats.winPct,
-      rNum: col.rNum !== undefined ? (parseFloat(row[col.rNum]) || i) : i,
-      currentWeekScore: targetWeekIdx !== undefined ? (parseFloat(row[targetWeekIdx]) || 0) : 0
+      currentWeekScore: currentWeekScore,
+      currentWeekPct: currentWeekPct,
+      prevRank: prevRankInfo.rank,
+      prevNumPeople: prevRankInfo.numPeople,
+      prevRawStr: prevRankInfo.rawStr
     };
 
     if (status === "ACTIVE") {
@@ -1172,55 +1266,157 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
     }
   }
 
-  if (shouldShift) {
-    activePlayers.sort((a, b) => {
-      let courtA = Math.floor((a.rNum - 1) / 4);
-      let courtB = Math.floor((b.rNum - 1) / 4);
+  let numActive = activePlayers.length;
 
-      if (courtA !== courtB) {
-        return courtA - courtB;
-      }
-
-      if (b.currentWeekScore !== a.currentWeekScore) {
-        return b.currentWeekScore - a.currentWeekScore;
-      }
-
-      return a.rNum - b.rNum;
-    });
-
-    let reorderedActive = [];
-    for (let c = 0; c < activePlayers.length; c += 4) {
-      let courtGroup = activePlayers.slice(c, c + 4);
-      courtGroup.sort((a, b) => {
-        if (b.currentWeekScore !== a.currentWeekScore) {
-          return b.currentWeekScore - a.currentWeekScore;
-        }
-        return a.rNum - b.rNum;
-      });
-      reorderedActive.push(...courtGroup);
-    }
-    activePlayers = reorderedActive;
-  }
-
-  activePlayers.forEach((p, index) => {
-    p.newRank = index + 1;
+  // 1. Compute Raw Rank based on pure percentage points in Wj
+  activePlayers.sort((a, b) => {
+    if (b.currentWeekPct !== a.currentWeekPct) return b.currentWeekPct - a.currentWeekPct;
+    if (a.prevRank !== b.prevRank) return a.prevRank - b.prevRank;
+    return b.prevNumPeople - a.prevNumPeople;
   });
 
-  let allPlayers = activePlayers.concat(inactivePlayers);
+  activePlayers.forEach((p, index) => {
+    p.rawRank = index + 1;
+  });
 
-  for (let p of allPlayers) {
+  // 2. Limit movement to max 4 positions up or down from R(j-1) and flag if restricted
+  activePlayers.forEach(p => {
+    if (p.prevRank !== Infinity && p.prevRank > 0) {
+      let minAllowed = Math.max(1, p.prevRank - MAX_MOVEMENT);
+      let maxAllowed = p.prevRank + MAX_MOVEMENT;
+
+      if (p.rawRank < minAllowed) {
+        p.clampedRank = minAllowed;
+        p.isRestricted = true;
+      } else if (p.rawRank > maxAllowed) {
+        p.clampedRank = maxAllowed;
+        p.isRestricted = true;
+      } else {
+        p.clampedRank = p.rawRank;
+        p.isRestricted = false;
+      }
+    } else {
+      p.clampedRank = p.rawRank;
+      p.isRestricted = false;
+    }
+  });
+
+  // 3. Break ties: larger numPeople from most recent ranking results in higher rank (placed first)
+  activePlayers.sort((a, b) => {
+    if (a.clampedRank !== b.clampedRank) return a.clampedRank - b.clampedRank;
+    if (b.prevNumPeople !== a.prevNumPeople) return b.prevNumPeople - a.prevNumPeople;
+    if (a.prevRank !== b.prevRank) return a.prevRank - b.prevRank;
+    return b.currentWeekPct - a.currentWeekPct;
+  });
+
+  // Format Rj string as Rank/NumPeople[-R]
+  activePlayers.forEach(p => {
+    let suffix = p.isRestricted ? "-R" : "";
+    p.rjStr = p.clampedRank + "/" + numActive + suffix;
+  });
+
+  // Inactive players: copy R(j-1) verbatim including original suffix
+  inactivePlayers.forEach(p => {
+    p.rjStr = p.prevRawStr || (p.prevRank !== Infinity ? (p.prevRank + "/" + p.prevNumPeople) : "");
+  });
+
+  // Save values back to sheet
+  for (let p of activePlayers.concat(inactivePlayers)) {
     if (col.total !== undefined) data[p.rowIndex][col.total] = p.total;
     if (col.winPct !== undefined) data[p.rowIndex][col.winPct] = p.winPct;
-    if (p.status === "ACTIVE" && col.rNum !== undefined) {
-      data[p.rowIndex][col.rNum] = p.newRank;
+
+    if (p.status === "ACTIVE") {
+      if (rawRankColIdx !== undefined) data[p.rowIndex][rawRankColIdx] = p.rawRank;
+      if (currRColIdx !== undefined) data[p.rowIndex][currRColIdx] = p.rjStr;
+      if (col.rNum !== undefined) data[p.rowIndex][col.rNum] = p.clampedRank;
+    } else {
+      if (currRColIdx !== undefined) data[p.rowIndex][currRColIdx] = p.rjStr;
     }
   }
 
   sheet.getRange(1, 1, data.length, data[0].length).setValues(data);
 
+  // Update Rankings tab for this group using Rj column
+  updateRankingsSheetForGroup(ss, cleanGroupName, activePlayers, inactivePlayers, weekNum);
+
+  // Sort active players on Score sheet by most recent ranking
   sortActivePlayersForSheet(sheet);
 
-  return `✅ Standings processed for '${sheet.getName()}'! (Week column updated: ${targetWeekKey.toUpperCase()})`;
+  return `✅ Standings and Week ${weekNum} Rankings (R${weekNum}) processed for '${sheet.getName()}'!`;
+}
+
+
+
+/**
+ * Populates the Rankings sheet (e.g., "Rankings Womens") using Rj column data.
+ */
+function updateRankingsSheetForGroup(ss, groupName, activePlayers, inactivePlayers, weekNum) {
+  let rankSheetName = "Rankings " + groupName;
+  let rankSheet = ss.getSheetByName(rankSheetName) || ss.insertSheet(rankSheetName);
+  rankSheet.clear();
+
+  let rankOut = [["Rank", "Name", "Win %", "Total Points"]];
+
+  activePlayers.forEach(p => {
+    let winPctStr = (p.winPct * 100).toFixed(1) + "%";
+    rankOut.push([p.rjStr, p.name, winPctStr, p.total]);
+  });
+
+  inactivePlayers.forEach(p => {
+    let winPctStr = (p.winPct * 100).toFixed(1) + "%";
+    rankOut.push([p.rjStr || "INACTIVE", p.name, winPctStr, p.total]);
+  });
+
+  let range = rankSheet.getRange(1, 1, rankOut.length, 4);
+  range.setValues(rankOut);
+  rankSheet.getRange(1, 1, 1, 4).setFontWeight("bold");
+}
+
+function sortActivePlayersForSheet(sheet) {
+  logDebug("sortActivePlayersForSheet", "Sorting active players for sheet", sheet.getName());
+  const data = sheet.getDataRange().getValues();
+  if (data.length <= 1) return "⚠️ No player data found on tab: " + sheet.getName();
+
+  const col = buildColMap(data[0]);
+
+  let headerRow = data[0];
+  let activeRows = [];
+  let inactiveRows = [];
+
+  for (let i = 1; i < data.length; i++) {
+    let row = data[i];
+    let status = (col.status !== undefined && row[col.status] !== "") 
+      ? row[col.status].toString().toUpperCase().trim() 
+      : "ACTIVE";
+
+    let recent = getMostRecentRank(row, col, 10);
+    row._recentRank = recent.rank;
+    row._recentNumPeople = recent.numPeople;
+    row._origIdx = i;
+
+    if (status === "ACTIVE") {
+      activeRows.push(row);
+    } else {
+      inactiveRows.push(row);
+    }
+  }
+
+  // Sort active players using most recent ranking (rank ascending, numPeople descending)
+  activeRows.sort((a, b) => {
+    if (a._recentRank !== b._recentRank) return a._recentRank - b._recentRank;
+    if (b._recentNumPeople !== a._recentNumPeople) return b._recentNumPeople - a._recentNumPeople;
+    return a._origIdx - b._origIdx;
+  });
+
+  activeRows.forEach(r => { delete r._recentRank; delete r._recentNumPeople; delete r._origIdx; });
+  inactiveRows.forEach(r => { delete r._recentRank; delete r._recentNumPeople; delete r._origIdx; });
+
+  let sortedData = [headerRow, ...activeRows, ...inactiveRows];
+
+  sheet.clearContents();
+  sheet.getRange(1, 1, sortedData.length, sortedData[0].length).setValues(sortedData);
+
+  return `✅ Active players sorted successfully on tab '${sheet.getName()}'! (${activeRows.length} Active, ${inactiveRows.length} Inactive)`;
 }
 
 function calculateStats(row, col) {
@@ -1248,45 +1444,6 @@ function sortActivePlayers() {
   return sortActivePlayersForSheet(sheet);
 }
 
-function sortActivePlayersForSheet(sheet) {
-  logDebug("sortActivePlayersForSheet", "Sorting active players for sheet", sheet.getName());
-  const data = sheet.getDataRange().getValues();
-  if (data.length <= 1) return "⚠️ No player data found on tab: " + sheet.getName();
-
-  const col = buildColMap(data[0]);
-
-  let headerRow = data[0];
-  let activeRows = [];
-  let inactiveRows = [];
-
-  for (let i = 1; i < data.length; i++) {
-    let row = data[i];
-    let status = (col.status !== undefined && row[col.status] !== "") 
-      ? row[col.status].toString().toUpperCase().trim() 
-      : "ACTIVE";
-
-    let rNum = col.rNum !== undefined ? (parseFloat(row[col.rNum]) || i) : i;
-    row._rNum = rNum;
-
-    if (status === "ACTIVE") {
-      activeRows.push(row);
-    } else {
-      inactiveRows.push(row);
-    }
-  }
-
-  activeRows.sort((a, b) => a._rNum - b._rNum);
-
-  activeRows.forEach(r => delete r._rNum);
-  inactiveRows.forEach(r => delete r._rNum);
-
-  let sortedData = [headerRow, ...activeRows, ...inactiveRows];
-
-  sheet.clearContents();
-  sheet.getRange(1, 1, sortedData.length, sortedData[0].length).setValues(sortedData);
-
-  return `✅ Active players sorted successfully on tab '${sheet.getName()}'! (${activeRows.length} Active, ${inactiveRows.length} Inactive)`;
-}
 
 /* ==========================================
  * SCHEDULE GENERATION WITH GROUP COURT MAPPING
@@ -1323,15 +1480,28 @@ function generateScheduleTabs(scoreTabName = null, overrideCourts = null) {
       let cleanKey = pName.toLowerCase();
       if (seenPlayers.has(cleanKey)) continue;
       seenPlayers.add(cleanKey);
+
+      // Fetch most recent ranking for scheduling active players
+      let recentRank = getMostRecentRank(row, col, 10);
       
       activePlayers.push({
         name: pName,
-        phone: col.phone !== undefined ? row[col.phone] : ""
+        phone: col.phone !== undefined ? row[col.phone] : "",
+        rank: recentRank.rank,
+        numPeople: recentRank.numPeople,
+        rowIndex: i
       });
     }
   }
 
   if (activePlayers.length === 0) return "⚠️ No active players found on " + resolvedTabName;
+
+  // Sort active players using most recent ranking
+  activePlayers.sort((a, b) => {
+    if (a.rank !== b.rank) return a.rank - b.rank;
+    if (b.numPeople !== a.numPeople) return b.numPeople - a.numPeople;
+    return a.rowIndex - b.rowIndex;
+  });
 
   let cleanGroupName = resolvedTabName.replace("Score ", "").trim();
   let schedSheetName = "Sched " + cleanGroupName;
@@ -1339,7 +1509,6 @@ function generateScheduleTabs(scoreTabName = null, overrideCourts = null) {
   let schedSheet = ss.getSheetByName(schedSheetName) || ss.insertSheet(schedSheetName);
   schedSheet.clear();
 
-  // Retrieve assigned court numbers list for this group, with optional overrides from Admin UI
   const defaultCourts = getCourtsForGroup(cleanGroupName);
   const availableCourts = (overrideCourts && Array.isArray(overrideCourts) && overrideCourts.length > 0) 
     ? overrideCourts 
@@ -1369,8 +1538,8 @@ function generateScheduleTabs(scoreTabName = null, overrideCourts = null) {
   sRange.setBorder(true, true, true, true, true, true, "black", SpreadsheetApp.BorderStyle.SOLID);
   schedSheet.getRange(1, 1, 1, 8).setFontWeight("bold");
 
-    logDebug("generateScheduleTabs", "Schedule tab successfully updated", schedSheetName);
-    CacheService.getScriptCache().remove(getCheckInCacheKey(cleanGroupName));    
+  logDebug("generateScheduleTabs", "Schedule tab successfully updated", schedSheetName);
+  CacheService.getScriptCache().remove(getCheckInCacheKey(cleanGroupName));    
   return `✅ Schedule generated successfully for ${cleanGroupName} (${activePlayers.length} players, ${courtIdx} courts).`;
 }
 
@@ -1913,3 +2082,87 @@ function onEdit(e) {
   }
 }
 
+/**
+ * TEST FUNCTION: Simulates Weeks 1 through 10 for 'Score Womens'.
+ * Computes weekly rankings (R1..R10) sequentially using forced weeks
+ * and exports the full matrix into the "RankTest" sheet.
+ */
+function testWomensRankingsWeeks1To10() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  
+  // 1. Locate the Women's Score sheet
+  let sheet = ss.getSheetByName("Score Womens");
+  if (!sheet) {
+    sheet = ss.getSheetByName("Womens") || (typeof getValidActiveScoreSheet === "function" ? getValidActiveScoreSheet("Womens") : null);
+  }
+  if (!sheet) {
+    throw new Error("⚠️ Could not find sheet 'Score Womens'. Please check sheet tab names.");
+  }
+
+  logDebug("testWomensRankingsWeeks1To10", "Starting 10-week ranking simulation", { sheetName: sheet.getName() });
+
+  // 2. Loop sequentially through Weeks 1 to 10
+  for (let week = 1; week <= 10; week++) {
+    let resultMsg = processWeeklyScoresForSheet(sheet, week, false);
+    logDebug("testWomensRankingsWeeks1To10", `Completed Week ${week}`, { resultMsg });
+  }
+
+  // 3. Create or reset the "RankTest" sheet
+  let rankTestSheet = ss.getSheetByName("RankTest") || ss.insertSheet("RankTest");
+  rankTestSheet.clear();
+
+  // 4. Fetch updated data from Women's sheet
+  const data = sheet.getDataRange().getValues();
+  if (data.length <= 1) {
+    return "⚠️ No player data found on tab: " + sheet.getName();
+  }
+
+  const col = buildColMap(data[0]);
+
+  // Construct header row
+  let output = [
+    ["Player Name", "Status", "Raw Rank", "R0", "R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10"]
+  ];
+
+  // Extract weekly ranking progression per player
+  for (let i = 1; i < data.length; i++) {
+    let row = data[i];
+    let pName = (col.name !== undefined && row[col.name]) 
+      ? row[col.name].toString().trim() 
+      : ((row[col.first] || "") + " " + (row[col.last] || "")).trim();
+
+    if (!pName) continue;
+
+    let status = (col.status !== undefined && row[col.status] !== "") 
+      ? row[col.status].toString().toUpperCase().trim() 
+      : "ACTIVE";
+
+    let rawRank = (col.rawRankCol !== undefined && row[col.rawRankCol] !== undefined) ? row[col.rawRankCol] : "";
+
+    let playerRow = [pName, status, rawRank];
+
+    // Collect R0 through R10 values
+    for (let w = 0; w <= 10; w++) {
+      let rIdx = col["r" + w];
+      let rVal = (rIdx !== undefined && row[rIdx] !== undefined) ? row[rIdx] : "";
+      playerRow.push(rVal);
+    }
+
+    output.push(playerRow);
+  }
+
+  // 5. Populate and format the "RankTest" sheet
+  let outRange = rankTestSheet.getRange(1, 1, output.length, output[0].length);
+  outRange.setValues(output);
+
+  // Styling
+  let headerRange = rankTestSheet.getRange(1, 1, 1, output[0].length);
+  headerRange.setFontWeight("bold");
+  headerRange.setBackground("#4a86e8");
+  headerRange.setFontColor("#ffffff");
+
+  outRange.setBorder(true, true, true, true, true, true, "#cccccc", SpreadsheetApp.BorderStyle.SOLID);
+  rankTestSheet.autoResizeColumns(1, output[0].length);
+
+  return `✅ Test complete! Weeks 1–10 rankings processed and exported to 'RankTest' sheet.`;
+}
