@@ -156,60 +156,6 @@ function fetchPlayersFromSheet(inputName) {
   return players;
 }
 
-/**
- * Instant Single Player Check-In Toggle (Auto-Save on Click)
- */
-function toggleSingleCheckIn(sheetNameOrData, playerName, isCheckedIn) {
-  // Normalize parameters (handles both object payloads and positional arguments)
-  let sheetName, targetPlayer, checkedState;
-  
-  if (typeof sheetNameOrData === 'object' && sheetNameOrData !== null) {
-    sheetName = sheetNameOrData.sheet || sheetNameOrData.sheetName || "";
-    targetPlayer = sheetNameOrData.playerName || sheetNameOrData.name || "";
-    checkedState = sheetNameOrData.isCheckedIn;
-  } else {
-    sheetName = sheetNameOrData;
-    targetPlayer = playerName;
-    checkedState = isCheckedIn;
-  }
-
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  
-  // Normalize tab name prefix if missing
-  const resolvedName = String(sheetName).startsWith("Sched ") ? sheetName : "Sched " + sheetName;
-  const sheet = ss.getSheetByName(resolvedName) || ss.getSheetByName(sheetName);
-  
-  if (!sheet) throw new Error("Sheet not found: " + sheetName);
-
-  const lastRow = sheet.getLastRow();
-  if (lastRow < 2) throw new Error("No player data found in sheet: " + sheetName);
-
-  const data = sheet.getRange(1, 1, lastRow, 7).getValues();
-  const targetName = String(targetPlayer || '').trim().toLowerCase();
-  
-  for (let i = 0; i < data.length; i++) {
-    const rowName = String(data[i][0] || '').trim().toLowerCase();
-    
-    if (rowName === targetName) {
-      const targetRow = i + 1;
-      const checkInCol = 7; // Column G (Check-In)
-      const marker = checkedState ? "X" : ""; // Uses "X" / empty string standard
-
-      // Write directly to Column G (Check-In)
-      sheet.getRange(targetRow, checkInCol).setValue(marker);
-      
-      SpreadsheetApp.flush(); // Force changes to write immediately
-      
-      if (typeof logDebug === 'function') {
-        logDebug("toggleSingleCheckIn", `Successfully updated ${targetPlayer} to check-in: '${marker}' on row ${targetRow}`);
-      }
-      
-      return { success: true, name: targetPlayer, checkedIn: !!checkedState, row: targetRow };
-    }
-  }
-  
-  throw new Error("Player '" + targetPlayer + "' not found on sheet " + sheetName);
-}
 
 function saveCheckIns(schedSheetName, checkedPlayerNames) {
   logDebug("saveCheckIns", "Saving check-ins for sheet", { schedSheetName, checkedPlayerNames });
@@ -323,6 +269,7 @@ function handleApiRequest(e) {
         // Safely check if data.phone exists before passing it
         var userPhone = (payload && payload.phone) ? payload.phone : null;
         result = getInitialAppData(userPhone);
+        break;
       
       case 'getSchedTabNames':
         result = getSchedTabNames();
@@ -1670,35 +1617,6 @@ function getInitialAppData(phone) {
 }
 
 
-// 1. Returns tab names that represent schedule/ladder sheets
-function getSchedTabNames() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheets = ss.getSheets();
-  
-  // Filters tabs containing "Sched" or "Ladder" (adjust filter criteria if needed)
-  return sheets
-    .map(sheet => sheet.getName())
-    .filter(name => /sched|ladder/i.test(name));
-}
-
-// 2. Returns unique group names from a "Groups" or "Players" tab
-function getAvailableGroups() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const groupSheet = ss.getSheetByName("Groups") || ss.getSheetByName("Players");
-  if (!groupSheet) return [];
-  
-  const data = groupSheet.getDataRange().getValues();
-  const groups = new Set();
-
-  if (!data || data.length <= 1) return "Error: No Groups found.";  
-  // Assumes Group names are in Column A starting at Row 2
-  for (let i = 1; i < data.length; i++) {
-    if (data[i][0]) {
-      groups.add(String(data[i][0]).trim());
-    }
-  }
-  return Array.from(groups);
-}
 
 // 3. Searches the "Players" sheet for a matching phone number
 function lookupPhoneInternal(phone) {
@@ -1716,7 +1634,7 @@ function lookupPhoneInternal(phone) {
   const groupCol = headers.findIndex(h => h.includes('group') || h.includes('ladder'));
   
   if (phoneCol === -1) return null;
-  if (!data || data.length <= 1) return "Error: phones found.";    
+    if (!data || data.length <= 1) return null;
   for (let i = 1; i < data.length; i++) {
     const rowPhone = String(data[i][phoneCol]).replace(/\D/g, '');
     if (rowPhone && rowPhone === cleanPhone) {
@@ -1744,13 +1662,66 @@ function getPlayersForCheckIn(sheetName) {
   return players;
 }
 
-function toggleSingleCheckIn(data) {
+function toggleSingleCheckIn(sheetNameOrData, playerName, isCheckedIn) {
+  let sheetName, targetPlayer, checkedState;
+
+  if (typeof sheetNameOrData === 'object' && sheetNameOrData !== null) {
+    sheetName = sheetNameOrData.sheet || sheetNameOrData.schedSheetName || sheetNameOrData.tab || sheetNameOrData.group || "";
+    targetPlayer = sheetNameOrData.playerName || sheetNameOrData.name || "";
+    checkedState = sheetNameOrData.isCheckedIn !== undefined ? sheetNameOrData.isCheckedIn : sheetNameOrData.checkedIn;
+  } else {
+    sheetName = sheetNameOrData;
+    targetPlayer = playerName;
+    checkedState = isCheckedIn;
+  }
+
   // 1. Write update to Google Sheet
-  updatePlayerCheckInInSheet(data.sheet, data.playerName, data.isCheckedIn);
+  const result = updatePlayerCheckInInSheet(sheetName, targetPlayer, checkedState);
 
-  // 2. INVALIDATE SHARED CACHE: Forces ALL users to get fresh data on next poll
+  // 2. Invalidate cache to force fresh fetches
   const cache = CacheService.getScriptCache();
-  cache.remove("checkin_" + data.sheet);
+    cache.remove("checkin_" + sheetName);
 
-  return { status: "success" };
+  return result;
+}
+
+
+
+/**
+ * Updates player check-in status directly in the specified Google Sheet tab.
+ */
+function updatePlayerCheckInInSheet(sheetName, playerName, isCheckedIn) {
+  if (!sheetName || !playerName) {
+    throw new Error("Sheet name and player name are required.");
+  }
+
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const resolvedName = String(sheetName).startsWith("Sched ") ? sheetName : "Sched " + sheetName;
+  const sheet = ss.getSheetByName(resolvedName) || ss.getSheetByName(sheetName);
+
+  if (!sheet) throw new Error("Sheet not found: " + sheetName);
+
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) throw new Error("No player data found in sheet: " + sheetName);
+
+  const data = sheet.getRange(1, 1, lastRow, 7).getValues();
+  const targetName = String(playerName).trim().toLowerCase();
+
+  for (let i = 0; i < data.length; i++) {
+    const rowName = String(data[i][0] || '').trim().toLowerCase();
+
+    if (rowName === targetName) {
+      const targetRow = i + 1;
+      const checkInCol = 7; // Column G (Check-In)
+      const marker = isCheckedIn ? "X" : "";
+
+      sheet.getRange(targetRow, checkInCol).setValue(marker);
+      SpreadsheetApp.flush();
+
+      logDebug("updatePlayerCheckInInSheet", `Updated ${playerName} to check-in: '${marker}' on row ${targetRow}`);
+      return { success: true, name: playerName, checkedIn: !!isCheckedIn, row: targetRow };
+    }
+  }
+
+  throw new Error("Player '" + playerName + "' not found on sheet " + sheetName);
 }
