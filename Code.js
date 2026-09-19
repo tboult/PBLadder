@@ -1199,15 +1199,23 @@ function parseRankVal(val) {
    * 
    * Step 4: Sequential Renumbering & Dynamic Restriction Tag (-R)
    *         Renumber active players strictly 1..N in sorted order. Compare each
-   *         player's final renumbered rank against R(i-1); append the '-R' suffix
+   *         player's final renumbered rank against R(i-1); optionally append the '-R' suffix
    *         only if |FinalRank - R(i-1)| > 4.
    * ========================================================================== */
 
 
+/* ==========================================
+ * 5. MAIN SCORE PROCESSING & RANKING
+ * ========================================== */
+
 function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
 
-  // Resolve target sheet dynamically if omitted/null
+  // --- CONFIGURATION FLAGS ---
+  // true  = evaluate -R tag based on INITIAL Raw Rank movement
+  // false = evaluate -R tag based on FINAL Renumbered Rank movement
+  const RESTRICT_BY_RAW_RANK = true;
+
   if (!sheet) {
     sheet = ss.getActiveSheet();
   }
@@ -1226,7 +1234,6 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
   const headerRow = data[0];
   const col = buildColMap(headerRow);
   
-  // Dynamically extract group name from current active sheet tab name
   let cleanGroupName = sheet.getName().replace(/^Score\s+/i, "").trim();
 
   // Determine target week index (1 to 10)
@@ -1332,6 +1339,26 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
   let numActive = activePlayers.length;
   const maxMove = typeof MAX_MOVEMENT !== "undefined" ? MAX_MOVEMENT : 4;
 
+  /* ==========================================================================
+   * RANKING & RESTRICTION ALGORITHM LOGIC BREAKDOWN:
+   * --------------------------------------------------------------------------
+   * Step 1: Compute Initial Raw Rank
+   *         Sort active players descending by cumulative point percentage (cumPct)
+   *         through week i. Assign raw rank positions (1..N).
+   * 
+   * Step 2: Apply Movement Restriction (Clamping) & Flag Restriction (-R)
+   *         Clamp raw rank movement to max +/- 4 positions relative to R(i-1).
+   *         If RESTRICT_BY_RAW_RANK = true, flag -R based on Raw Rank movement.
+   * 
+   * Step 3: Sort & Break Post-Restriction Ties
+   *         Sort players by clamped rank ascending. Break ties using 
+   *         cumulative point percentage (cumPct) descending.
+   * 
+   * Step 4: Sequential Renumbering & Tag Formatting
+   *         Renumber active players strictly 1..N.
+   *         If RESTRICT_BY_RAW_RANK = false, flag -R based on Final Rank movement.
+   * ========================================================================== */
+
   // STEP 1: Compute Initial Raw Rank based on cumulative PCT descending
   activePlayers.sort((a, b) => {
     if (Math.abs(b.cumPct - a.cumPct) > 0.0001) return b.cumPct - a.cumPct;
@@ -1343,14 +1370,19 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
     p.rawRank = index + 1;
   });
 
-  // STEP 2: Calculate Clamped Rank within +/- maxMove of R(j-1)
+  // STEP 2: Calculate Clamped Rank & Optionally flag -R via Raw Rank
   activePlayers.forEach(p => {
     if (p.prevRank !== Infinity && p.prevRank > 0) {
       let minAllowed = Math.max(1, p.prevRank - maxMove);
       let maxAllowed = p.prevRank + maxMove;
       p.clampedRank = Math.min(Math.max(p.rawRank, minAllowed), maxAllowed);
+      
+      if (RESTRICT_BY_RAW_RANK) {
+        p.isRestricted = (Math.abs(p.rawRank - p.prevRank) > maxMove);
+      }
     } else {
       p.clampedRank = p.rawRank;
+      p.isRestricted = false;
     }
   });
 
@@ -1362,16 +1394,16 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
     return b.prevNumPeople - a.prevNumPeople;                                   // Tie-breaker 3: Prior N
   });
 
-  // STEP 4: Renumber sequentially 1..N and check if final rank changed by > 4 from prevRank
+  // STEP 4: Renumber sequentially 1..N, optionally check -R via Final Rank, and format string
   activePlayers.forEach((p, index) => {
     p.finalRank = index + 1;
 
-    // Evaluate restriction (-R) against final renumbered rank position
-    if (p.prevRank !== Infinity && p.prevRank > 0) {
-      let rankDiff = Math.abs(p.finalRank - p.prevRank);
-      p.isRestricted = (rankDiff > maxMove);
-    } else {
-      p.isRestricted = false;
+    if (!RESTRICT_BY_RAW_RANK) {
+      if (p.prevRank !== Infinity && p.prevRank > 0) {
+        p.isRestricted = (Math.abs(p.finalRank - p.prevRank) > maxMove);
+      } else {
+        p.isRestricted = false;
+      }
     }
 
     let suffix = p.isRestricted ? "-R" : "";
@@ -1421,6 +1453,8 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
 
   return `✅ Standings and Week ${weekNum} Rankings (R${weekNum}) processed for '${sheet.getName()}'! (${activePlayers.length} Active, ${inactivePlayers.length} Inactive)`;
 }
+
+
 
 
 
