@@ -1177,6 +1177,10 @@ function parseRankVal(val) {
   return { rank: isNaN(r) ? Infinity : r, numPeople: 0, isRestricted: isRestricted };
 }
 
+/* ==========================================
+ * 5. MAIN SCORE PROCESSING & RANKING
+ * ========================================== */
+
 function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
   logDebug("processWeeklyScoresForSheet", "Processing sheet standings & weekly rankings", { sheet: sheet.getName(), forcedWeek, shouldShift });
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -1185,10 +1189,11 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
   const data = sheet.getDataRange().getValues();
   if (data.length <= 1) return "⚠️ No player data found on tab: " + sheet.getName();
 
-  const col = buildColMap(data[0]);
+  const headerRow = data[0];
+  const col = buildColMap(headerRow);
   let cleanGroupName = sheet.getName().replace("Score ", "").trim();
 
-  // Determine current week index (1 to 10)
+  // Determine target week index (1 to 10)
   let weekNum = calculateCurrentWeekNumber();
   if (forcedWeek) {
     let match = forcedWeek.toString().match(/\d+/);
@@ -1209,7 +1214,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
     }
   }
 
-  // Harvest latest scores from schedule sheet into target week column Wj
+  // Harvest latest scores into target week column Wj
   harvestScoresFromSchedules(ss, data, col, targetWeekIdx, cleanGroupName);
 
   let currRColIdx = col["r" + weekNum];
@@ -1227,9 +1232,9 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
 
     if (!pName) continue;
 
-    let status = (col.status !== undefined && row[col.status] !== "") 
-      ? row[col.status].toString().toUpperCase().trim() 
-      : "ACTIVE";
+    // Active status is strictly determined by presence of a score in Wj
+    let rawScoreVal = targetWeekIdx !== undefined ? row[targetWeekIdx] : "";
+    let hasScore = (rawScoreVal !== "" && rawScoreVal !== null && rawScoreVal !== undefined && !isNaN(parseFloat(rawScoreVal)));
 
     let stats = calculateStats(row, col);
 
@@ -1242,14 +1247,14 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
       prevRankInfo = getMostRecentRank(row, col, weekNum - 1);
     }
 
-    let currentWeekScore = targetWeekIdx !== undefined ? (parseFloat(row[targetWeekIdx]) || 0) : 0;
+    let currentWeekScore = hasScore ? parseFloat(rawScoreVal) : 0;
     let currentWeekPct = currentWeekScore / MAX_POINTS_PER_WEEK;
 
     let playerObj = {
       rowIndex: i,
-      rowRaw: row,
+      rowRaw: [...row], // Full row clone to preserve all column alignment
       name: pName,
-      status: status,
+      isActive: hasScore,
       total: stats.total,
       winPct: stats.winPct,
       currentWeekScore: currentWeekScore,
@@ -1259,7 +1264,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
       prevRawStr: prevRankInfo.rawStr
     };
 
-    if (status === "ACTIVE") {
+    if (hasScore) {
       activePlayers.push(playerObj);
     } else {
       inactivePlayers.push(playerObj);
@@ -1268,7 +1273,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
 
   let numActive = activePlayers.length;
 
-  // 1. Compute Raw Rank based on pure percentage points in Wj
+  // 1. Compute Raw Rank for active players based on Wj score percentage
   activePlayers.sort((a, b) => {
     if (b.currentWeekPct !== a.currentWeekPct) return b.currentWeekPct - a.currentWeekPct;
     if (a.prevRank !== b.prevRank) return a.prevRank - b.prevRank;
@@ -1279,11 +1284,12 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
     p.rawRank = index + 1;
   });
 
-  // 2. Limit movement to max 4 positions up or down from R(j-1) and flag if restricted
+  // 2. Limit movement to max +/- 4 positions from R(j-1)
+  const maxMove = typeof MAX_MOVEMENT !== "undefined" ? MAX_MOVEMENT : 4;
   activePlayers.forEach(p => {
     if (p.prevRank !== Infinity && p.prevRank > 0) {
-      let minAllowed = Math.max(1, p.prevRank - MAX_MOVEMENT);
-      let maxAllowed = p.prevRank + MAX_MOVEMENT;
+      let minAllowed = Math.max(1, p.prevRank - maxMove);
+      let maxAllowed = p.prevRank + maxMove;
 
       if (p.rawRank < minAllowed) {
         p.clampedRank = minAllowed;
@@ -1301,7 +1307,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
     }
   });
 
-  // 3. Break ties: larger numPeople from most recent ranking results in higher rank (placed first)
+  // 3. Break ties: larger numPeople from R(j-1) ranks higher
   activePlayers.sort((a, b) => {
     if (a.clampedRank !== b.clampedRank) return a.clampedRank - b.clampedRank;
     if (b.prevNumPeople !== a.prevNumPeople) return b.prevNumPeople - a.prevNumPeople;
@@ -1309,41 +1315,144 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
     return b.currentWeekPct - a.currentWeekPct;
   });
 
-  // Format Rj string as Rank/NumPeople[-R]
+  // Format Rj string (e.g. "16/40-R")
   activePlayers.forEach(p => {
     let suffix = p.isRestricted ? "-R" : "";
     p.rjStr = p.clampedRank + "/" + numActive + suffix;
   });
 
-  // Inactive players: copy R(j-1) verbatim including original suffix
+  // Inactive players copy previous R(j-1) verbatim
   inactivePlayers.forEach(p => {
     p.rjStr = p.prevRawStr || (p.prevRank !== Infinity ? (p.prevRank + "/" + p.prevNumPeople) : "");
+    p.rawRank = "";
+    p.clampedRank = p.prevRank !== Infinity ? p.prevRank : "";
   });
 
-  // Save values back to sheet
-  for (let p of activePlayers.concat(inactivePlayers)) {
-    if (col.total !== undefined) data[p.rowIndex][col.total] = p.total;
-    if (col.winPct !== undefined) data[p.rowIndex][col.winPct] = p.winPct;
+  // Apply column updates directly to full row objects
+  activePlayers.forEach(p => {
+    if (col.total !== undefined) p.rowRaw[col.total] = p.total;
+    if (col.winPct !== undefined) p.rowRaw[col.winPct] = p.winPct;
+    if (col.status !== undefined) p.rowRaw[col.status] = "ACTIVE";
+    if (rawRankColIdx !== undefined) p.rowRaw[rawRankColIdx] = p.rawRank;
+    if (currRColIdx !== undefined) p.rowRaw[currRColIdx] = p.rjStr;
+    if (col.rNum !== undefined) p.rowRaw[col.rNum] = p.clampedRank;
+  });
 
-    if (p.status === "ACTIVE") {
-      if (rawRankColIdx !== undefined) data[p.rowIndex][rawRankColIdx] = p.rawRank;
-      if (currRColIdx !== undefined) data[p.rowIndex][currRColIdx] = p.rjStr;
-      if (col.rNum !== undefined) data[p.rowIndex][col.rNum] = p.clampedRank;
-    } else {
-      if (currRColIdx !== undefined) data[p.rowIndex][currRColIdx] = p.rjStr;
-    }
-  }
+  // Sort inactive players by previous rank for clean output
+  inactivePlayers.sort((a, b) => a.prevRank - b.prevRank);
 
-  sheet.getRange(1, 1, data.length, data[0].length).setValues(data);
+  inactivePlayers.forEach(p => {
+    if (col.total !== undefined) p.rowRaw[col.total] = p.total;
+    if (col.winPct !== undefined) p.rowRaw[col.winPct] = p.winPct;
+    if (col.status !== undefined) p.rowRaw[col.status] = "INACTIVE";
+    if (rawRankColIdx !== undefined) p.rowRaw[rawRankColIdx] = "";
+    if (currRColIdx !== undefined) p.rowRaw[currRColIdx] = p.rjStr;
+  });
 
-  // Update Rankings tab for this group using Rj column
+  // Rebuild final structured sheet array (Active on top, Inactive on bottom)
+  let finalRows = [headerRow];
+  activePlayers.forEach(p => finalRows.push(p.rowRaw));
+  inactivePlayers.forEach(p => finalRows.push(p.rowRaw));
+
+  // Write full row structures back to sheet
+  sheet.clearContents();
+  sheet.getRange(1, 1, finalRows.length, finalRows[0].length).setValues(finalRows);
+
+  // Update Rankings tab for this group
   updateRankingsSheetForGroup(ss, cleanGroupName, activePlayers, inactivePlayers, weekNum);
 
-  // Sort active players on Score sheet by most recent ranking
-  sortActivePlayersForSheet(sheet);
-
-  return `✅ Standings and Week ${weekNum} Rankings (R${weekNum}) processed for '${sheet.getName()}'!`;
+  return `✅ Standings and Week ${weekNum} Rankings (R${weekNum}) processed for '${sheet.getName()}'! (${activePlayers.length} Active, ${inactivePlayers.length} Inactive)`;
 }
+
+
+/* ==========================================
+ * 6. TEST FUNCTION FOR WEEKS 1 TO 10
+ * ========================================== */
+
+function testWomensRankingsWeeks1To10() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  
+  // 1. Locate sheet
+  let sheet = ss.getSheetByName("Score Womens");
+  if (!sheet) {
+    sheet = ss.getSheetByName("Womens") || (typeof getValidActiveScoreSheet === "function" ? getValidActiveScoreSheet("Womens") : null);
+  }
+  if (!sheet) {
+    throw new Error("⚠️ Could not find sheet 'Score Womens'. Please check sheet tab names.");
+  }
+
+  // 2. Backup pre-test data
+  let backupName = sheet.getName() + "_Backup";
+  let existingBackup = ss.getSheetByName(backupName);
+  if (existingBackup) ss.deleteSheet(existingBackup);
+  sheet.copyTo(ss).setName(backupName);
+  logDebug("testWomensRankingsWeeks1To10", "Backup tab created: " + backupName);
+
+  logDebug("testWomensRankingsWeeks1To10", "Starting 10-week ranking simulation", { sheetName: sheet.getName() });
+
+  // 3. Run simulation sequentially for Weeks 1 through 10
+  for (let week = 1; week <= 10; week++) {
+    let resultMsg = processWeeklyScoresForSheet(sheet, week, false);
+    logDebug("testWomensRankingsWeeks1To10", `Completed Week ${week}`, { resultMsg });
+  }
+
+  // 4. Create/reset 'RankTest' output sheet
+  let rankTestSheet = ss.getSheetByName("RankTest") || ss.insertSheet("RankTest");
+  rankTestSheet.clear();
+
+  const data = sheet.getDataRange().getValues();
+  if (data.length <= 1) return "⚠️ No player data found on tab: " + sheet.getName();
+
+  const col = buildColMap(data[0]);
+
+  let output = [
+    ["Player Name", "Status (W10)", "Raw Rank (W10)", "R0", "R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10"]
+  ];
+
+  // 5. Extract full row data for RankTest report
+  for (let i = 1; i < data.length; i++) {
+    let row = data[i];
+    let pName = (col.name !== undefined && row[col.name]) 
+      ? row[col.name].toString().trim() 
+      : ((row[col.first] || "") + " " + (row[col.last] || "")).trim();
+
+    if (!pName) continue;
+
+    // Check week 10 score to determine final active/inactive status
+    let w10Idx = col["w10"];
+    let rawScoreW10 = w10Idx !== undefined ? row[w10Idx] : "";
+    let hasW10Score = (rawScoreW10 !== "" && rawScoreW10 !== null && rawScoreW10 !== undefined && !isNaN(parseFloat(rawScoreW10)));
+    let statusStr = hasW10Score ? "ACTIVE" : "INACTIVE";
+
+    let rawRank = (col.rawRankCol !== undefined && row[col.rawRankCol] !== undefined) ? row[col.rawRankCol] : "";
+
+    let playerRow = [pName, statusStr, rawRank];
+
+    // Collect R0 through R10
+    for (let w = 0; w <= 10; w++) {
+      let rIdx = col["r" + w];
+      let rVal = (rIdx !== undefined && row[rIdx] !== undefined) ? row[rIdx] : "";
+      playerRow.push(rVal);
+    }
+
+    output.push(playerRow);
+  }
+
+  // 6. Write and style output table
+  let outRange = rankTestSheet.getRange(1, 1, output.length, output[0].length);
+  outRange.setValues(output);
+
+  let headerRange = rankTestSheet.getRange(1, 1, 1, output[0].length);
+  headerRange.setFontWeight("bold");
+  headerRange.setBackground("#4a86e8");
+  headerRange.setFontColor("#ffffff");
+
+  outRange.setBorder(true, true, true, true, true, true, "#cccccc", SpreadsheetApp.BorderStyle.SOLID);
+  rankTestSheet.autoResizeColumns(1, output[0].length);
+
+  return `✅ Test complete! Weeks 1–10 rankings processed and exported to 'RankTest' sheet. Backup saved to '${backupName}'.`;
+}
+
 
 
 
@@ -2090,7 +2199,7 @@ function onEdit(e) {
 function testWomensRankingsWeeks1To10() {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   
-  // 1. Locate the Women's Score sheet
+  // 1. Locate sheet
   let sheet = ss.getSheetByName("Score Womens");
   if (!sheet) {
     sheet = ss.getSheetByName("Womens") || (typeof getValidActiveScoreSheet === "function" ? getValidActiveScoreSheet("Womens") : null);
@@ -2099,32 +2208,35 @@ function testWomensRankingsWeeks1To10() {
     throw new Error("⚠️ Could not find sheet 'Score Womens'. Please check sheet tab names.");
   }
 
+  // 2. Backup pre-test data
+  let backupName = sheet.getName() + "_Backup";
+  let existingBackup = ss.getSheetByName(backupName);
+  if (existingBackup) ss.deleteSheet(existingBackup);
+  sheet.copyTo(ss).setName(backupName);
+  logDebug("testWomensRankingsWeeks1To10", "Backup tab created: " + backupName);
+
   logDebug("testWomensRankingsWeeks1To10", "Starting 10-week ranking simulation", { sheetName: sheet.getName() });
 
-  // 2. Loop sequentially through Weeks 1 to 10
+  // 3. Run simulation sequentially for Weeks 1 through 10
   for (let week = 1; week <= 10; week++) {
     let resultMsg = processWeeklyScoresForSheet(sheet, week, false);
     logDebug("testWomensRankingsWeeks1To10", `Completed Week ${week}`, { resultMsg });
   }
 
-  // 3. Create or reset the "RankTest" sheet
+  // 4. Create/reset 'RankTest' output sheet
   let rankTestSheet = ss.getSheetByName("RankTest") || ss.insertSheet("RankTest");
   rankTestSheet.clear();
 
-  // 4. Fetch updated data from Women's sheet
   const data = sheet.getDataRange().getValues();
-  if (data.length <= 1) {
-    return "⚠️ No player data found on tab: " + sheet.getName();
-  }
+  if (data.length <= 1) return "⚠️ No player data found on tab: " + sheet.getName();
 
   const col = buildColMap(data[0]);
 
-  // Construct header row
   let output = [
-    ["Player Name", "Status", "Raw Rank", "R0", "R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10"]
+    ["Player Name", "Status (W10)", "Raw Rank (W10)", "R0", "R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10"]
   ];
 
-  // Extract weekly ranking progression per player
+  // 5. Extract full row data for RankTest report
   for (let i = 1; i < data.length; i++) {
     let row = data[i];
     let pName = (col.name !== undefined && row[col.name]) 
@@ -2133,15 +2245,17 @@ function testWomensRankingsWeeks1To10() {
 
     if (!pName) continue;
 
-    let status = (col.status !== undefined && row[col.status] !== "") 
-      ? row[col.status].toString().toUpperCase().trim() 
-      : "ACTIVE";
+    // Check week 10 score to determine final active/inactive status
+    let w10Idx = col["w10"];
+    let rawScoreW10 = w10Idx !== undefined ? row[w10Idx] : "";
+    let hasW10Score = (rawScoreW10 !== "" && rawScoreW10 !== null && rawScoreW10 !== undefined && !isNaN(parseFloat(rawScoreW10)));
+    let statusStr = hasW10Score ? "ACTIVE" : "INACTIVE";
 
     let rawRank = (col.rawRankCol !== undefined && row[col.rawRankCol] !== undefined) ? row[col.rawRankCol] : "";
 
-    let playerRow = [pName, status, rawRank];
+    let playerRow = [pName, statusStr, rawRank];
 
-    // Collect R0 through R10 values
+    // Collect R0 through R10
     for (let w = 0; w <= 10; w++) {
       let rIdx = col["r" + w];
       let rVal = (rIdx !== undefined && row[rIdx] !== undefined) ? row[rIdx] : "";
@@ -2151,11 +2265,10 @@ function testWomensRankingsWeeks1To10() {
     output.push(playerRow);
   }
 
-  // 5. Populate and format the "RankTest" sheet
+  // 6. Write and style output table
   let outRange = rankTestSheet.getRange(1, 1, output.length, output[0].length);
   outRange.setValues(output);
 
-  // Styling
   let headerRange = rankTestSheet.getRange(1, 1, 1, output[0].length);
   headerRange.setFontWeight("bold");
   headerRange.setBackground("#4a86e8");
@@ -2164,5 +2277,6 @@ function testWomensRankingsWeeks1To10() {
   outRange.setBorder(true, true, true, true, true, true, "#cccccc", SpreadsheetApp.BorderStyle.SOLID);
   rankTestSheet.autoResizeColumns(1, output[0].length);
 
-  return `✅ Test complete! Weeks 1–10 rankings processed and exported to 'RankTest' sheet.`;
+  return `✅ Test complete! Weeks 1–10 rankings processed and exported to 'RankTest' sheet. Backup saved to '${backupName}'.`;
 }
+
