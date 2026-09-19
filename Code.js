@@ -1856,22 +1856,31 @@ function getCheckInCacheKey(inputName) {
 /**
  * Automatically invalidates script cache when a user directly edits the spreadsheet.
  */
+/**
+ * Automatically clears CacheService when a sheet is edited directly in Google Sheets.
+ */
 function onEdit(e) {
   if (!e || !e.range) return;
 
-  const sheetName = e.range.getSheet().getName();
-
-  // Limit trigger execution to sheets that impact app state
-  if (/^(Score|Sched|Rankings|Admin)/i.test(sheetName)) {
-    const cache = CacheService.getScriptCache();
+  try {
+    const sheetName = e.range.getSheet().getName();
     
-    // 1. Remove specific cached data keys used across your web app
-    cache.remove("admin_player_status_cache");
-    cache.remove("ranks_sched_cache");
+    // Generate the exact dynamic cache key used by getPlayersForCheckIn
+    const cacheKey = getCheckInCacheKey(sheetName);
     
-    // 2. Set an updated timestamp so client-side code can detect backend edits
-    PropertiesService.getScriptProperties().setProperty("LAST_SHEET_UPDATE", Date.now().toString());
-    
-    logDebug("onEdit", "Cache cleared due to direct sheet edit on:", sheetName);
+    if (cacheKey) {
+      const cache = CacheService.getScriptCache();
+      cache.remove(cacheKey);
+      
+      // Also clear root group key if the tab includes prefixes like 'Sched ' or 'Score '
+      let cleanGroupName = sheetName.replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
+      cache.remove(getCheckInCacheKey(cleanGroupName));
+      
+      logDebug("onEdit", `Cleared dynamic cache key '${cacheKey}' for sheet '${sheetName}'`);
+    }
+  } catch (err) {
+    // Simple triggers run with restricted permissions; fail quietly if needed
+    console.warn("onEdit cache clearing failed:", err.message);
   }
 }
+

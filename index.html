@@ -377,6 +377,11 @@
 
     <!-- TAB 4: HELP -->
     <div id="helpTab" class="tab-content">
+      <!-- Place inside your header or navigation button bar -->
+      <button id="forceRefreshBtn" onclick="forceRefresh()" title="Clear browser cache and reload fresh data" style="padding: 6px 12px; cursor: pointer;">
+        🔄 Refresh Data
+      </button>
+
       <div class="access-panel">
         <h3 style="margin-top:0;">📱 Adjust sizes / Contrast</h3>
         <p> 
@@ -1495,6 +1500,53 @@ function autoSelectStoredGroup() {
   }
 }
 
+/**
+ * Purges client-side localStorage and in-memory caches, then re-fetches fresh tab data.
+ */
+async function forceRefresh() {
+  const btn = document.getElementById('forceRefreshBtn');
+  const originalText = btn ? btn.innerHTML : '';
+
+  try {
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '🔄 Refreshing...';
+    }
+
+    // 1. Clear LocalStorage keys used for sheets/groups
+    localStorage.removeItem('cached_sheets');
+    localStorage.removeItem('cached_groups');
+
+    // 2. Reset frontend JS memory cache
+    if (typeof adminPlayersCache !== 'undefined') {
+      adminPlayersCache = [];
+    }
+
+    // 3. Clear Service Worker / Cache API storage if present
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(key => caches.delete(key)));
+    }
+
+    // 4. Re-fetch fresh data from Google Apps Script for the active tab
+    const currentGroup = typeof getSavedGroup === 'function' ? getSavedGroup() : '';
+    if (currentGroup && typeof syncAllGroupDropdowns === 'function') {
+      syncAllGroupDropdowns(currentGroup);
+    }
+    
+    refreshActiveTabData();
+
+  } catch (err) {
+    console.error("Force refresh error:", err);
+  } finally {
+    if (btn) {
+      setTimeout(() => {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+      }, 500);
+    }
+  }
+}
 
 </script>
 </body>
