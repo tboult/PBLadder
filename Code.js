@@ -1063,7 +1063,7 @@ function handleApiRequest(e) {
           console.warn("Failed fetching initial players:", err);
         }
       }
-      case 'CheckInPlayer':
+      case 'checkInPlayer':
           result = CheckInPlayer(payload);
           break;
           
