@@ -1,4 +1,4 @@
-/* ==========================================
+
  * GLOBAL CONFIGURATION & HELPER DEFINITIONS
  * ========================================== */
 
@@ -2412,9 +2412,6 @@ function getActiveWeekForGroup(group) {
  * @param {Object} payload - Object containing playerId, group, status, etc.
  */
 function CheckInPlayer(payload) {
-  try {
-      const playerId = payload.playerId || payload.id;
-function checkInPlayer(payload) {
   try {
     // Fallback to payload.phone if payload.playerId is undefined
     const playerId = payload.playerId || payload.phone || payload.id;
