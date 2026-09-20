@@ -2444,10 +2444,6 @@ function handleCheckInPlayer(payload) {
  * Matches target by Name OR Phone Number. Never toggles off.
  */
 function ensurePlayerCheckedIn(sheetName, targetPlayer) {
-  if (typeof logDebug === 'function') {
-    logDebug("ensurePlayerCheckedIn", "Ensuring player is checked in", { sheetName, targetPlayer });
-  }
-
   if (!sheetName || !targetPlayer) {
     return { success: false, status: "failed", message: "Missing required group or player parameters." };
   }
@@ -2467,20 +2463,28 @@ function ensurePlayerCheckedIn(sheetName, targetPlayer) {
     return { success: false, status: "failed", message: "No data found in sheet." };
   }
 
-  // Header mapping
   const headers = data[0].map(h => h.toString().toLowerCase().replace(/[\s\-_]/g, "").trim());
-  
   let nameIdx = headers.findIndex(h => h.includes("name") || h.includes("player"));
   if (nameIdx === -1) nameIdx = 0;
 
   let phoneIdx = headers.findIndex(h => h.includes("phone") || h.includes("mobile") || h.includes("tel"));
 
   let checkInIdx = headers.findIndex(h => h.includes("checkin") || h.includes("checkedin") || h === "x");
-  if (checkInIdx === -1 && data[0].length >= 7) checkInIdx = 6; // Default to Column 7 (index 6)
+  if (checkInIdx === -1 && data[0].length >= 7) checkInIdx = 6;
 
-  // Normalization for comparison
-  const targetStr = String(targetPlayer).trim().toLowerCase();
-  const targetDigits = String(targetPlayer).replace(/\D/g, "");
+  // Fallback: If targetPlayer is purely numeric (a phone number), attempt to find player name via findFoursomeByPhone logic
+  let targetStr = String(targetPlayer).trim().toLowerCase();
+  let targetDigits = String(targetPlayer).replace(/\D/g, "");
+
+  // If target is only digits, try looking up player name in group sheet
+  if (targetDigits.length >= 7 && phoneIdx === -1 && typeof findFoursomeByPhone === 'function') {
+    try {
+      var lookup = findFoursomeByPhone({ phone: targetDigits, group: cleanGroupName });
+      if (lookup && lookup.player && lookup.player.name) {
+        targetStr = lookup.player.name.trim().toLowerCase();
+      }
+    } catch(e) {}
+  }
 
   for (let r = 1; r < data.length; r++) {
     let pName = String(data[r][nameIdx] || "").trim().toLowerCase();
@@ -2494,7 +2498,6 @@ function ensurePlayerCheckedIn(sheetName, targetPlayer) {
       const matchedName = data[r][nameIdx] || targetPlayer;
       const currentVal = String(data[r][checkInIdx] || "").trim().toUpperCase();
 
-      // Case 1: Already checked in ('X') -> Do not write, return already_checked_in
       if (currentVal === "X" || currentVal === "YES" || currentVal === "TRUE") {
         return {
           success: true,
@@ -2503,10 +2506,8 @@ function ensurePlayerCheckedIn(sheetName, targetPlayer) {
         };
       }
 
-      // Case 2: Not checked in -> Force write "X"
       sheet.getRange(r + 1, checkInIdx + 1).setValue("X");
 
-      // Clear server cache so reads immediately reflect the new status
       try {
         const cacheKey = typeof getCheckInCacheKey === 'function' ? getCheckInCacheKey(sheetName) : null;
         if (cacheKey) CacheService.getScriptCache().remove(cacheKey);

@@ -2018,10 +2018,18 @@ async function setupEventListeners() {
   const savedGroup = getSavedGroup();
 
   try {
+
+
+  apiCall('getInitialAppData', { 
+});  
     // 2. Single batch API call to fetch all startup data in 1 network round-trip
     const initData = await apiCall('getInitialAppData', {
       groupName: savedGroup,
       sheet: savedGroup ? "Sched " + savedGroup : ""
+      group: selectedGroup,
+      phone: savedPhone,
+      playerId: savedPhone
+      
     });
 
     if (initData) {
@@ -2217,23 +2225,23 @@ async function triggerAutoCheckIn() {
                      localStorage.getItem('scpb_saved_group') || '';
   const savedPhone = (activeLookupPlayer && activeLookupPlayer.phone) || 
                      localStorage.getItem('scpb_saved_phone') || '';
+  // Extract saved player name
+  const savedName = (activeLookupPlayer && (activeLookupPlayer.name || activeLookupPlayer.playerName)) || 
+                    localStorage.getItem('scpb_saved_name') || '';
 
   if (!savedGroup || !savedPhone) return;
 
-  // 1. Automatically set Check-In group dropdown if not set
+  // 1. Set dropdown if needed
   const sheetSelect = document.getElementById('sheetSelect');
   if (sheetSelect && sheetSelect.value !== savedGroup) {
     sheetSelect.value = savedGroup;
-    if (typeof onGroupChange === 'function') {
-      onGroupChange('sheetSelect');
-    }
+    if (typeof onGroupChange === 'function') onGroupChange('sheetSelect');
   }
 
   const checkInStatus = document.getElementById('checkInStatus');
 
-  // 2. Verify geofence before making backend call
+  // 2. Geofence check
   if (checkInStatus) checkInStatus.innerText = '📍 Verifying court location...';
-
   const isAtCourts = typeof checkGeofence === 'function' ? await checkGeofence(true) : true;
 
   if (!isAtCourts) {
@@ -2247,15 +2255,15 @@ async function triggerAutoCheckIn() {
     return;
   }
 
-  // 3. Perform auto check-in API call (Parameters clean & unified)
+  // 3. API Call with Name + Phone
   if (checkInStatus) checkInStatus.innerText = '⚡ Auto-checking in...';
 
   try {
     const res = await apiCall('checkInPlayer', { 
       phone: savedPhone, 
       playerId: savedPhone,
-      group: savedGroup,
-      playerName: (activeLookupPlayer && activeLookupPlayer.name) || ''
+      playerName: savedName, // <-- Sends actual player name so backend can match schedule sheet
+      group: savedGroup
     });
 
     if (checkInStatus) {
@@ -2271,6 +2279,7 @@ async function triggerAutoCheckIn() {
     if (checkInStatus) checkInStatus.innerHTML = '<span style="color: #721c24; font-weight: bold;">⚠️ Auto check-in failed. Please try again.</span>';
   }
 }
+
 
 
 function setSelectedGroup(groupName) {
