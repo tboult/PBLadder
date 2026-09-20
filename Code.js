@@ -518,21 +518,30 @@ function findFoursomeByPhone(phoneOrPayload, groupArg) {
         if (schedSheet) {
           let sData = schedSheet.getDataRange().getValues();
 
-          if (sData && sData.length > 0) {
-            // Check cell A1 for week header validity (e.g. "SCHEDULE_WEEK:W10")
-            let headerA1 = String(sData[0][0] || "").trim();
-            let currentActiveWeek = typeof getActiveWeekForGroup === "function" ? getActiveWeekForGroup(g) : null;
+            if (sData && sData.length > 0) {
+                // Check cell H1 (row 0, col 7) and H2 (row 1, col 7) for week header validity
+                let headerH1 = (sData[0] && sData[0][7] !== undefined) ? String(sData[0][7] || "").trim() : "";
+                let valueH2  = (sData.length > 1 && sData[1] && sData[1][7] !== undefined) ? String(sData[1][7] || "").trim() : "";
+                let currentActiveWeek = typeof getActiveWeekForGroup === "function" ? getActiveWeekForGroup(g) : null;
 
-            // Schedule is ready if header exists and contains the current week identifier
-            if (headerA1.indexOf("SCHEDULE_WEEK:") === 0) {
-              if (!currentActiveWeek || headerA1.includes(currentActiveWeek)) {
-                scheduleReady = true;
-              }
-            } else if (headerA1 !== "") {
-              // Fallback for legacy sheets without exact header stamp
-              scheduleReady = true;
+                // Combine H1 and H2 to handle stamps like "SCHEDULE_WEEK:W10" or "Week" in H1 with "10" in H2
+                let fullWeekStamp = headerH1.indexOf("SCHEDULE_WEEK:") === 0 ? headerH1 : `${headerH1}:${valueH2}`;
+
+                if (headerH1.indexOf("SCHEDULE_WEEK:") === 0) {
+                    if (!currentActiveWeek || headerH1.includes(currentActiveWeek)) {
+                        scheduleReady = true;
+                    }
+                } else if (headerH1.toLowerCase().includes("week") && valueH2 !== "") {
+                    // Matches "Week" in H1 and week value in H2
+                    if (!currentActiveWeek || valueH2.includes(currentActiveWeek) || String(currentActiveWeek).includes(valueH2)) {
+                        scheduleReady = true;
+                    }
+                } else if (headerH1 !== "" || valueH2 !== "") {
+                    // Fallback for legacy sheets without exact header stamp
+                    scheduleReady = true;
+                }
             }
-          }
+
 
           // Only extract court and foursome if schedule is confirmed ready
           if (scheduleReady) {
@@ -1757,8 +1766,15 @@ function generateScheduleTabs(genTarget, courts) {
   const currentWeek = getCurrentWeekIdentifier(); // e.g., "W10" or "Week 10"
   const sheet = getScheduleSheetForGroup(group);
   
-  // Stamp the week header in A1
-    sheet.getRange("A1").setValue("SCHEDULE_WEEK:" + currentWeek);
+    // Stamp week metadata in H1 and H2
+    var h1Cell = sheet.getRange("H1");
+    h1Cell.setValue("SCHEDULE_WEEK:" + currentWeek);
+    h1Cell.setFontWeight("bold");
+
+    var h2Cell = sheet.getRange("H2");
+    h2Cell.setValue(currentWeek);
+    h2Cell.setHorizontalAlignment("center");
+
 
 
   if (genTarget) {
@@ -2328,4 +2344,35 @@ function getTargetGroup(e) {
   } catch (err) {
     return 'Womens'; // Default fallback
   }
+}
+
+/**
+ * Gets the current week number from cell H2.
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+ * @returns {number|string}
+ */
+function getWeekNumber(sheet) {
+  if (!sheet) return 1;
+  var weekVal = sheet.getRange("H2").getValue();
+  return weekVal !== "" ? weekVal : 1;
+}
+
+/**
+ * Sets the week number header in H1 and value in H2.
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+ * @param {number|string} weekNum
+ */
+function setWeekNumber(sheet, weekNum) {
+  if (!sheet) return;
+  
+  // Set header label
+  var titleCell = sheet.getRange("H1");
+  titleCell.setValue("Week");
+  titleCell.setFontWeight("bold");
+  titleCell.setHorizontalAlignment("center");
+
+  // Set week value
+  var valueCell = sheet.getRange("H2");
+  valueCell.setValue(weekNum);
+  valueCell.setHorizontalAlignment("center");
 }
