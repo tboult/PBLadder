@@ -727,9 +727,22 @@ function getRankingsAndSchedData(groupName) {
         let rankVal = (rankIdx !== undefined && row[rankIdx]) ? row[rankIdx] : `${rankorder}/${totalPlayers}`;
 
         // Win %
-        let winVal = (winIdx !== undefined && row[winIdx]) ? row[winIdx] : "0.00%";
-
-        // Total Points Resolution
+          let winVal = "0.0%";
+          if (winIdx !== undefined && row[winIdx] !== "" && row[winIdx] !== null) {
+              // 1. Convert to string and remove any existing "%" symbol
+              let rawWinStr = String(row[winIdx]).replace('%', '').trim();
+              let winNum = parseFloat(rawWinStr) || 0;
+              
+              // 2. Convert decimal format (e.g., 0.9310) to percentage scale (93.1)
+              if (winNum <= 1.0 && winNum > 0) {
+                  winNum = winNum * 100;
+              }
+              
+              // 3. Round to 1 decimal place
+              winVal = winNum.toFixed(1) + "%";
+          }          
+          
+          // Total Points Resolution
         let totalVal = "";
         if (totalIdx !== undefined && row[totalIdx] !== "" && row[totalIdx] !== null) {
           totalVal = row[totalIdx];
