@@ -634,10 +634,7 @@ function getRankingsAndSchedData(groupName) {
   const ss = getDb();
   let cleanGroup = String(groupName).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
 
-  // 1. Fetch Schedule Sheet
   let schedSheet = ss.getSheetByName("Sched " + cleanGroup);
-
-  // 2. Fetch Rankings/Score Sheet with fallbacks
   let rankSheet = ss.getSheetByName("Rankings " + cleanGroup) || 
                   ss.getSheetByName("Score " + cleanGroup) || 
                   (typeof getScoreSheetByGroup === "function" ? getScoreSheetByGroup(cleanGroup) : null);
@@ -647,12 +644,10 @@ function getRankingsAndSchedData(groupName) {
 
   // --- 1. PROCESS SCHEDULE TAB ---
   if (schedSheet) {
-    // getDisplayValues() preserves exact text formatting from Google Sheets
     let sData = schedSheet.getDataRange().getDisplayValues();
     if (sData && sData.length > 0) {
       let headerRowIdx = 0;
 
-      // Handle top error banner if present
       if (sData[0][0] && String(sData[0][0]).includes("⚠️")) {
         html += `<div style="background:#f8d7da; color:#721c24; padding:8px; margin-bottom:10px; border-radius:4px; font-weight:bold; text-align:center;">${sData[0][0]}</div>`;
         headerRowIdx = 1;
@@ -661,16 +656,13 @@ function getRankingsAndSchedData(groupName) {
       if (sData.length > headerRowIdx + 1) {
         html += `<h4>Current Court Assignments</h4>
                  <table class="data-table">
-                   <thead>
-                     <tr><th>Player</th><th>Court</th></tr>
-                   </thead>
+                   <thead><tr><th>Player</th><th>Court</th></tr></thead>
                    <tbody>`;
 
         for (let r = headerRowIdx + 1; r < sData.length; r++) {
           let pName = sData[r][0];
           let court = sData[r][1] || 'BYE';
 
-          // Skip header text or separator rows
           if (pName && pName !== "Player Name" && !String(pName).startsWith("---")) {
             html += `<tr><td>${pName}</td><td>${court}</td></tr>`;
             hasData = true;
@@ -681,12 +673,36 @@ function getRankingsAndSchedData(groupName) {
     }
   }
 
-  // --- 2. PROCESS RANKINGS TAB ---
+  // --- 2. PROCESS RANKINGS / SCORE TAB ---
   if (rankSheet) {
-    // getDisplayValues() automatically formats percentages (e.g. "93.10%")
     let scData = rankSheet.getDataRange().getDisplayValues();
     if (scData && scData.length > 1) {
-      let col = buildColMap(scData[0]);
+      let colMap = buildColMap(scData[0]);
+      let headers = scData[0];
+
+      // Flexible column resolver helper
+      let findColIdx = function(possibleKeys) {
+        if (colMap) {
+          for (let k of possibleKeys) {
+            let clean = k.toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (colMap[clean] !== undefined) return colMap[clean];
+            if (colMap[k] !== undefined) return colMap[k];
+          }
+        }
+        for (let i = 0; i < headers.length; i++) {
+          let h = String(headers[i]).toLowerCase().replace(/[^a-z0-9]/g, '');
+          for (let k of possibleKeys) {
+            let target = k.toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (h === target || h.includes(target)) return i;
+          }
+        }
+        return undefined;
+      };
+
+      let nameIdx  = findColIdx(["Player Name", "Name", "Player", "First"]);
+      let rankIdx  = findColIdx(["Rank", "rnum", "#", "R", "Position"]);
+      let winIdx   = findColIdx(["Win %", "WinPct", "Win", "Pct", "Win Rate"]);
+      let totalIdx = findColIdx(["Total Points", "TotalPoints", "Total", "Points", "Pts", "Tot", "Score"]);
 
       html += `<h4 style="margin-top:1rem;">Ladder Rankings</h4>
                <table class="data-table">
@@ -701,29 +717,47 @@ function getRankingsAndSchedData(groupName) {
       for (let r = 1; r < scData.length; r++) {
         let row = scData[r];
 
-        // Flexible name mapping
-        let name = col.name !== undefined ? row[col.name] : `${row[col.first] || ''} ${row[col.last] || ''}`.trim();
+        // Player Name
+        let name = nameIdx !== undefined ? row[nameIdx] : `${row[colMap.first || 0] || ''} ${row[colMap.last || 1] || ''}`.trim();
 
-        // Flexible column index fallbacks
-        let rankIdx = col.rank !== undefined ? col.rank : (col.rnum !== undefined ? col.rnum : col.r);
-        let winIdx = col.winPct !== undefined ? col.winPct : col.winpct;
-        let totalIdx = col.totalPoints !== undefined ? col.totalPoints : col.total;
+        // Skip headers or blank rows
+        if (!name || name === "Player Name" || name.startsWith("---")) continue;
 
-        // Safely extract values
+        // Rank
         let rankVal = (rankIdx !== undefined && row[rankIdx]) ? row[rankIdx] : `${rankorder}/${totalPlayers}`;
-        let winVal = (winIdx !== undefined && row[winIdx]) ? row[winIdx] : "0.00%";
-        let totalVal = (totalIdx !== undefined && row[totalIdx]) ? row[totalIdx] : "0";
 
-        if (name && name !== "Player Name") {
-          html += `<tr>
-            <td>${rankorder++}</td>
-            <td>${name}</td>
-            <td>${rankVal}</td>
-            <td>${winVal}</td>
-            <td>${totalVal}</td>
-          </tr>`;
-          hasData = true;
+        // Win %
+        let winVal = (winIdx !== undefined && row[winIdx]) ? row[winIdx] : "0.00%";
+
+        // Total Points Resolution
+        let totalVal = "";
+        if (totalIdx !== undefined && row[totalIdx] !== "" && row[totalIdx] !== null) {
+          totalVal = row[totalIdx];
+        } else {
+          // Fallback: sum individual Game columns if Total column is missing/empty
+          let gameSum = 0;
+          let foundGames = false;
+          for (let c = 0; c < row.length; c++) {
+            let hName = String(headers[c]).toLowerCase();
+            if (hName.includes("game") || hName.includes("g1") || hName.includes("g2") || hName.includes("g3")) {
+              let pts = parseFloat(row[c]);
+              if (!isNaN(pts)) {
+                gameSum += pts;
+                foundGames = true;
+              }
+            }
+          }
+          totalVal = foundGames ? String(gameSum) : "0";
         }
+
+        html += `<tr>
+          <td>${rankorder++}</td>
+          <td>${name}</td>
+          <td>${rankVal}</td>
+          <td>${winVal}</td>
+          <td>${totalVal}</td>
+        </tr>`;
+        hasData = true;
       }
       html += `</tbody></table>`;
     }
@@ -735,6 +769,7 @@ function getRankingsAndSchedData(groupName) {
 
   return { html: html };
 }
+
 
 
 /**
