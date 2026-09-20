@@ -1113,6 +1113,7 @@ function handleApiRequest(e) {
         break;
       case 'getRankingsAndSchedule':
       case 'getRankingsAndSchedData':
+      case 'getRankingsAndScheduleData':
         result = getRankingsAndSchedData(payload.group || payload.groupName);
         break;
       case 'getAdminPlayersByGroup':
@@ -2413,32 +2414,64 @@ function getActiveWeekForGroup(group) {
 function CheckInPlayer(payload) {
   try {
     const playerId = payload.playerId || payload.id;
-    const groupName = payload.group || payload.groupName;
-
     if (!playerId) {
-      return { success: false, error: "Missing required parameter: playerId" };
+      return {
+        status: "failed",
+        success: false,
+        message: "Missing required parameter: playerId"
+      };
     }
 
-    // --- Update Data Store (e.g., Database or Google Sheet) ---
-    // Example logic for updating a database record or Sheet row:
-    const updated = updatePlayerRecord(playerId, {
-      checkedIn: true,
-      checkInTimestamp: new Date().toISOString(),
-      group: groupName
-    });
+    // 1. Fetch player from database or Google Sheet
+    const player = getPlayerById(playerId);
 
-    if (!updated) {
-      return { success: false, error: `Player ID ${playerId} not found.` };
+    // Case 1: Player doesn't exist
+    if (!player) {
+      return {
+        status: "failed",
+        success: false,
+        message: `Player ID ${playerId} was not found.`
+      };
     }
 
+    // Case 2: Player is ALREADY checked in
+    if (player.checkedIn === true) {
+      return {
+        status: "already_checked_in",
+        success: true, // Request succeeded, but status is informational
+        message: `${player.name || playerId} is already checked in.`,
+        player: {
+          id: player.id,
+          name: player.name,
+          checkInTime: player.checkInTime
+        }
+      };
+    }
+
+    // 3. Mark player checked in
+    player.checkedIn = true;
+    player.checkInTime = new Date().toLocaleTimeString();
+    savePlayerData(player);
+
+    // Case 3: Fresh check-in SUCCESS
     return {
+      status: "success",
       success: true,
-      message: `Player ${playerId} successfully checked in.`,
-      playerId: playerId,
-      checkInTime: new Date().toLocaleTimeString()
+      message: `${player.name || playerId} checked in successfully.`,
+      player: {
+        id: player.id,
+        name: player.name,
+        checkInTime: player.checkInTime
+      }
     };
 
   } catch (err) {
-    return { success: false, error: err.toString() };
+    // Case 4: Server execution failure
+    return {
+      status: "failed",
+      success: false,
+      message: `System error during check-in: ${err.toString()}`
+    };
   }
 }
+
