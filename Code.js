@@ -707,7 +707,7 @@ function getRankingsAndSchedData(groupName) {
       html += `<h4 style="margin-top:1rem;">Ladder Rankings</h4>
                <table class="data-table">
                  <thead>
-                   <tr><th>#</th><th>Player</th><th>Rank</th><th>Win %</th><th>Total</th></tr>
+                   <tr><th>Player</th><th>Rank</th><th>Win %</th><th>Total</th></tr>
                  </thead>
                  <tbody>`;
 
@@ -751,7 +751,6 @@ function getRankingsAndSchedData(groupName) {
         }
 
         html += `<tr>
-          <td>${rankorder++}</td>
           <td>${name}</td>
           <td>${rankVal}</td>
           <td>${winVal}</td>
