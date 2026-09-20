@@ -1550,15 +1550,24 @@ function generateScheduleTabs(genTarget, courts) {
 
     let numPlayers = activePlayers.length;
     let foursomesCount = Math.floor(numPlayers / 4);
-    let activeInFoursomes = foursomesCount * 4;
+
+    // Flag error if required courts exceed available courts
+    let courtWarning = "";
+    if (foursomesCount > availableCourts.length) {
+      courtWarning = ` ⚠️ Error: Insufficient courts! Needed: ${foursomesCount}, Available: ${availableCourts.length}. Oversubscribed players assigned BYE.`;
+      logDebug("generateScheduleTabs", "Insufficient courts error", { groupName, required: foursomesCount, available: availableCourts.length });
+    }
 
     for (let i = 0; i < activePlayers.length; i++) {
       let pName = activePlayers[i];
+      let currentFoursome = Math.floor(i / 4);
       let assignedCourt = "BYE";
-      if (i < activeInFoursomes) {
-        let currentFoursome = Math.floor(i / 4);
-        assignedCourt = "Court " + (availableCourts[currentFoursome % availableCourts.length] || (currentFoursome + 1));
+
+      // Strict unique court assignment: do not reuse courts via modulo
+      if (currentFoursome < availableCourts.length) {
+        assignedCourt = "Court " + availableCourts[currentFoursome];
       }
+
       rows.push([pName, assignedCourt, "", "", "", "", ""]);
     }
 
@@ -1568,7 +1577,10 @@ function generateScheduleTabs(genTarget, courts) {
     const cacheKey = getCheckInCacheKey(schedSheetName);
     CacheService.getScriptCache().remove(cacheKey);
 
-    summary.push(`Created schedule for '${groupName}' with ${numPlayers} players (${foursomesCount} courts, ${numPlayers - activeInFoursomes} BYEs).`);
+    let assignedCourtsCount = Math.min(foursomesCount, availableCourts.length);
+    let byeCount = numPlayers - (assignedCourtsCount * 4);
+
+    summary.push(`Created schedule for '${groupName}' with ${numPlayers} players (${assignedCourtsCount} courts assigned, ${byeCount} BYEs).${courtWarning}`);
   });
 
   return "✅ " + summary.join("\n");
@@ -1580,7 +1592,6 @@ function generateScheduleTabs(genTarget, courts) {
  * @param {string} [reschedTarget] - Target schedule sheet or group name.
  * @param {Array<number|string>|string} [courts] - Optional custom court mapping.
  * @returns {string} Operational status report string.
- * @throws Assumes schedule tab exists and contains checked-in status data.
  */
 function rescheduleFromCheckIns(reschedTarget, courts) {
   logDebug("rescheduleFromCheckIns", "Rescheduling checked-in players", { reschedTarget, courts });
@@ -1602,14 +1613,23 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
 
   let numChecked = checkedInPlayers.length;
   let foursomesCount = Math.floor(numChecked / 4);
-  let activeInFoursomes = foursomesCount * 4;
+
+  // Flag error if required courts exceed available courts
+  let courtWarning = "";
+  if (foursomesCount > availableCourts.length) {
+    courtWarning = ` ⚠️ Error: Insufficient courts! Needed: ${foursomesCount}, Available: ${availableCourts.length}. Oversubscribed players assigned BYE.`;
+    logDebug("rescheduleFromCheckIns", "Insufficient courts error", { groupName, required: foursomesCount, available: availableCourts.length });
+  }
 
   checkedInPlayers.forEach((p, idx) => {
+    let currentFoursome = Math.floor(idx / 4);
     let assignedCourt = "BYE";
-    if (idx < activeInFoursomes) {
-      let currentFoursome = Math.floor(idx / 4);
-      assignedCourt = "Court " + (availableCourts[currentFoursome % availableCourts.length] || (currentFoursome + 1));
+
+    // Strict unique court assignment: do not reuse courts via modulo
+    if (currentFoursome < availableCourts.length) {
+      assignedCourt = "Court " + availableCourts[currentFoursome];
     }
+
     rows.push([p.name, assignedCourt, "X", "", "", "", ""]);
   });
 
@@ -1624,7 +1644,10 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
   const cacheKey = getCheckInCacheKey(targetName);
   CacheService.getScriptCache().remove(cacheKey);
 
-  return `✅ Rescheduled '${targetName}' based on ${numChecked} checked-in players (${foursomesCount} courts, ${numChecked - activeInFoursomes + uncheckedPlayers.length} BYEs).`;
+  let assignedCourtsCount = Math.min(foursomesCount, availableCourts.length);
+  let totalByes = (numChecked - (assignedCourtsCount * 4)) + uncheckedPlayers.length;
+
+  return `✅ Rescheduled '${targetName}' based on ${numChecked} checked-in players (${assignedCourtsCount} courts assigned, ${totalByes} BYEs).${courtWarning}`;
 }
 
 /**

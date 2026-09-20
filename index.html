@@ -1731,11 +1731,11 @@ function forceRefresh() {
   window.location.reload(true);
 }
 
-  const GEOFENCE_RADIUS_METERS = 500;
+  const GEOFENCE_RADIUS_METERS = 1500;
   
   const ALLOWED_GEOFENCE_LOCATIONS = [
-    { lat: 33.61307848954948, lng: -112.27041275583566, name: "Mountain View Pickleball Courts" },
-    { lat: 33.65362909476011, lng: -112.27699205631843, name: "Marinette Pickleball Courts" }
+      { lat: 33.65362909476011, lng: -112.27699205631843, name: "Marinette Pickleball Courts" },
+    { lat: 33.612973981080074, lng: -112.27032707707161, name: "Boult House" }      
   ];
 
   function haversineDistanceMeters(lat1, lon1, lat2, lon2) {
