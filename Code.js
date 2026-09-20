@@ -1015,7 +1015,19 @@ function handleApiRequest(e) {
     }
 
     let result;
-    switch(action) {
+      switch(action) {
+      case 'getInitialAppData':
+      var groupName = payload.groupName || '';
+      var checkInPlayers = [];
+      
+      // Fetch initial check-in players if a group is already selected
+      if (groupName) {
+        try {
+          checkInPlayers = getPlayersForCheckIn({ groupName: groupName, sheet: "Sched " + groupName });
+        } catch (err) {
+          console.warn("Failed fetching initial players:", err);
+        }
+      }          
       case 'sortActivePlayers':
       case 'sortActivePlayersForSheet':
         result = sortActivePlayersForSheet(getValidActiveScoreSheet(payload.arg || payload.group || payload.groupName));

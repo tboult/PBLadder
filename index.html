@@ -604,7 +604,12 @@ async function apiCall(action, payload = {}) {
     if (!isProcessingQueue) processApiQueue();
   });
 
-    console.log(`🚀 [API result]`, result,     time: new Date().toLocaleTimeString());
+  // 1. Log every  result and time
+  console.log(`✅ [API result] "${result}"`, {
+    result,
+    time: new Date().toLocaleTimeString()
+  });
+
   return result;
 }
 
@@ -681,62 +686,6 @@ async function processApiQueue() {
 }
 
 
-async function processApiQueue() {
-  if (isProcessingQueue || apiQueue.length === 0) return;
-  isProcessingQueue = true;
-  updateGlobalLoaderStatus();
-
-  const { action, payload, resolve, reject } = apiQueue.shift();
-  const endpoint = window.API_URL || (typeof API_URL !== 'undefined' ? API_URL : null);
-
-  if (!endpoint) {
-    const err = new Error("API_URL is not configured.");
-    reject(err);
-    isProcessingQueue = false;
-    updateGlobalLoaderStatus();
-    return;
-  }
-
-  // Diagnostic parameters for error reporting
-  const targetSheet = payload.sheet || payload.sheetName || payload.scoreSheetName || "N/A";
-  const targetGroup = payload.groupName || payload.group || "N/A";
-
-  try {
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({ action, ...payload })
-    });
-
-    const rawText = await response.text();
-    let data;
-    try {
-      data = JSON.parse(rawText);
-    } catch (parseErr) {
-      if (rawText.includes("<!DOCTYPE") || rawText.includes("<html")) {
-        throw new Error(`Backend crashed (returned HTML) while accessing action "${action}" [Group: "${targetGroup}", Sheet: "${targetSheet}"]`);
-      }
-      throw new Error(`Invalid JSON for action "${action}" [Sheet: "${targetSheet}"]: ${rawText.substring(0, 80)}...`);
-    }
-
-    if (data && data.status === "success") {
-      resolve(data.data);
-    } else if (data && data.status === "error") {
-      reject(new Error(`Backend error on "${action}" [Sheet: "${targetSheet}"]: ${data.message || 'Unknown error'}`));
-    } else {
-      resolve(data);
-    }
-  } catch (err) {
-    console.error(`API Call failed for action "${action}":`, err);
-    reject(err);
-  } finally {
-    isProcessingQueue = false;
-    updateGlobalLoaderStatus();
-    if (apiQueue.length > 0) {
-      processApiQueue();
-    }
-  }
-}
 
 
 function getSavedGroup() {
@@ -921,32 +870,7 @@ function handleSecretTap(e) {
   }
 }
 
-function setupEventListeners() {
-  initAccessibility();
-  loadFromCache();
 
-  Promise.all([
-    apiCall('getSchedTabNames', {}),
-    apiCall('getAvailableGroups', {})
-  ])
-  .then(([sheetsRes, groupsRes]) => {
-    if (sheetsRes) populateSheets(sheetsRes);
-    if (groupsRes) populateGroups(groupsRes);
-    autoSelectStoredGroup();
-  })
-  .catch(err => {
-    console.warn("Failed loading initial metadata:", err);
-  })
-  .finally(() => {
-    isInitialLoading = false;
-    updateGlobalLoaderStatus();
-    const loader = document.getElementById('globalLoader');
-    if (loader) loader.style.display = 'none';
-
-    setTimeout(checkAppVersion, 3000);
-    startCheckInAutoRefresh();
-  });
-}
 
 function filterAdminPlayers() {
   const listEl = document.getElementById('adminPlayerStatusList');
@@ -1095,23 +1019,11 @@ async function loadCheckInPlayers() {
       sheet: "Sched " + groupName
     });
 
-    let playersList = Array.isArray(res) ? res : (res && res.players ? res.players : []);
+    const rawList = Array.isArray(res) ? res : (res && res.players ? res.players : []);
 
-    if (playersList && playersList.length > 0) {
-      // 1. Remove court references and 2. Sort players alphabetically by name
-      playersList = playersList
-        .map(player => ({
-          ...player,
-          court: '' // Clear court name so it won't render
-        }))
-        .sort((a, b) => {
-          const nameA = String(a.name || `${a.first || ''} ${a.last || ''}`).trim();
-          const nameB = String(b.name || `${b.first || ''} ${b.last || ''}`).trim();
-          return nameA.localeCompare(nameB, undefined, { sensitivity: 'base' });
-        });
-
-      checkInPlayersCache = playersList;
-      renderCheckInPlayers(playersList);
+    if (rawList && rawList.length > 0) {
+      checkInPlayersCache = processAndSortPlayers(rawList);
+      renderCheckInPlayers(checkInPlayersCache);
       if (statusEl) statusEl.innerText = '';
     } else {
       if (listEl) listEl.innerHTML = '<i>No check-in data found for group.</i>';
@@ -1119,208 +1031,6 @@ async function loadCheckInPlayers() {
   } catch (err) {
     if (statusEl) statusEl.innerText = '❌ ' + err.message;
   }
-}
-
-
-
-/**
- * Loads published court schedule and ladder standings for selected group.
- */
-async function loadRankingsAndSched() {
-  const groupName = document.getElementById('groupViewerSelect').value || getSavedGroup();
-  const contentEl = document.getElementById('viewerContent');
-  const statusEl = document.getElementById('viewerStatus');
-
-  if (!groupName) {
-    if (contentEl) contentEl.innerHTML = '<i>Select a group above...</i>';
-    return;
-  }
-
-  if (contentEl) contentEl.innerHTML = '<span class="loading-spinner"></span> Loading schedule and ranks...';
-
-  try {
-    const res = await apiCall('getRankingsAndSchedule', { groupName });
-    if (res && res.html) {
-      if (contentEl) contentEl.innerHTML = res.html;
-      if (statusEl) statusEl.innerText = '';
-    } else {
-      if (contentEl) contentEl.innerHTML = '<i>No published schedule found for group.</i>';
-    }
-  } catch (err) {
-    if (statusEl) statusEl.innerText = '❌ Error loading schedule.';
-  }
-}
-        
-
-async function runRescheduleCheckedIn() {
-  const groupName = document.getElementById('adminGlobalGroupSelect').value || getSavedGroup();
-  const selectedCourts = getSelectedCourts();
-
-  if (!groupName) {
-    alert('Please select a target group.');
-    return;
-  }
-
-  if (selectedCourts.length === 0) {
-    alert('Please select at least one court checkbox.');
-    return;
-  }
-
-  const statusEl = document.getElementById('adminStatus');
-  if (statusEl) statusEl.innerText = 'Rescheduling checked-in players...';
-
-  try {
-    const res = await apiCall('rescheduleFromCheckIns', {
-      groupName,
-      courts: selectedCourts,
-      checkedInOnly: true
-    });
-    if (res && res.success) {
-      if (statusEl) statusEl.innerText = '✅ Rescheduled checked-in players successfully!';
-      // Refresh admin players cache
-      loadAdminPlayerStatusCache(groupName);
-    } else {
-      if (statusEl) statusEl.innerText = '❌ Reschedule failed: ' + (res.message || 'Error');
-    }
-  } catch (err) {
-    if (statusEl) statusEl.innerText = '❌ Error performing reschedule.';
-  }
-}
-
-/**
- * Client-side renderer for Rankings and Schedule tables
- */
-function renderRankingsAndSchedHTML(rankings, schedule) {
-  let html = '';
-  // Render Rankings Table
-  if (Array.isArray(rankings) && rankings.length > 0) {
-    const totalPlayers = rankings.length;
-
-    html += `
-      <div class="rankings-container">
-        <h3>Rankings</h3>
-        <table class="rankings-table">
-          <thead>
-            <tr>
-              <th>Rank</th>
-              <th>Name</th>
-              <th>Win %</th>
-              <th>Total Points</th>
-            </tr>
-          </thead>
-          <tbody>
-    `;
-
-    rankings.forEach((player, idx) => {
-      // Calculate / format Rank Tag (e.g. 1/48, 2/48-R)
-      const isSub = player.isSub || String(player.status).toUpperCase().includes('SUB') || String(player.status) === 'R';
-      const rankTag = player.rank || `${idx + 1}/${totalPlayers}${isSub ? '-R' : ''}`;
-
-      // Format Win %
-      let winPctRaw = player.winPct ?? player['Win %'] ?? 0;
-      if (typeof winPctRaw === 'string') winPctRaw = parseFloat(winPctRaw.replace('%', '')) || 0;
-      if (winPctRaw <= 1.0 && winPctRaw > 0) winPctRaw *= 100;
-      const formattedWinPct = winPctRaw.toFixed(2) + '%';
-
-      // Total Points & Name
-      const totalPoints = player.totalPoints ?? player.points ?? player['Total Points'] ?? 0;
-      const playerName = player.name || player['Player Name'] || 'Unknown';
-
-      html += `
-        <tr>
-          <td>${rankTag}</td>
-          <td>${playerName}</td>
-          <td>${formattedWinPct}</td>
-          <td>${totalPoints}</td>
-        </tr>
-      `;
-    });
-
-    html += `</tbody></table></div>`;
-  }
-
-  // Render Schedule Table if present
-  if (Array.isArray(schedule) && schedule.length > 0) {
-    html += `
-      <div class="schedule-container" style="margin-top:20px;">
-        <h3>Schedule</h3>
-        <table class="schedule-table">
-          <thead>
-            <tr>
-              <th>Player Name</th>
-              <th>Court</th>
-              <th>Check-In</th>
-            </tr>
-          </thead>
-          <tbody>
-    `;
-
-    schedule.forEach(row => {
-      html += `
-        <tr>
-          <td>${row.name || row['Player Name'] || ''}</td>
-          <td>${row.court || row['Court'] || 'BYE'}</td>
-          <td>${row.checkIn || row['Check-In'] || ''}</td>
-        </tr>
-      `;
-    });
-
-    html += `</tbody></table></div>`;
-  }
-
-  return html || '<i>No schedule or ranking data available.</i>';
-}
-
-
-
-
-function renderCheckInPlayers(players) {
-  const listEl = document.getElementById('playerList');
-  if (!listEl) return;
-
-  if (!players || players.length === 0) {
-    listEl.innerHTML = '<i>No players active in this group.</i>';
-    return;
-  }
-
-  const courts = {};
-  players.forEach(p => {
-    const c = p.court || 'Courts Unassigned';
-    if (!courts[c]) courts[c] = [];
-    courts[c].push(p);
-  });
-
-  let html = '';
-  const sortedKeys = Object.keys(courts).sort((a, b) => {
-    if (a.startsWith('Court') && b.startsWith('Court')) {
-      return parseInt(a.replace('Court ', ''), 10) - parseInt(b.replace('Court ', ''), 10);
-    }
-    return a.localeCompare(b);
-  });
-
-  sortedKeys.forEach(courtKey => {
-    const isBye = courtKey.toLowerCase().includes('bye') || courtKey === 'Unassigned';
-    const headerClass = isBye ? 'court-header bye-header' : 'court-header';
-    
-    html += `<div class="${headerClass}">${courtKey}</div>`;
-
-    courts[courtKey].forEach(p => {
-      const isChecked = p.checkedIn === true || p.checkedIn === 'true' || p.checked === true;
-      const rowClass = isChecked ? 'player-row checked' : 'player-row';
-      const icon = isChecked ? '✅' : '⬜';
-      
-      const safeIdentifier = String(p.phone || p.name).replace(/'/g, "\\'");
-
-      html += `
-        <div class="${rowClass}" data-phone="${p.phone || ''}" data-name="${p.name || ''}" data-checked="${isChecked}" onclick="handlePlayerRowClick(this, '${safeIdentifier}')">
-          <span class="player-name">${p.name || `${p.first || ''} ${p.last || ''}`.trim()}</span>
-          <span class="check-icon">${icon}</span>
-        </div>
-      `;
-    });
-  });
-
-  listEl.innerHTML = html;
 }
 
 async function handlePlayerRowClick(rowEl, identifier) {
@@ -2061,6 +1771,65 @@ function forceRefresh() {
   }
 
   document.addEventListener('DOMContentLoaded', setupEventListeners);
+// Helper to strip court assignment and sort players alphabetically
+function processAndSortPlayers(players) {
+  if (!Array.isArray(players)) return [];
+  return players
+    .map(player => ({
+      ...player,
+      court: '' // Clear court name so it won't render
+    }))
+    .sort((a, b) => {
+      const nameA = String(a.name || `${a.first || ''} ${a.last || ''}`).trim();
+      const nameB = String(b.name || `${b.first || ''} ${b.last || ''}`).trim();
+      return nameA.localeCompare(nameB, undefined, { sensitivity: 'base' });
+    });
+}
+
+// Fixed setupEventListeners with SINGLE startup payload fetch
+async function setupEventListeners() {
+  initAccessibility();
+  loadFromCache(); // 1. Instantly display cached data from localStorage
+
+  const savedGroup = getSavedGroup();
+
+  try {
+    // 2. Single batch API call to fetch all startup data in 1 network round-trip
+    const initData = await apiCall('getInitialAppData', {
+      groupName: savedGroup,
+      sheet: savedGroup ? "Sched " + savedGroup : ""
+    });
+
+    if (initData) {
+      // Populate dropdowns with fresh metadata
+      if (initData.sheets) populateSheets(initData.sheets);
+      if (initData.groups) populateGroups(initData.groups);
+
+      // Render check-in players if returned in initial payload
+      if (initData.checkInPlayers && Array.isArray(initData.checkInPlayers)) {
+        checkInPlayersCache = processAndSortPlayers(initData.checkInPlayers);
+        renderCheckInPlayers(checkInPlayersCache);
+      }
+
+      // Check version matching
+      if (initData.version && initData.version !== CURRENT_APP_VERSION) {
+        console.log(`New version detected: ${initData.version}. Resetting app...`);
+        forceResetApp();
+        return;
+      }
+    }
+  } catch (err) {
+    console.warn("Initial metadata sync failed, running on cached data:", err);
+  } finally {
+    isInitialLoading = false;
+    updateGlobalLoaderStatus();
+
+    const loader = document.getElementById('globalLoader');
+    if (loader) loader.style.display = 'none';
+
+    startCheckInAutoRefresh();
+  }
+}  
 </script>
   </body>
 </html>
