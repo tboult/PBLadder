@@ -2413,8 +2413,13 @@ function getActiveWeekForGroup(group) {
  */
 function CheckInPlayer(payload) {
   try {
-    const playerId = payload.playerId || payload.id;
-    if (!playerId) {
+      const playerId = payload.playerId || payload.id;
+function checkInPlayer(payload) {
+  try {
+    // Fallback to payload.phone if payload.playerId is undefined
+    const playerId = payload.playerId || payload.phone || payload.id;
+
+     if (!playerId) {
       return {
         status: "failed",
         success: false,
