@@ -769,25 +769,28 @@ function getRankingsAndSchedData(groupName) {
 
   // --- 1. PROCESS SCHEDULE TAB ---
   if (schedSheet) {
-    let sData = schedSheet.getDataRange().getDisplayValues();
-    if (sData && sData.length > 0) {
-      let firstCell = String(sData[0][0] || "").trim();
-      
-      // Check if top-left cell has warning symbol or "not ready" text
-      let isScheduleReady = !firstCell.includes("⚠️") && 
-                            !firstCell.toLowerCase().includes("not ready") && 
-                            !firstCell.toLowerCase().includes("draft");
+    // Read week number from cell H2
+    let sheetWeekVal = getWeekNumber(schedSheet); 
+    let sheetWeekNum = String(sheetWeekVal || "").replace(/\D/g, "");
 
-      if (!isScheduleReady) {
-        // Display Warning Box & DO NOT render court assignment table
-        let alertMsg = firstCell || `⏳ Schedule for ${cleanGroup} is not yet ready for this week.`;
-        html += `
-          <div style="background:#fff3bf; color:#856404; border:1px solid #ffeeba; padding:12px; margin-bottom:15px; border-radius:6px; font-weight:bold; text-align:center;">
-            ${alertMsg}
-          </div>`;
-        hasData = true; // Mark as handled so it doesn't return "no published schedule"
-      } else if (sData.length > 1) {
-        // Schedule is up to date -> Render Court Assignments
+    // Get current target active week for system/group
+    let activeWeekVal = (typeof getActiveWeek === "function") ? getActiveWeek() : 
+                        (typeof getActiveWeekForGroup === "function") ? getActiveWeekForGroup(cleanGroup) : null;
+    let activeWeekNum = activeWeekVal ? String(activeWeekVal).replace(/\D/g, "") : "";
+
+    // Schedule is finalized ONLY if H2 has a valid week matching current active week
+    let isWeekFinalized = sheetWeekNum !== "" && (activeWeekNum !== "" ? sheetWeekNum === activeWeekNum : true);
+
+    if (!isWeekFinalized) {
+      // Week is outdated or unassigned -> Show warning banner & hide court table
+      html += `
+        <div style="background:#fff3bf; color:#856404; border:1px solid #ffeeba; padding:12px; margin-bottom:15px; border-radius:6px; font-weight:bold; text-align:center;">
+          ⏳ Schedule for this week not yet finalized
+        </div>`;
+      hasData = true;
+    } else {
+      let sData = schedSheet.getDataRange().getDisplayValues();
+      if (sData && sData.length > 1) {
         html += `<h4>Current Court Assignments</h4>
                  <table class="data-table">
                    <thead><tr><th>Player</th><th>Court</th></tr></thead>
@@ -901,6 +904,7 @@ function getRankingsAndSchedData(groupName) {
 
   return { html: html };
 }
+
 
 
 
@@ -1765,7 +1769,7 @@ function generateScheduleTabs(genTarget, courts) {
   let groupsToProcess = [];
   const group = getTargetGroup();
   const currentWeek = getCurrentWeekIdentifier(); // e.g., "W10" or "Week 10"
-  const sheet =   ss.getSheetByName("Sched " + groupName) || ss.getSheetByName("Schedule " + groupName);
+  const sheet =   ss.getSheetByName("Sched " + group) || ss.getSheetByName("Schedule " + group);
 
   
     // Stamp week metadata in H1 and H2
