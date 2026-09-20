@@ -120,7 +120,7 @@ function buildColMap(header) {
   col.status     = getColIdx(col, ["Status", "Active"]);
   col.total      = getColIdx(col, ["Tot", "Total"]);
   col.winPct     = getColIdx(col, ["Pct", "Win %"]);
-  col.rNum       = getColIdx(col, ["RNum", "Rank"]);
+  col.rnum       = getColIdx(col, ["RNum", "Rank"]);
   col.rawRankCol = getColIdx(col, ["Raw Rank"]);
 
   for (let r = 0; r <= 10; r++) {
@@ -654,12 +654,14 @@ function getRankingsAndSchedData(groupName) {
     let scData = rankSheet.getDataRange().getValues();
     if (scData && scData.length > 1) {
       let col = buildColMap(scData[0]);
-      html += `<h4 style="margin-top:1rem;">Ladder Rankings</h4><table class="data-table"><thead><tr><th>#</th><th>Player</th><th>Status</th></tr></thead><tbody>`;
-      let rank = 1;
+      html += `<h4 style="margin-top:1rem;">Ladder Rankings</h4><table class="data-table"><thead><tr><th>#</th><th>Player</th><th>Rank</th><th>Win %</th><th>Total</th></tr></thead><tbody>`;
+      let rankorder = 1;
       for (let r = 1; r < scData.length; r++) {
         let name = col.name !== undefined ? scData[r][col.name] : `${scData[r][col.first] || ''} ${scData[r][col.last] || ''}`.trim();
-        let status = col.status !== undefined ? scData[r][col.status] : 'ACTIVE';
-        if (name) html += `<tr><td>${rank++}</td><td>${name}</td><td>${status}</td></tr>`;
+          let rank = col.rnum !== undefined ? scData[r][col.rnum];
+          let win = col.winPct !== undefined ? scData[r][col.winPct];
+          let total = col.total !== undefined ? scData[r][col.total];          
+        if (name) html += `<tr><td>${rankorder++}</td><td>${name}</td><td>${rank}</td><td>${win}</td><td>${total}</td></tr>`;
       }
       html += `</tbody></table>`;
     }
