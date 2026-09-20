@@ -1389,10 +1389,10 @@ function renderLookupResult(player, foursome) {
       <div class="card" style="margin-bottom:0.75rem;">
         <p style="margin:0 0 0.4rem 0;"><b>Court Foursome:</b></p>
         <ol style="padding-left:1.2rem; margin:0;">
-          <li>P1 ${p1}</li>
-          <li>P2 ${p2}</li>
-          <li>P3 ${p3}</li>
-          <li>P4 ${p4}</li>
+          <li>p1 ${p1}</li>
+          <li>p2 ${p2}</li>
+          <li>p3 ${p3}</li>
+          <li>p4 ${p4}</li>
         </ol>
       </div>
 
@@ -1431,15 +1431,31 @@ async function saveScores() {
     return;
   }
 
-  const v1_1 = parseInt(document.getElementById('sc1_p1')?.value, 10);
-  const v1_2 = parseInt(document.getElementById('sc1_p2')?.value, 10);
-  const v2_1 = parseInt(document.getElementById('sc2_p1')?.value, 10);
-  const v2_2 = parseInt(document.getElementById('sc2_p2')?.value, 10);
-  const v3_1 = parseInt(document.getElementById('sc3_p1')?.value, 10);
-  const v3_2 = parseInt(document.getElementById('sc3_p2')?.value, 10);
+  // Helper to parse score inputs: returns undefined for empty fields, 'INVALID' for negative/bad numbers
+  const parseScore = (id) => {
+    const val = document.getElementById(id)?.value?.trim();
+    if (val === '' || val === undefined || val === null) return undefined;
+    const parsed = parseInt(val, 10);
+    return isNaN(parsed) || parsed < 0 ? 'INVALID' : parsed;
+  };
 
-  if ([v1_1, v1_2, v2_1, v2_2, v3_1, v3_2].some(v => isNaN(v) || v < 0)) {
-    alert('Please enter valid non-negative numbers for all game scores.');
+  const v1_1 = parseScore('sc1_p1');
+  const v1_2 = parseScore('sc1_p2');
+  const v2_1 = parseScore('sc2_p1');
+  const v2_2 = parseScore('sc2_p2');
+  const v3_1 = parseScore('sc3_p1');
+  const v3_2 = parseScore('sc3_p2');
+
+  const allScores = [v1_1, v1_2, v2_1, v2_2, v3_1, v3_2];
+
+  if (allScores.includes('INVALID')) {
+    alert('Please enter valid non-negative numbers for all filled score fields.');
+    return;
+  }
+
+  // Ensure at least one score field is filled
+  if (allScores.every(v => v === undefined)) {
+    alert('Please enter at least one game score before submitting.');
     return;
   }
 
@@ -1448,14 +1464,15 @@ async function saveScores() {
   const p3 = activeFoursome[2].name;
   const p4 = activeFoursome[3].name;
 
-  // Frontend maps game rotation directly to explicit player name scores
+  // Frontend maps game rotation to individual player objects (leaving empty games as undefined)
   const scoresPayload = [
-    { name: p1, g1: v1_1, g2: v2_1, g3: v3_1, total: v1_1 + v2_1 + v3_1 },
-    { name: p2, g1: v1_2, g2: v2_2, g3: v3_1, total: v1_2 + v2_2 + v3_1 },
-    { name: p3, g1: v1_2, g2: v2_1, g3: v3_2, total: v1_2 + v2_1 + v3_2 },
-    { name: p4, g1: v1_1, g2: v2_2, g3: v3_2, total: v1_1 + v2_2 + v3_2 }
+    { name: p1, g1: v1_1, g2: v2_1, g3: v3_1 },
+    { name: p2, g1: v1_2, g2: v2_2, g3: v3_1 },
+    { name: p3, g1: v1_2, g2: v2_1, g3: v3_2 },
+    { name: p4, g1: v1_1, g2: v2_2, g3: v3_2 }
   ];
 
+  const submitterPhone = activeLookupPlayer.phone || localStorage.getItem('scpb_saved_phone') || '';
   const cleanGroup = String(activeLookupPlayer.group || '').replace(/^(Sched|Score)\s*/i, '').trim();
   const statusEl = document.getElementById('phoneStatus');
   if (statusEl) statusEl.innerText = 'Submitting scores...';
@@ -1463,7 +1480,8 @@ async function saveScores() {
   try {
     const res = await apiCall('submitCourtScores', {
       group: cleanGroup,
-      scores: scoresPayload
+      scores: scoresPayload,
+      submittedBy: submitterPhone
     });
 
     if (res && res.success) {

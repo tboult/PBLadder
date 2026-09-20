@@ -613,10 +613,10 @@ function togglePlayerStatus(phone, groupName) {
 
 /**
  * Records submitted court game scores directly to the schedule sheet.
+ * Preserves previously saved scores if a score field is left blank.
  * 
- * @param {Object} payload - Object containing group string and scores array [{ player, g1, g2, g3, total }].
+ * @param {Object} payload - Object containing group string, scores array, and submittedBy phone.
  * @returns {Object} Outcome dictionary with success flag and status message.
- * @throws Assumes target schedule sheet exists and matches group name.
  */
 function submitCourtScores(payload) {
   logDebug("submitCourtScores", "Submitting scores payload", payload);
@@ -644,6 +644,12 @@ function submitCourtScores(payload) {
   let g3Idx = headers.indexOf("game 3");
   let totIdx = headers.indexOf("total");
 
+  let submitterIdx = headers.findIndex(h => 
+    h === "entered by" || h === "submitted by" || h === "score entry phone" || h === "entered phone" || h.includes("entered")
+  );
+
+  let submitterPhone = payload.submittedBy || payload.phone || "";
+
   // Create hash map for O(1) lookup by lowercased player name
   let scoresMap = {};
   payload.scores.forEach(item => {
@@ -657,16 +663,55 @@ function submitCourtScores(payload) {
     let rowName = String(data[r][nameIdx] || "").trim().toLowerCase();
     if (scoresMap[rowName]) {
       let pScore = scoresMap[rowName];
-      if (g1Idx !== -1 && pScore.g1 !== undefined) schedSheet.getRange(r + 1, g1Idx + 1).setValue(pScore.g1);
-      if (g2Idx !== -1 && pScore.g2 !== undefined) schedSheet.getRange(r + 1, g2Idx + 1).setValue(pScore.g2);
-      if (g3Idx !== -1 && pScore.g3 !== undefined) schedSheet.getRange(r + 1, g3Idx + 1).setValue(pScore.g3);
-      if (totIdx !== -1 && pScore.total !== undefined) schedSheet.getRange(r + 1, totIdx + 1).setValue(pScore.total);
+
+      // Track current values from row to accurately recalculate total
+      let curG1 = g1Idx !== -1 ? data[r][g1Idx] : "";
+      let curG2 = g2Idx !== -1 ? data[r][g2Idx] : "";
+      let curG3 = g3Idx !== -1 ? data[r][g3Idx] : "";
+
+      // Only update cells if new value is provided (not undefined, null, or empty string)
+      if (g1Idx !== -1 && pScore.g1 !== undefined && pScore.g1 !== null && pScore.g1 !== "") {
+        curG1 = pScore.g1;
+        schedSheet.getRange(r + 1, g1Idx + 1).setValue(pScore.g1);
+      }
+      if (g2Idx !== -1 && pScore.g2 !== undefined && pScore.g2 !== null && pScore.g2 !== "") {
+        curG2 = pScore.g2;
+        schedSheet.getRange(r + 1, g2Idx + 1).setValue(pScore.g2);
+      }
+      if (g3Idx !== -1 && pScore.g3 !== undefined && pScore.g3 !== null && pScore.g3 !== "") {
+        curG3 = pScore.g3;
+        schedSheet.getRange(r + 1, g3Idx + 1).setValue(pScore.g3);
+      }
+
+      // Dynamically calculate Total from all entered game scores (existing + newly submitted)
+      if (totIdx !== -1) {
+        let sum = 0;
+        let hasAnyScore = false;
+        [curG1, curG2, curG3].forEach(v => {
+          let num = parseInt(v, 10);
+          if (!isNaN(num)) {
+            sum += num;
+            hasAnyScore = true;
+          }
+        });
+        if (hasAnyScore) {
+          schedSheet.getRange(r + 1, totIdx + 1).setValue(sum);
+        }
+      }
+
+      // Record submitter phone if column exists
+      if (submitterIdx !== -1 && submitterPhone) {
+        schedSheet.getRange(r + 1, submitterIdx + 1).setValue("'" + submitterPhone);
+      }
+
       updatedCount++;
     }
   }
 
   return { success: true, message: `Successfully updated scores for ${updatedCount} player(s) on Sched ${cleanGroup}.` };
 }
+
+
 /**
  * Builds HTML table views of schedule and standings for external UI embedding.
  * 
