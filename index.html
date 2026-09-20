@@ -332,15 +332,15 @@
     </div>
 
     <div class="nav">
-      <button id="tab1Btn" class="active" onclick="switchTab('checkin')">Check-In</button>
+      <button id="tab4Btn" class="active" onclick="switchTab('help')">Config &<br>Help</button>
+      <button id="tab1Btn" onclick="switchTab('checkin')">Check-In</button>
       <button id="tab2Btn" onclick="switchTab('phone')">Enter Scores</button>
       <button id="tab3Btn" onclick="switchTab('ranksched')">Schedule<br> & Ranks</button>
-      <button id="tab4Btn" onclick="switchTab('help')">Help</button>
       <button id="tabAdminBtn" style="display:none; background:var(--btn-danger-bg); color:var(--btn-danger-text);" onclick="switchTab('admin')">Admin</button>
-    </div>
+</div>
 
     <!-- TAB 1: CHECK-IN SYSTEM -->
-    <div id="checkinTab" class="tab-content active">
+    <div id="checkinTab" class="tab-content">
       <label><b>Select Group:</b></label>
       <select id="sheetSelect" onchange="onGroupChange('sheetSelect'); loadCheckInPlayers();">
         <option value="">-- Choose Group --</option>
@@ -348,6 +348,8 @@
       <div id="checkInStatus" class="status-msg" style="margin-top:0.25rem; margin-bottom:0.5rem;"></div>
       <div id="playerList"><i>Select a group above...</i></div>
     </div>
+</div>      
+    
 
     <!-- TAB 2: SCORES & PHONE LOOKUP -->
     <div id="phoneTab" class="tab-content">
@@ -356,7 +358,6 @@
         <input type="tel" id="phoneInput" placeholder="e.g. 555-123-4567">
         <button class="btn-main" onclick="lookupPhone()">Find My Foursome</button>
       </div>
-      
       <div id="lookupResult" style="display:none;">
         <div class="card">
           <h4 style="margin:0 0 0.25rem 0;" id="pNameDisplay"></h4>
@@ -370,7 +371,7 @@
           <div id="scoreInputsContainer"></div>
           <button class="btn-main" onclick="saveScores()">Submit Scores</button>
         </div>
-        
+
         <button class="btn-danger" style="margin-top:5rem;" onclick="clearPhoneCache()">Clear Saved Phone Number</button>
       </div>
       
@@ -388,6 +389,7 @@
       
       <div id="phoneStatus" class="status-msg"></div>
     </div>
+        
 
     <!-- TAB 3: RANKINGS & SCHEDULE VIEWER -->
     <div id="rankschedTab" class="tab-content">
@@ -397,12 +399,32 @@
       <div id="viewerStatus" class="status-msg"></div>
     </div>
 
-    <!-- TAB 4: HELP -->
-    <div id="helpTab" class="tab-content">
-      <button id="forceRefreshBtn" onclick="forceRefresh()" title="Clear browser cache and reload fresh data" style="padding: 6px 12px; cursor: pointer;">
+<div class="card" id="helpGroupSelectSection">
+        <h3 style="margin-top:0;">🎯 Select & Cache Group</h3>
+        <p style="margin-bottom:0.5rem; color:var(--text-secondary); font-size:0.9rem;">
+          You must select a group before accessing other tabs.
+        </p>
+        <div id="helpGroupRadioContainer" style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem;">
+          <label style="display:flex; align-items:center; gap:0.5rem; font-size:1.1rem; padding:0.5rem 0.75rem; border:2px solid var(--input-border); border-radius:0.5rem; background:var(--input-bg); cursor:pointer;">
+            <input type="radio" name="helpGroupRadio" value="Womens" onchange="onHelpGroupRadioChange(this.value)" style="width:20px; height:20px; min-height:auto; margin:0; cursor:pointer;">
+            <b>Womens</b>
+          </label>
+          <label style="display:flex; align-items:center; gap:0.5rem; font-size:1.1rem; padding:0.5rem 0.75rem; border:2px solid var(--input-border); border-radius:0.5rem; background:var(--input-bg); cursor:pointer;">
+            <input type="radio" name="helpGroupRadio" value="Mixed" onchange="onHelpGroupRadioChange(this.value)" style="width:20px; height:20px; min-height:auto; margin:0; cursor:pointer;">
+            <b>Mixed</b>
+          </label>
+          <label style="display:flex; align-items:center; gap:0.5rem; font-size:1.1rem; padding:0.5rem 0.75rem; border:2px solid var(--input-border); border-radius:0.5rem; background:var(--input-bg); cursor:pointer;">
+            <input type="radio" name="helpGroupRadio" value="Mens" onchange="onHelpGroupRadioChange(this.value)" style="width:20px; height:20px; min-height:auto; margin:0; cursor:pointer;">
+            <b>Mens</b>
+          </label>
+        </div>
+      </div>
+
+      <button id="forceRefreshBtn" onclick="forceRefresh()" title="Clear browser cache and reload fresh data" style="padding: 6px 12px; cursor: pointer; margin-top: 0.75rem;">
          <h3> 🔄 Clean Cache & Refresh Data </h3>
       </button>
 
+      
       <div class="access-panel">
         <h3 style="margin-top:0;">📱 Adjust sizes / Contrast</h3>
         <p> 
@@ -692,35 +714,69 @@ function getSavedGroup() {
   return localStorage.getItem('scpb_selected_group');
 }
 
-function populateSheets(sheets) {
-  if (!sheets || !Array.isArray(sheets)) return;
-  const select = document.getElementById('sheetSelect');
-  if (!select) return;
 
-  select.innerHTML = '<option value="">-- Choose Group --</option>';
+function renderHelpGroupRadios(cleanGroupArray) {
+  const container = document.getElementById('helpGroupRadioContainer');
+  if (!container || !Array.isArray(cleanGroupArray) || cleanGroupArray.length === 0) return;
+
+  const currentGroup = getSavedGroup();
+  let html = '';
+  cleanGroupArray.forEach(g => {
+    const isChecked = (g === currentGroup) ? 'checked' : '';
+    html += `
+      <label style="display:flex; align-items:center; gap:0.5rem; font-size:1.1rem; padding:0.5rem 0.75rem; border:2px solid var(--input-border); border-radius:0.5rem; background:var(--input-bg); cursor:pointer;">
+        <input type="radio" name="helpGroupRadio" value="${g}" ${isChecked} onchange="onHelpGroupRadioChange(this.value)" style="width:20px; height:20px; min-height:auto; margin:0; cursor:pointer;">
+        <b>${g}</b>
+      </label>
+    `;
+  });
+  container.innerHTML = html;
+}
+
+function onHelpGroupRadioChange(val) {
+  if (val) {
+    setSelectedGroup(val);
+  }
+}
+
+function populateSheets(sheets) {
+  const sourceList = (Array.isArray(sheets) && sheets.length > 0) ? sheets : HARDCODED_GROUPS;
+  const select = document.getElementById('sheetSelect');
+
   const uniqueGroups = new Set();
-  
-  sheets.forEach(s => {
+  sourceList.forEach(s => {
     const cleanGroup = String(s).replace(/^(Sched|Score)\s*/i, '').trim();
-    if (cleanGroup && !uniqueGroups.has(cleanGroup)) {
-        uniqueGroups.add(cleanGroup);
-        const opt = document.createElement('option');
-        opt.value = cleanGroup; 
-        opt.textContent = cleanGroup; 
-        select.appendChild(opt);
-    }
+    if (cleanGroup) uniqueGroups.add(cleanGroup);
   });
 
-  localStorage.setItem('cached_sheets', JSON.stringify(Array.from(uniqueGroups)));
+  const cleanGroupArray = Array.from(uniqueGroups);
+
+  if (select) {
+    select.innerHTML = '<option value="">-- Choose Group --</option>';
+    cleanGroupArray.forEach(cleanGroup => {
+      const opt = document.createElement('option');
+      opt.value = cleanGroup; 
+      opt.textContent = cleanGroup; 
+      select.appendChild(opt);
+    });
+  }
+
+  renderHelpGroupRadios(cleanGroupArray);
+  localStorage.setItem('cached_sheets', JSON.stringify(cleanGroupArray));
+
+  const savedGroup = getSavedGroup();
+  if (savedGroup) {
+    syncAllGroupDropdowns(savedGroup);
+  }
 }
 
         
 function populateGroups(groups) {
-  if (!groups || !Array.isArray(groups)) return;
+  const sourceList = (Array.isArray(groups) && groups.length > 0) ? groups : HARDCODED_GROUPS;
   const ids = ['regGroup', 'groupViewerSelect', 'adminGlobalGroupSelect'];
   
   const uniqueGroups = new Set();
-  groups.forEach(g => {
+  sourceList.forEach(g => {
     const cleanGroup = String(g).replace(/^(Sched|Score)\s*/i, '').trim();
     if (cleanGroup) uniqueGroups.add(cleanGroup);
   });
@@ -744,8 +800,16 @@ function populateGroups(groups) {
     }
   });
 
+  renderHelpGroupRadios(cleanGroupArray);
   localStorage.setItem('cached_groups', JSON.stringify(cleanGroupArray));
+
+  const savedGroup = getSavedGroup();
+  if (savedGroup) {
+    syncAllGroupDropdowns(savedGroup);
+  }
 }
+
+
 
 function loadFromCache() {
   const cachedSheets = localStorage.getItem('cached_sheets');
@@ -1032,6 +1096,57 @@ async function loadCheckInPlayers() {
     if (statusEl) statusEl.innerText = '❌ ' + err.message;
   }
 }
+
+function renderCheckInPlayers(players) {
+  const listEl = document.getElementById('playerList');
+  if (!listEl) return;
+
+  if (!players || players.length === 0) {
+    listEl.innerHTML = '<i>No players active in this group.</i>';
+    return;
+  }
+
+  const courts = {};
+  players.forEach(p => {
+    const c = p.court || 'Courts Unassigned';
+    if (!courts[c]) courts[c] = [];
+    courts[c].push(p);
+  });
+
+  let html = '';
+  const sortedKeys = Object.keys(courts).sort((a, b) => {
+    if (a.startsWith('Court') && b.startsWith('Court')) {
+      return parseInt(a.replace('Court ', ''), 10) - parseInt(b.replace('Court ', ''), 10);
+    }
+    return a.localeCompare(b);
+  });
+
+  sortedKeys.forEach(courtKey => {
+    const isBye = courtKey.toLowerCase().includes('bye') || courtKey === 'Unassigned';
+    const headerClass = isBye ? 'court-header bye-header' : 'court-header';
+    
+    html += `<div class="${headerClass}">${courtKey}</div>`;
+
+    courts[courtKey].forEach(p => {
+      const isChecked = p.checkedIn === true || p.checkedIn === 'true' || p.checked === true;
+      const rowClass = isChecked ? 'player-row checked' : 'player-row';
+      const icon = isChecked ? '✅' : '⬜';
+      
+      const safeIdentifier = String(p.phone || p.name).replace(/'/g, "\\'");
+      const displayName = p.name || `${p.first || ''} ${p.last || ''}`.trim();
+
+      html += `
+        <div class="${rowClass}" data-phone="${p.phone || ''}" data-name="${p.name || ''}" data-checked="${isChecked}" onclick="handlePlayerRowClick(this, '${safeIdentifier}')">
+          <span class="player-name">${displayName}</span>
+          <span class="check-icon">${icon}</span>
+        </div>
+      `;
+    });
+  });
+
+  listEl.innerHTML = html;
+}
+
 
 async function handlePlayerRowClick(rowEl, identifier) {
   if (rowEl.style.pointerEvents === 'none') return;
@@ -1499,7 +1614,6 @@ function setSelectedGroup(groupName) {
   syncAllGroupDropdowns(groupName);
   onGroupContextUpdated(groupName);
 }
-
 function syncAllGroupDropdowns(groupName) {
   if (!groupName) return;
   const cleanGroup = String(groupName).replace(/^(Sched|Score)\s*/i, '').trim();
@@ -1518,6 +1632,11 @@ function syncAllGroupDropdowns(groupName) {
     }
   });
 
+  const radios = document.querySelectorAll('input[name="helpGroupRadio"]');
+  radios.forEach(r => {
+    r.checked = (r.value === cleanGroup);
+  });
+
   const sheetLink = document.getElementById('adminSheetLink');
   if (sheetLink) {
     sheetLink.href = `${API_URL}?action=editSheet&group=${encodeURIComponent(cleanGroup)}`;
@@ -1525,6 +1644,7 @@ function syncAllGroupDropdowns(groupName) {
 
   renderAdminCourts(cleanGroup);
 }
+
 
 function onGroupChange(sourceId) {
   const el = document.getElementById(sourceId);
@@ -1571,7 +1691,29 @@ async function loadAdminPlayerStatusCache(group) {
   }
 }
 
+function getSavedGroup() {
+  return localStorage.getItem('selected_group') || '';
+}
+
+function setSelectedGroup(group) {
+  if (!group) return;
+  const cleanGroup = String(group).replace(/^(Sched|Score)\s*/i, '').trim();
+  localStorage.setItem('selected_group', cleanGroup);
+  syncAllGroupDropdowns(cleanGroup);
+}
+
 function switchTab(tabId) {
+  const currentGroup = getSavedGroup();
+
+  // Lock user into Config & Help if no group is selected
+  if (!currentGroup && tabId !== 'help') {
+    alert('Please select a group in "Config & Help" before proceeding.');
+    tabId = 'help';
+  }
+
+  // Save selected tab key to localStorage
+  localStorage.setItem('activeTab', tabId);
+
   const tabMap = {
     'checkin': 'checkinTab',
     'phone': 'phoneTab',
@@ -1579,14 +1721,6 @@ function switchTab(tabId) {
     'help': 'helpTab',
     'admin': 'adminTab'
   };
-
-  const targetId = tabMap[tabId] || 'checkinTab';
-
-  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-  document.querySelectorAll('.nav button').forEach(el => el.classList.remove('active'));
-
-  const activeContent = document.getElementById(targetId);
-  if (activeContent) activeContent.classList.add('active');
 
   const btnMap = {
     'checkin': 'tab1Btn',
@@ -1596,11 +1730,47 @@ function switchTab(tabId) {
     'admin': 'tabAdminBtn'
   };
 
+  // Remove active state from all tab contents and navigation buttons
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.nav button').forEach(el => el.classList.remove('active'));
+
+  // Activate selected tab content
+  const targetId = tabMap[tabId] || 'checkinTab';
+  const activeContent = document.getElementById(targetId);
+  if (activeContent) activeContent.classList.add('active');
+
+  // Activate selected nav button
   const activeBtn = document.getElementById(btnMap[tabId]);
   if (activeBtn) activeBtn.classList.add('active');
 
-  refreshActiveTabData();
+  // Refresh data for the newly opened tab
+  if (typeof refreshActiveTabData === 'function') {
+    refreshActiveTabData();
+  }
 }
+
+const HARDCODED_GROUPS = ['Womens', 'Mixed', 'Mens'];
+
+// Unified App Initialization
+document.addEventListener('DOMContentLoaded', () => {
+  // Check if user has previously saved or cached groups, otherwise fallback to hardcoded list
+  const cachedGroups = JSON.parse(localStorage.getItem('cached_groups') || '[]');
+  const groupsToUse = cachedGroups.length > 0 ? cachedGroups : HARDCODED_GROUPS;
+
+  populateGroups(groupsToUse);
+  populateSheets(groupsToUse);
+
+  const savedGroup = getSavedGroup();
+
+  if (!savedGroup) {
+    switchTab('help');
+  } else {
+    syncAllGroupDropdowns(savedGroup);
+  }
+
+  // Trigger main app setup
+  setupEventListeners();
+});
 
 function refreshActiveTabData() {
   const currentGroup = getSavedGroup();
@@ -1610,12 +1780,12 @@ function refreshActiveTabData() {
   if (!activeTab) return;
 
   /* only do polling if on the checkin tab and have not polled 20 time ~10min on this tab*/
-  if (activeTab.id === 'checkinTab' &&  checkincnt < 20) {
+  if (activeTab.id === 'checkinTab' && checkincnt < 20) {
     loadCheckInPlayers();
     startCheckInAutoRefresh();
   } else {
-     stopCheckInAutoRefresh();
-     checkincnt=0                                        
+    stopCheckInAutoRefresh();
+    checkincnt = 0;
   }
 
   if (activeTab.id === 'rankschedTab') {
@@ -1634,8 +1804,8 @@ function refreshActiveTabData() {
 function autoSelectStoredGroup() {
   const savedGroup = getSavedGroup();
   if (savedGroup) {
-      syncAllGroupDropdowns(savedGroup);
-      refreshActiveTabData();
+    syncAllGroupDropdowns(savedGroup);
+    refreshActiveTabData();
   }
 }
 
@@ -1652,125 +1822,124 @@ function forceRefresh() {
   window.location.reload(true);
 }
 
-  const GEOFENCE_RADIUS_METERS = 1500;
-  
-  const ALLOWED_GEOFENCE_LOCATIONS = [
-      { lat: 33.65362909476011, lng: -112.27699205631843, name: "Marinette Pickleball Courts" },
-    { lat: 33.612973981080074, lng: -112.27032707707161, name: "Boult House" }      
-  ];
+const GEOFENCE_RADIUS_METERS = 1500;
 
-  function haversineDistanceMeters(lat1, lon1, lat2, lon2) {
-    const R = 6371000;
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-              Math.sin(dLon / 2) * Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c;
-  }
+const ALLOWED_GEOFENCE_LOCATIONS = [
+  { lat: 33.65362909476011, lng: -112.27699205631843, name: "Marinette Pickleball Courts" },
+  { lat: 33.612973981080074, lng: -112.27032707707161, name: "Boult House" }     
+];
 
-  function checkGeofence() {
-    return new Promise((resolve) => {
-      const statusElement = document.getElementById('checkInStatus');
+function haversineDistanceMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
 
-      if (!navigator.geolocation) {
-        const errMsg = "❌ Geolocation Error: Location services are not supported by your browser or device.";
-        if (statusElement) {
-          statusElement.innerHTML = `<div style="color: var(--btn-danger-bg); background: #ffe6e6; border: 1px solid var(--btn-danger-bg); padding: 0.75rem; border-radius: 0.5rem; text-align: left;">${errMsg}</div>`;
-        }
-        alert("Geolocation is not supported by your browser/device.");
-        resolve(false);
-        return;
-      }
+function checkGeofence() {
+  return new Promise((resolve) => {
+    const statusElement = document.getElementById('checkInStatus');
 
+    if (!navigator.geolocation) {
+      const errMsg = "❌ Geolocation Error: Location services are not supported by your browser or device.";
       if (statusElement) {
-        statusElement.innerHTML = '<span class="loading-spinner"></span> Verifying your location at the courts...';
+        statusElement.innerHTML = `<div style="color: var(--btn-danger-bg); background: #ffe6e6; border: 1px solid var(--btn-danger-bg); padding: 0.75rem; border-radius: 0.5rem; text-align: left;">${errMsg}</div>`;
       }
+      alert("Geolocation is not supported by your browser/device.");
+      resolve(false);
+      return;
+    }
 
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const userLat = position.coords.latitude;
-          const userLng = position.coords.longitude;
+    if (statusElement) {
+      statusElement.innerHTML = '<span class="loading-spinner"></span> Verifying your location at the courts...';
+    }
 
-          let isWithinFence = false;
-          let minDistanceMeters = Infinity;
-          let nearestLocName = "";
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const userLat = position.coords.latitude;
+        const userLng = position.coords.longitude;
 
-          for (const loc of ALLOWED_GEOFENCE_LOCATIONS) {
-            const dist = haversineDistanceMeters(userLat, userLng, loc.lat, loc.lng);
-            if (dist < minDistanceMeters) {
-              minDistanceMeters = dist;
-              nearestLocName = loc.name || "Pickleball Courts";
-            }
-            if (dist <= GEOFENCE_RADIUS_METERS) {
-              isWithinFence = true;
-              break;
-            }
+        let isWithinFence = false;
+        let minDistanceMeters = Infinity;
+        let nearestLocName = "";
+
+        for (const loc of ALLOWED_GEOFENCE_LOCATIONS) {
+          const dist = haversineDistanceMeters(userLat, userLng, loc.lat, loc.lng);
+          if (dist < minDistanceMeters) {
+            minDistanceMeters = dist;
+            nearestLocName = loc.name || "Pickleball Courts";
           }
-
-          if (!isWithinFence) {
-            const distMeters = Math.round(minDistanceMeters);
-            const distFeet = Math.round(minDistanceMeters * 3.28084);
-            const distMiles = (minDistanceMeters / 1609.34).toFixed(2);
-            const maxMeters = GEOFENCE_RADIUS_METERS;
-            const maxFeet = Math.round(GEOFENCE_RADIUS_METERS * 3.28084);
-
-            const userNotice = `📍 <b>Check-In Location Restriction</b><br>
-              You must be physically at the Sun City Pickleball Courts to check in.<br><br>
-              • <b>Nearest Venue:</b> ${nearestLocName}<br>
-              • <b>Your Current Distance:</b> ~${distMeters} meters (~${distFeet} ft / ${distMiles} miles) away<br>
-              • <b>Allowed Check-In Distance:</b> Within ${maxMeters} meters (~${maxFeet} ft)<br><br>
-              <i>Please move closer to the pickleball courts and try again once you arrive at the courts.</i>`;
-
-            if (statusElement) {
-              statusElement.innerHTML = `<div style="color: #721c24; background-color: #f8d7da; border: 2px solid #f5c6cb; padding: 0.85rem; border-radius: 0.5rem; text-align: left; font-size: 0.95rem; line-height: 1.4;">${userNotice}</div>`;
-            }
-
-            alert(`📍 Check-In Blocked: Not At Courts\n\nYou must be within ${maxMeters} meters (~${maxFeet} ft) of the pickleball courts to check in.\n\nYour current distance is ~${distMeters} meters (${distMiles} miles) away from ${nearestLocName}.\n\nPlease check in once you arrive at the courts!`);
-            
-            resolve(false);
-          } else {
-            if (statusElement) {
-              statusElement.innerHTML = '';
-            }
-            resolve(true);
+          if (dist <= GEOFENCE_RADIUS_METERS) {
+            isWithinFence = true;
+            break;
           }
-        },
-        (error) => {
-          let errorDetail = "Could not verify location.";
-          let detailedInstruction = "";
+        }
 
-          if (error.code === error.PERMISSION_DENIED) {
-            errorDetail = "Location permission denied.";
-            detailedInstruction = "To check in, please enable Location / GPS permissions for this app or browser in your mobile device settings.";
-          } else if (error.code === error.POSITION_UNAVAILABLE) {
-            errorDetail = "Location position unavailable.";
-            detailedInstruction = "Your device could not get a GPS fix. Ensure GPS / Location services are enabled and you have a clear view of the sky.";
-          } else if (error.code === error.TIMEOUT) {
-            errorDetail = "Location request timed out.";
-            detailedInstruction = "GPS location request timed out. Please try tapping check-in again.";
-          }
+        if (!isWithinFence) {
+          const distMeters = Math.round(minDistanceMeters);
+          const distFeet = Math.round(minDistanceMeters * 3.28084);
+          const distMiles = (minDistanceMeters / 1609.34).toFixed(2);
+          const maxMeters = GEOFENCE_RADIUS_METERS;
+          const maxFeet = Math.round(GEOFENCE_RADIUS_METERS * 3.28084);
 
-          const fullErrorMsg = `⚠️ <b>Location Access Needed</b><br>${errorDetail}<br><br>${detailedInstruction}`;
+          const userNotice = `📍 <b>Check-In Location Restriction</b><br>
+            You must be physically at the Sun City Pickleball Courts to check in.<br><br>
+            • <b>Nearest Venue:</b> ${nearestLocName}<br>
+            • <b>Your Current Distance:</b> ~${distMeters} meters (~${distFeet} ft / ${distMiles} miles) away<br>
+            • <b>Allowed Check-In Distance:</b> Within ${maxMeters} meters (~${maxFeet} ft)<br><br>
+            <i>Please move closer to the pickleball courts and try again once you arrive at the courts.</i>`;
 
           if (statusElement) {
-            statusElement.innerHTML = `<div style="color: #856404; background-color: #fff3bf; border: 2px solid #ffeba0; padding: 0.85rem; border-radius: 0.5rem; text-align: left; font-size: 0.95rem; line-height: 1.4;">${fullErrorMsg}</div>`;
+            statusElement.innerHTML = `<div style="color: #721c24; background-color: #f8d7da; border: 2px solid #f5c6cb; padding: 0.85rem; border-radius: 0.5rem; text-align: left; font-size: 0.95rem; line-height: 1.4;">${userNotice}</div>`;
           }
 
-          alert(`Geofence Location Error:\n\n${errorDetail}\n\n${detailedInstruction}`);
+          alert(`📍 Check-In Blocked: Not At Courts\n\nYou must be within ${maxMeters} meters (~${maxFeet} ft) of the pickleball courts to check in.\n\nYour current distance is ~${distMeters} meters (${distMiles} miles) away from ${nearestLocName}.\n\nPlease check in once you arrive at the courts!`);
+          
           resolve(false);
-        },
-        {
-          enableHighAccuracy: true,
-          timeout: 10000,
-          maximumAge: 0
+        } else {
+          if (statusElement) {
+            statusElement.innerHTML = '';
+          }
+          resolve(true);
         }
-      );
-    });
-  }
+      },
+      (error) => {
+        let errorDetail = "Could not verify location.";
+        let detailedInstruction = "";
 
-  document.addEventListener('DOMContentLoaded', setupEventListeners);
+        if (error.code === error.PERMISSION_DENIED) {
+          errorDetail = "Location permission denied.";
+          detailedInstruction = "To check in, please enable Location / GPS permissions for this app or browser in your mobile device settings.";
+        } else if (error.code === error.POSITION_UNAVAILABLE) {
+          errorDetail = "Location position unavailable.";
+          detailedInstruction = "Your device could not get a GPS fix. Ensure GPS / Location services are enabled and you have a clear view of the sky.";
+        } else if (error.code === error.TIMEOUT) {
+          errorDetail = "Location request timed out.";
+          detailedInstruction = "GPS location request timed out. Please try tapping check-in again.";
+        }
+
+        const fullErrorMsg = `⚠️ <b>Location Access Needed</b><br>${errorDetail}<br><br>${detailedInstruction}`;
+
+        if (statusElement) {
+          statusElement.innerHTML = `<div style="color: #856404; background-color: #fff3bf; border: 2px solid #ffeba0; padding: 0.85rem; border-radius: 0.5rem; text-align: left; font-size: 0.95rem; line-height: 1.4;">${fullErrorMsg}</div>`;
+        }
+
+        alert(`Geofence Location Error:\n\n${errorDetail}\n\n${detailedInstruction}`);
+        resolve(false);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0
+      }
+    );
+  });
+}
+
 // Helper to strip court assignment and sort players alphabetically
 function processAndSortPlayers(players) {
   if (!Array.isArray(players)) return [];
@@ -1786,7 +1955,7 @@ function processAndSortPlayers(players) {
     });
 }
 
-// Fixed setupEventListeners with SINGLE startup payload fetch
+// Single startup payload fetch
 async function setupEventListeners() {
   initAccessibility();
   loadFromCache(); // 1. Instantly display cached data from localStorage
@@ -1830,6 +1999,145 @@ async function setupEventListeners() {
     startCheckInAutoRefresh();
   }
 }  
+
+async function loadRankingsAndSched() {
+  const groupName = document.getElementById('groupViewerSelect')?.value || getSavedGroup();
+  const viewerContent = document.getElementById('viewerContent');
+  const statusEl = document.getElementById('viewerStatus');
+
+  if (!groupName) {
+    if (viewerContent) viewerContent.innerHTML = '<i>Select a group above to view schedule and rankings...</i>';
+    if (statusEl) statusEl.innerText = '';
+    return;
+  }
+
+  if (viewerContent) {
+    viewerContent.innerHTML = '<span class="loading-spinner"></span> Loading schedule & rankings...';
+  }
+  if (statusEl) statusEl.innerText = '';
+
+  try {
+    let res = await apiCall('getRankingsAndSchedule', {
+      groupName: groupName,
+      group: groupName,
+      sheet: "Sched " + groupName,
+      scoreSheetName: "Score " + groupName
+    });
+
+    if (!res) {
+      res = await apiCall('getRankingsAndSchedule', {
+        groupName: groupName,
+        group: groupName,
+        sheet: "Sched " + groupName,
+        scoreSheetName: "Score " + groupName
+      });
+    }
+
+    if (res) {
+      renderRankingsAndSchedule(res);
+      if (statusEl) statusEl.innerText = '';
+    } else {
+      if (viewerContent) viewerContent.innerHTML = '<i>No schedule or rankings available for this group.</i>';
+    }
+  } catch (err) {
+    console.error('Error loading rankings and schedule:', err);
+    if (viewerContent) viewerContent.innerHTML = '<i>Error loading schedule and rankings data.</i>';
+    if (statusEl) statusEl.innerText = '❌ ' + err.message;
+  }
+}
+
+function renderRankingsAndSchedule(data) {
+  const viewerContent = document.getElementById('viewerContent');
+  if (!viewerContent) return;
+
+  // Handles raw HTML string returned by backend
+  if (typeof data === 'string') {
+    viewerContent.innerHTML = data;
+    return;
+  }
+
+  if (data.html) {
+    viewerContent.innerHTML = data.html;
+    return;
+  }
+
+  // Handles JSON object with rankings/schedule arrays
+  let html = '';
+
+  const scheduleList = data.schedule || data.courts || data.matches;
+  if (scheduleList && Array.isArray(scheduleList) && scheduleList.length > 0) {
+    html += `<h3 style="margin-top:0.5rem; margin-bottom:0.5rem;">📅 Current Schedule</h3>`;
+    scheduleList.forEach(item => {
+      if (typeof item === 'string') {
+        html += `<div>${item}</div>`;
+      } else {
+        const courtLabel = item.court || item.courtName || `Court ${item.courtNum || ''}`;
+        const players = item.players || item.foursome || [];
+        html += `
+          <div class="card" style="margin-bottom:0.5rem;">
+            <div class="court-header">${courtLabel}</div>
+            <div style="padding:0.5rem;">${Array.isArray(players) ? players.join(', ') : players}</div>
+          </div>
+        `;
+      }
+    });
+  } else if (data.scheduleHtml) {
+    html += `<h3 style="margin-top:0.5rem; margin-bottom:0.5rem;">📅 Current Schedule</h3>` + data.scheduleHtml;
+  }
+
+  const rankingsList = data.rankings || data.ranks || data.standings || data.players;
+  if (rankingsList && Array.isArray(rankingsList) && rankingsList.length > 0) {
+    html += `<h3 style="margin-top:1rem; margin-bottom:0.5rem;">🏆 Current Rankings / Standings</h3>`;
+    html += `
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Rank</th>
+            <th>Player</th>
+            <th>Points</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+    `;
+    rankingsList.forEach((r, idx) => {
+      if (typeof r === 'string') {
+        html += `<tr><td colspan="4">${r}</td></tr>`;
+      } else {
+        const rank = r.rank || idx + 1;
+        const name = r.name || `${r.first || ''} ${r.last || ''}`.trim();
+        const score = r.points ?? r.score ?? r.pct ?? r.total ?? 'N/A';
+        const status = r.status || 'Active';
+        html += `
+          <tr>
+            <td><b>${rank}</b></td>
+            <td>${name}</td>
+            <td>${score}</td>
+            <td><span class="status-badge ${status.toLowerCase() === 'active' ? 'status-active' : 'status-inactive'}">${status}</span></td>
+          </tr>
+        `;
+      }
+    });
+    html += `</tbody></table>`;
+  } else if (data.rankingsHtml) {
+    html += `<h3 style="margin-top:1rem; margin-bottom:0.5rem;">🏆 Current Rankings / Standings</h3>` + data.rankingsHtml;
+  }
+
+  if (!html) {
+    viewerContent.innerHTML = `<pre style="white-space:pre-wrap; word-break:break-word;">${JSON.stringify(data, null, 2)}</pre>`;
+    return;
+  }
+
+  viewerContent.innerHTML = html;
+      }
+
+
+
 </script>
   </body>
 </html>
+      
+
+      
+
+      
