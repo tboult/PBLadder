@@ -483,11 +483,11 @@ function findFoursomeByPhone(phoneOrPayload, groupArg) {
   }
 
   logDebug("findFoursomeByPhone", "Searching phone/group", { phone: phone, group: group });
-  if (!phone) return { found: false, message: "No phone number provided" };
+  if (!phone) return { found: false, scheduleReady: false, message: "No phone number provided" };
 
   const ss = getDb();
   const normPhone = String(phone).replace(/\D/g, "");
-  if (normPhone.length < 7) return { found: false, message: "Phone number must be at least 7 digits" };
+  if (normPhone.length < 7) return { found: false, scheduleReady: false, message: "Phone number must be at least 7 digits" };
 
   // If group is provided, target only that group; otherwise fallback to searching all
   let cleanGroup = group ? String(group).replace(/^(Score|Sched)\s*/i, "").trim() : null;
@@ -512,48 +512,72 @@ function findFoursomeByPhone(phoneOrPayload, groupArg) {
         let status = col.status !== undefined ? data[r][col.status] : "Active";
         let court = "BYE";
         let foursome = [];
+        let scheduleReady = false;
 
         let schedSheet = ss.getSheetByName("Sched " + g);
         if (schedSheet) {
           let sData = schedSheet.getDataRange().getValues();
-          let lowerName = name.toLowerCase();
 
-          // Locate court for this player
-          for (let sr = 1; sr < sData.length; sr++) {
-            let sName = String(sData[sr][0] || "").trim().toLowerCase();
-            if (sName === lowerName) {
-              court = sData[sr][1] ? String(sData[sr][1]).trim() : "BYE";
-              break;
+          if (sData && sData.length > 0) {
+            // Check cell A1 for week header validity (e.g. "SCHEDULE_WEEK:W10")
+            let headerA1 = String(sData[0][0] || "").trim();
+            let currentActiveWeek = typeof getActiveWeekForGroup === "function" ? getActiveWeekForGroup(g) : null;
+
+            // Schedule is ready if header exists and contains the current week identifier
+            if (headerA1.indexOf("SCHEDULE_WEEK:") === 0) {
+              if (!currentActiveWeek || headerA1.includes(currentActiveWeek)) {
+                scheduleReady = true;
+              }
+            } else if (headerA1 !== "") {
+              // Fallback for legacy sheets without exact header stamp
+              scheduleReady = true;
             }
           }
 
-          // Fetch court foursome in exact order
-          if (court && court !== "BYE") {
-            let lowerCourt = court.toLowerCase();
+          // Only extract court and foursome if schedule is confirmed ready
+          if (scheduleReady) {
+            let lowerName = name.toLowerCase();
+
+            // Locate court for this player
             for (let sr = 1; sr < sData.length; sr++) {
-              let sCourt = String(sData[sr][1] || "").trim().toLowerCase();
-              if (sCourt === lowerCourt && sData[sr][0]) {
-                let pName = String(sData[sr][0]).trim();
-                let parts = pName.split(" ");
-                foursome.push({
-                  name: pName,
-                  first: parts[0] || "",
-                  last: parts.slice(1).join(" ") || ""
-                });
+              let sName = String(sData[sr][0] || "").trim().toLowerCase();
+              if (sName === lowerName) {
+                court = sData[sr][1] ? String(sData[sr][1]).trim() : "BYE";
+                break;
+              }
+            }
+
+            // Fetch court foursome in exact order
+            if (court && court !== "BYE") {
+              let lowerCourt = court.toLowerCase();
+              for (let sr = 1; sr < sData.length; sr++) {
+                let sCourt = String(sData[sr][1] || "").trim().toLowerCase();
+                if (sCourt === lowerCourt && sData[sr][0]) {
+                  let pName = String(sData[sr][0]).trim();
+                  let parts = pName.split(" ");
+                  foursome.push({
+                    name: pName,
+                    first: parts[0] || "",
+                    last: parts.slice(1).join(" ") || ""
+                  });
+                }
               }
             }
           }
         }
 
+        // Return result including scheduleReady state
         return {
           found: true,
+          scheduleReady: scheduleReady,
+          message: scheduleReady ? "Player found" : "Schedule not yet ready for this week",
           player: {
             first: first || name.split(" ")[0],
             last: last || name.split(" ").slice(1).join(" "),
             name: name,
             phone: phone,
             group: g,
-            court: court,
+            court: scheduleReady ? court : "Pending",
             status: status
           },
           courtFoursome: foursome
@@ -564,11 +588,13 @@ function findFoursomeByPhone(phoneOrPayload, groupArg) {
 
   return { 
     found: false, 
+    scheduleReady: false,
     message: cleanGroup 
       ? `Player phone not found in group '${cleanGroup}'.` 
       : "Player phone not found in any group." 
   };
 }
+
 
 
 /**
@@ -1722,10 +1748,18 @@ function getMostRecentRank(row, col, maxWeekNum = 10) {
  * @returns {string} Operational status message.
  * @throws Assumes active players exist in targeted group score tabs.
  */
+
 function generateScheduleTabs(genTarget, courts) {
   logDebug("generateScheduleTabs", "Generating schedule tabs", { genTarget, courts });
   const ss = getDb();
   let groupsToProcess = [];
+  const group = getTargetGroup();
+  const currentWeek = getCurrentWeekIdentifier(); // e.g., "W10" or "Week 10"
+  const sheet = getScheduleSheetForGroup(group);
+  
+  // Stamp the week header in A1
+    sheet.getRange("A1").setValue("SCHEDULE_WEEK:" + currentWeek);
+
 
   if (genTarget) {
     let cleanGroup = String(genTarget).replace(/^(Score|Sched)\s*/i, "").trim();
