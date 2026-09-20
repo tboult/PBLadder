@@ -632,42 +632,110 @@ function submitCourtScores(payload) {
 function getRankingsAndSchedData(groupName) {
   if (!groupName) return { html: "<i>No group specified.</i>" };
   const ss = getDb();
-  let cleanGroup = groupName.replace(/^(Score|Sched)\s*/i, "").trim();
-  let schedSheet = ss.getSheetByName("Sched " + cleanGroup);
-  let rankSheet = ss.getSheetByName("Rankings " + cleanGroup);
-  let html = `<h3 style="margin-top:0;">📊 ${cleanGroup} Schedule & Standings</h3>`;
+  let cleanGroup = String(groupName).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
 
+  // 1. Fetch Schedule Sheet
+  let schedSheet = ss.getSheetByName("Sched " + cleanGroup);
+
+  // 2. Fetch Rankings/Score Sheet with fallbacks
+  let rankSheet = ss.getSheetByName("Rankings " + cleanGroup) || 
+                  ss.getSheetByName("Score " + cleanGroup) || 
+                  (typeof getScoreSheetByGroup === "function" ? getScoreSheetByGroup(cleanGroup) : null);
+
+  let html = `<h3 style="margin-top:0;">📊 ${cleanGroup} Schedule & Standings</h3>`;
+  let hasData = false;
+
+  // --- 1. PROCESS SCHEDULE TAB ---
   if (schedSheet) {
-    let sData = schedSheet.getDataRange().getValues();
-    if (sData && sData.length > 1) {
-      html += `<h4>Current Court Assignments</h4><table class="data-table"><thead><tr><th>Player</th><th>Court</th></tr></thead><tbody>`;
-      for (let r = 1; r < sData.length; r++) {
-        if (sData[r][0] && !String(sData[r][0]).startsWith("---")) {
-          html += `<tr><td>${sData[r][0]}</td><td>${sData[r][1] || 'BYE'}</td></tr>`;
+    // getDisplayValues() preserves exact text formatting from Google Sheets
+    let sData = schedSheet.getDataRange().getDisplayValues();
+    if (sData && sData.length > 0) {
+      let headerRowIdx = 0;
+
+      // Handle top error banner if present
+      if (sData[0][0] && String(sData[0][0]).includes("⚠️")) {
+        html += `<div style="background:#f8d7da; color:#721c24; padding:8px; margin-bottom:10px; border-radius:4px; font-weight:bold; text-align:center;">${sData[0][0]}</div>`;
+        headerRowIdx = 1;
+      }
+
+      if (sData.length > headerRowIdx + 1) {
+        html += `<h4>Current Court Assignments</h4>
+                 <table class="data-table">
+                   <thead>
+                     <tr><th>Player</th><th>Court</th></tr>
+                   </thead>
+                   <tbody>`;
+
+        for (let r = headerRowIdx + 1; r < sData.length; r++) {
+          let pName = sData[r][0];
+          let court = sData[r][1] || 'BYE';
+
+          // Skip header text or separator rows
+          if (pName && pName !== "Player Name" && !String(pName).startsWith("---")) {
+            html += `<tr><td>${pName}</td><td>${court}</td></tr>`;
+            hasData = true;
+          }
+        }
+        html += `</tbody></table>`;
+      }
+    }
+  }
+
+  // --- 2. PROCESS RANKINGS TAB ---
+  if (rankSheet) {
+    // getDisplayValues() automatically formats percentages (e.g. "93.10%")
+    let scData = rankSheet.getDataRange().getDisplayValues();
+    if (scData && scData.length > 1) {
+      let col = buildColMap(scData[0]);
+
+      html += `<h4 style="margin-top:1rem;">Ladder Rankings</h4>
+               <table class="data-table">
+                 <thead>
+                   <tr><th>#</th><th>Player</th><th>Rank</th><th>Win %</th><th>Total</th></tr>
+                 </thead>
+                 <tbody>`;
+
+      let rankorder = 1;
+      let totalPlayers = scData.length - 1;
+
+      for (let r = 1; r < scData.length; r++) {
+        let row = scData[r];
+
+        // Flexible name mapping
+        let name = col.name !== undefined ? row[col.name] : `${row[col.first] || ''} ${row[col.last] || ''}`.trim();
+
+        // Flexible column index fallbacks
+        let rankIdx = col.rank !== undefined ? col.rank : (col.rnum !== undefined ? col.rnum : col.r);
+        let winIdx = col.winPct !== undefined ? col.winPct : col.winpct;
+        let totalIdx = col.totalPoints !== undefined ? col.totalPoints : col.total;
+
+        // Safely extract values
+        let rankVal = (rankIdx !== undefined && row[rankIdx]) ? row[rankIdx] : `${rankorder}/${totalPlayers}`;
+        let winVal = (winIdx !== undefined && row[winIdx]) ? row[winIdx] : "0.00%";
+        let totalVal = (totalIdx !== undefined && row[totalIdx]) ? row[totalIdx] : "0";
+
+        if (name && name !== "Player Name") {
+          html += `<tr>
+            <td>${rankorder++}</td>
+            <td>${name}</td>
+            <td>${rankVal}</td>
+            <td>${winVal}</td>
+            <td>${totalVal}</td>
+          </tr>`;
+          hasData = true;
         }
       }
       html += `</tbody></table>`;
     }
   }
 
-  if (rankSheet) {
-    let scData = rankSheet.getDataRange().getValues();
-    if (scData && scData.length > 1) {
-      let col = buildColMap(scData[0]);
-      html += `<h4 style="margin-top:1rem;">Ladder Rankings</h4><table class="data-table"><thead><tr><th>#</th><th>Player</th><th>Rank</th><th>Win %</th><th>Total</th></tr></thead><tbody>`;
-      let rankorder = 1;
-      for (let r = 1; r < scData.length; r++) {
-        let name = col.name !== undefined ? scData[r][col.name] : `${scData[r][col.first] || ''} ${scData[r][col.last] || ''}`.trim();
-          let rank = col.rnum !== undefined ? scData[r][col.rnum];
-          let win = col.winPct !== undefined ? scData[r][col.winPct];
-          let total = col.total !== undefined ? scData[r][col.total];          
-        if (name) html += `<tr><td>${rankorder++}</td><td>${name}</td><td>${rank}</td><td>${win}</td><td>${total}</td></tr>`;
-      }
-      html += `</tbody></table>`;
-    }
+  if (!hasData) {
+    return { html: `<i>No published schedule or rankings found for '${cleanGroup}'.</i>` };
   }
+
   return { html: html };
 }
+
 
 /**
  * Returns player registry records for administrative UIs.
