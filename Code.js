@@ -224,6 +224,7 @@ function getAvailableGroups() {
  *  - sheetName (string): Target schedule or score sheet.
  * Assumptions: CacheService is available, and JSON stringifying won't exceed quota.
  */
+
 function getPlayersForCheckIn(sheetName) {
   if (!sheetName) return [];
   const cacheKey = getCheckInCacheKey(sheetName);
@@ -388,18 +389,32 @@ function saveCheckIns(schedSheetName, checkedPlayerNames) {
  */
 function fetchPlayersFromSheet(inputName) {
   if (!inputName) return [];
-  const ss = getDb();
-  let cleanGroupName = String(inputName).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
 
-  let sheet = ss.getSheetByName("Sched " + cleanGroupName) || 
-              ss.getSheetByName("Score " + cleanGroupName) || 
-              ss.getSheetByName(inputName);
+  const ss = (typeof getDb === 'function') ? getDb() : SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) throw new Error("Could not access active Spreadsheet.");
 
-  if (!sheet) return [];
+  // Clean group name (e.g., if passed "Womens", "Sched Womens", or "Score Womens", extracts "Womens")
+  const cleanGroupName = String(inputName).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
+
+  // Explicitly target "Sched <GroupName>" for Check-In
+  const schedSheetName = "Sched " + cleanGroupName;
+  let sheet = ss.getSheetByName(schedSheetName);
+
+  // Fallback: Check exact inputName in case the tab is named differently
+  if (!sheet) {
+    sheet = ss.getSheetByName(inputName);
+  }
+
+  // If Sched tab isn't found, return explicit error with all existing tab names
+  if (!sheet) {
+    const availableTabs = ss.getSheets().map(s => '"' + s.getName() + '"').join(", ");
+    throw new Error(`Check-In tab "${schedSheetName}" not found. Available tabs in Google Sheet: [${availableTabs}]`);
+  }
 
   const data = sheet.getDataRange().getValues();
   if (!data || data.length <= 1) return [];
 
+  // Standardize headers
   const headers = data[0].map(h => h.toString().toLowerCase().replace(/[\s\-_]/g, "").trim());
   let nameIdx = headers.findIndex(h => h.includes("name") || h.includes("player"));
   if (nameIdx === -1) nameIdx = 0;
@@ -413,8 +428,18 @@ function fetchPlayersFromSheet(inputName) {
     if (!pName || pName.startsWith("---") || pName.toLowerCase().startsWith("time:")) continue;
 
     let checkVal = checkInIdx !== -1 ? data[r][checkInIdx] : false;
-    let isCheckedIn = isCheckInTrue(checkVal);
-    let courtVal = data[r][1] ? data[r][1].toString().trim() : "BYE";
+    
+    // Check-in status boolean check
+    let isCheckedIn = false;
+    if (typeof isCheckInTrue === 'function') {
+      isCheckedIn = isCheckInTrue(checkVal);
+    } else {
+      isCheckedIn = (checkVal === true || String(checkVal).toUpperCase() === "TRUE" || String(checkVal).toUpperCase() === "YES" || String(checkVal) === "1");
+    }
+
+    let courtVal = (data[r][1] !== undefined && data[r][1] !== null && String(data[r][1]).trim() !== "") 
+      ? String(data[r][1]).trim() 
+      : "BYE";
 
     players.push({ 
       name: pName, 
@@ -423,8 +448,10 @@ function fetchPlayersFromSheet(inputName) {
       court: courtVal 
     });
   }
+
   return players;
 }
+
 
 /**
  * Purpose: Scans score/schedule sheets to return a player's assigned court and foursome based on their phone number.
@@ -670,42 +697,56 @@ function doPost(e) { return handleApiRequest(e); }
  *  - e (object): WebApp execution event object.
  * Assumptions: Write operations are strictly listed in WRITE_ACTIONS array to manage script locking.
  */
+
 function handleApiRequest(e) {
-  logDebug("handleApiRequest", "Processing API Payload");
-  const WRITE_ACTIONS = [
-    'sortActivePlayers', 'sortActivePlayersForSheet', 'generateScheduleTabs',
-    'updateStandingsWithShift', 'correctScoresNoShift', 'processWeeklyScoresForSheet',
-    'toggleSingleCheckIn', 'saveCheckIns', 'togglePlayerStatus', 'submitCourtScores',
-    'submitScores', 'addNewUser', 'registerPlayer', 'rescheduleFromCheckIns',
-    'menuSortActivePlayers', 'menuGenerateScheduleTabs', 'menuUpdateStandingsWithShift',
-    'menuCorrectScoresNoShift', 'startNewSeason'
-  ];
-
-  let action = (e && e.parameter && e.parameter.action) ? e.parameter.action : "";
-  let payload = {};
-
-  if (e && e.postData && e.postData.contents) {
-    try {
-      payload = JSON.parse(e.postData.contents);
-      if (!action && payload.action) action = payload.action;
-    } catch(ex) {}
-  } else if (e && e.parameter) {
-    payload = e.parameter;
-  }
-
-  const requiresLock = WRITE_ACTIONS.indexOf(action) !== -1;
-  const lock = LockService.getScriptLock();
-
-  if (requiresLock) {
-    const hasLock = lock.tryLock(10000);
-    if (!hasLock) {
-      return ContentService.createTextOutput(JSON.stringify({ 
-        status: "error", message: "Server busy processing another request. Please try again." 
-      })).setMimeType(ContentService.MimeType.JSON);
-    }
-  }
+  // Wrap the ENTIRE function in try...catch so logDebug or LockService errors can't bypass JSON output
+  let requiresLock = false;
+  let lock = null;
 
   try {
+    // 1. Safely extract action and payload
+    let action = (e && e.parameter && e.parameter.action) ? e.parameter.action : "";
+    let payload = {};
+
+    if (e && e.postData && e.postData.contents) {
+      try {
+        payload = JSON.parse(e.postData.contents);
+        if (!action && payload.action) action = payload.action;
+      } catch(ex) {
+        // Fallback if contents is not JSON
+      }
+    } else if (e && e.parameter) {
+      payload = e.parameter;
+    }
+
+    // 2. Safe Logging (Inside try/catch)
+    if (typeof logDebug === 'function') {
+      logDebug("handleApiRequest", "Processing action: " + action);
+    }
+
+    // 3. Lock Handling
+    const WRITE_ACTIONS = [
+      'sortActivePlayers', 'sortActivePlayersForSheet', 'generateScheduleTabs',
+      'updateStandingsWithShift', 'correctScoresNoShift', 'processWeeklyScoresForSheet',
+      'toggleSingleCheckIn', 'saveCheckIns', 'togglePlayerStatus', 'submitCourtScores',
+      'submitScores', 'addNewUser', 'registerPlayer', 'rescheduleFromCheckIns',
+      'menuSortActivePlayers', 'menuGenerateScheduleTabs', 'menuUpdateStandingsWithShift',
+      'menuCorrectScoresNoShift', 'startNewSeason'
+    ];
+
+    requiresLock = WRITE_ACTIONS.indexOf(action) !== -1;
+    if (requiresLock) {
+      lock = LockService.getScriptLock();
+      const hasLock = lock.tryLock(10000);
+      if (!hasLock) {
+        return ContentService.createTextOutput(JSON.stringify({ 
+          status: "error", 
+          message: "Server busy processing another request. Please try again." 
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+    }
+
+    // 4. Action Switchboard
     let result;
     switch(action) {
       case 'sortActivePlayers':
@@ -734,6 +775,7 @@ function handleApiRequest(e) {
         result = getAvailableGroups();
         break;
       case 'getPlayersForCheckIn':
+        // Passes the resolved string (e.g., "Sched Womens" or "Womens")
         result = getPlayersForCheckIn(payload.sheet || payload.schedSheetName || payload.tab || payload.groupName || payload.group || "");
         break;
       case 'toggleSingleCheckIn':
@@ -794,15 +836,25 @@ function handleApiRequest(e) {
       default:
         throw new Error("Invalid or missing API action: " + action);
     }
-    return ContentService.createTextOutput(JSON.stringify({ status: "success", data: result })).setMimeType(ContentService.MimeType.JSON);
+
+    return ContentService.createTextOutput(JSON.stringify({ status: "success", data: result }))
+      .setMimeType(ContentService.MimeType.JSON);
+
   } catch(err) {
-    return ContentService.createTextOutput(JSON.stringify({ status: "error", message: err.toString() })).setMimeType(ContentService.MimeType.JSON);
+    // Guaranteed JSON return on ANY script failure
+    return ContentService.createTextOutput(JSON.stringify({ 
+      status: "error", 
+      message: err.toString() + (err.stack ? " | Stack: " + err.stack : "") 
+    })).setMimeType(ContentService.MimeType.JSON);
+
   } finally {
-    if (requiresLock) {
+    if (requiresLock && lock) {
       try { lock.releaseLock(); } catch(e) {}
     }
   }
 }
+
+
 
 /**
  * Purpose: Authorizes script execution boundary via Google API prompt generation.

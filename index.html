@@ -88,7 +88,7 @@
         background-color: var(--bg-color); 
         color: var(--text-color); 
         line-height: 1.2;
-        font-size: 1rem;
+        font-size: 1rem; /* 👈 Set base font size */
       }
       
       .header-title { 
@@ -143,7 +143,7 @@
           background: transparent; 
           cursor: pointer; 
           font-weight: 700;  
-          font-size: 1rem;
+          font-size: 1rem; /* Enables senior font scaling on tab labels */
           color: var(--nav-text); 
           border-radius: 0.4rem; 
           transition: 0.2s; 
@@ -154,8 +154,9 @@
       .tab-content { display: none; }
       .tab-content.active { display: block; }
 
+      /* Replace fixed px values (e.g., font-size: 14px;) */
       .tab, .tab-button, [role="tab"] {
-          font-size: 1rem;
+          font-size: 1rem; /* Scales relative to <html> font-size */
       }      
 
       input, button { 
@@ -178,7 +179,7 @@
           border: 2px solid var(--input-border);
           background-color: var(--input-bg);
           color: var(--text-color);
-          font-size: 1rem;
+          font-size: 1rem; /* Enables senior font scaling on dropdown selector */
           min-height: 54px;
           box-sizing: border-box;
           appearance: auto;
@@ -189,7 +190,7 @@
       select option {
           background-color: var(--card-bg);
           color: var(--text-color);
-          font-size: 1rem;
+          font-size: 1rem; /* Scales options list text inside popover */
       }
 
       button, .btn, .btn-main {
@@ -280,6 +281,7 @@
         margin-right: 0;
       }
 
+      /* ADMIN COURT SELECTION 4-COLUMN GRID */
       .court-list {
         display: grid;
         grid-template-columns: repeat(4, 1fr);
@@ -317,6 +319,7 @@
         font-size: 1rem; 
         margin:0;
       }
+
     </style>
   </head>
   <body>
@@ -502,7 +505,7 @@
 <script>
   window.API_URL = "https://script.google.com/macros/s/AKfycbweTOjVcY0R1sxXrYfbN2S9jqMz4yr5b1alVoz0gjVy3P3ty42rtHlfgfpdjtFnF4nFaQ/exec";
   const API_URL = window.API_URL;
-  const CURRENT_APP_VERSION = "1.1.4";
+  const CURRENT_APP_VERSION = "1.1.5";
 
   const GROUP_COURT_MAP = {
       "Womens": [3,4,5,6,7,8,15,16,17,18,19,20],
@@ -580,14 +583,100 @@ function updateGlobalLoaderStatus() {
 }
 
 function apiCall(action, payload = {}) {
-  if (!action) return Promise.reject(new Error("API action cannot be empty"));
-  
-  // Deduplicate background auto-refresh calls to prevent queue bloat
+  if (!action) {
+    console.error("❌ [API Error] Action cannot be empty.");
+    return Promise.reject(new Error("API action cannot be empty"));
+  }
+
+  // 1. Log every initiated call and its payload
+  console.log(`🚀 [API Call Initiated] "${action}"`, {
+    payload,
+    time: new Date().toLocaleTimeString()
+  });
+
+  // 2. Log when a call is deduplicated/cached
   if (action === 'getPlayersForCheckIn' && apiQueue.some(q => q.action === 'getPlayersForCheckIn' && JSON.stringify(q.payload) === JSON.stringify(payload))) {
+    console.log(`⚡ [API Cache Hit] Deduplicating "${action}", returning cached players.`, checkInPlayersCache);
     return Promise.resolve({ players: checkInPlayersCache });
   }
 
   return new Promise((resolve, reject) => {
+    apiQueue.push({ action, payload, resolve, reject });
+    if (!isProcessingQueue) processApiQueue();
+  });
+}
+
+async function processApiQueue() {
+  if (isProcessingQueue || apiQueue.length === 0) return;
+  isProcessingQueue = true;
+  updateGlobalLoaderStatus();
+
+  const { action, payload, resolve, reject } = apiQueue.shift();
+  const endpoint = window.API_URL || (typeof API_URL !== 'undefined' ? API_URL : null);
+
+  const targetSheet = payload.sheet || payload.sheetName || payload.scoreSheetName || "N/A";
+  const targetGroup = payload.groupName || payload.group || "N/A";
+
+  // 3. Log network dispatch
+  console.log(`📡 [API Dispatch] Sending "${action}" to server...`, {
+    action,
+    group: targetGroup,
+    sheet: targetSheet,
+    payload
+  });
+
+  if (!endpoint) {
+    const err = new Error("API_URL is not configured.");
+    console.error(`❌ [API Error] ${err.message}`);
+    reject(err);
+    isProcessingQueue = false;
+    updateGlobalLoaderStatus();
+    return;
+  }
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action, ...payload })
+    });
+
+    const rawText = await response.text();
+    let data;
+
+    try {
+      data = JSON.parse(rawText);
+    } catch (parseErr) {
+      if (rawText.includes("<!DOCTYPE") || rawText.includes("<html")) {
+        console.error(`💥 [API Server Crash] Action "${action}" returned raw HTML instead of JSON:`, rawText);
+        throw new Error(`Backend crashed (returned HTML) while accessing action "${action}" [Group: "${targetGroup}", Sheet: "${targetSheet}"]`);
+      }
+      console.error(`💥 [API Parse Error] Action "${action}" returned non-JSON text:`, rawText);
+      throw new Error(`Invalid JSON response for action "${action}" [Sheet: "${targetSheet}"]: ${rawText.substring(0, 80)}...`);
+    }
+
+    // 4. Log server response
+    if (data && data.status === "success") {
+      console.log(`✅ [API Success] "${action}":`, data.data);
+      resolve(data.data);
+    } else if (data && data.status === "error") {
+      console.error(`❌ [API Backend Error] "${action}":`, data.message || 'Unknown backend error', data);
+      reject(new Error(`Backend error on "${action}" [Sheet: "${targetSheet}"]: ${data.message || 'Unknown error'}`));
+    } else {
+      console.log(`✅ [API Response] Raw data returned for "${action}":`, data);
+      resolve(data);
+    }
+  } catch (err) {
+    console.error(`❌ [API Request Failed] Action "${action}" failed:`, err);
+    reject(err);
+  } finally {
+    isProcessingQueue = false;
+    updateGlobalLoaderStatus();
+    if (apiQueue.length > 0) {
+      processApiQueue();
+    }
+  }
+}
 
 
 async function processApiQueue() {
@@ -606,6 +695,10 @@ async function processApiQueue() {
     return;
   }
 
+  // Diagnostic parameters for error reporting
+  const targetSheet = payload.sheet || payload.sheetName || payload.scoreSheetName || "N/A";
+  const targetGroup = payload.groupName || payload.group || "N/A";
+
   try {
     const response = await fetch(endpoint, {
       method: "POST",
@@ -619,15 +712,15 @@ async function processApiQueue() {
       data = JSON.parse(rawText);
     } catch (parseErr) {
       if (rawText.includes("<!DOCTYPE") || rawText.includes("<html")) {
-        throw new Error("Backend returned HTML page instead of JSON. Ensure Apps Script is deployed as Web App with 'Execute as: Me' and 'Who has access: Anyone'.");
+        throw new Error(`Backend crashed (returned HTML) while accessing action "${action}" [Group: "${targetGroup}", Sheet: "${targetSheet}"]`);
       }
-      throw new Error("Invalid JSON from server: " + rawText.substring(0, 100));
+      throw new Error(`Invalid JSON for action "${action}" [Sheet: "${targetSheet}"]: ${rawText.substring(0, 80)}...`);
     }
 
     if (data && data.status === "success") {
       resolve(data.data);
     } else if (data && data.status === "error") {
-      reject(new Error(data.message || "Backend error"));
+      reject(new Error(`Backend error on "${action}" [Sheet: "${targetSheet}"]: ${data.message || 'Unknown error'}`));
     } else {
       resolve(data);
     }
@@ -643,12 +736,9 @@ async function processApiQueue() {
   }
 }
 
+
 function getSavedGroup() {
-  const saved = localStorage.getItem('scpb_selected_group');
-/*  if (!saved || saved.startsWith('--')) {
-    return 'Womens';
-  }*/
-  return saved;
+  return localStorage.getItem('scpb_selected_group');
 }
 
 function populateSheets(sheets) {
@@ -657,15 +747,20 @@ function populateSheets(sheets) {
   if (!select) return;
 
   select.innerHTML = '<option value="">-- Choose Group --</option>';
+  const uniqueGroups = new Set();
+  
   sheets.forEach(s => {
-    const opt = document.createElement('option');
-    const cleanGroup = s.replace(/^Sched\s*/i, '');
-    opt.value = cleanGroup; 
-    opt.textContent = cleanGroup; 
-    select.appendChild(opt);
+    const cleanGroup = String(s).replace(/^(Sched|Score)\s*/i, '').trim();
+    if (cleanGroup && !uniqueGroups.has(cleanGroup)) {
+        uniqueGroups.add(cleanGroup);
+        const opt = document.createElement('option');
+        opt.value = cleanGroup; 
+        opt.textContent = cleanGroup; 
+        select.appendChild(opt);
+    }
   });
 
-  localStorage.setItem('cached_sheets', JSON.stringify(sheets));
+  localStorage.setItem('cached_sheets', JSON.stringify(Array.from(uniqueGroups)));
 }
 
         
@@ -673,25 +768,32 @@ function populateGroups(groups) {
   if (!groups || !Array.isArray(groups)) return;
   const ids = ['regGroup', 'groupViewerSelect', 'adminGlobalGroupSelect'];
   
+  const uniqueGroups = new Set();
+  groups.forEach(g => {
+    const cleanGroup = String(g).replace(/^(Sched|Score)\s*/i, '').trim();
+    if (cleanGroup) uniqueGroups.add(cleanGroup);
+  });
+  const cleanGroupArray = Array.from(uniqueGroups);
+  
   ids.forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
     const currentVal = el.value;
     el.innerHTML = id === 'regGroup' ? '<option value="">-- Select Group --</option>' : '<option value="">-- Choose Group --</option>';
     
-    groups.forEach(g => {
+    cleanGroupArray.forEach(cleanGroup => {
       const opt = document.createElement('option');
-      opt.value = g;
-      opt.textContent = g;
+      opt.value = cleanGroup;
+      opt.textContent = cleanGroup;
       el.appendChild(opt);
     });
 
-    if (currentVal && groups.includes(currentVal)) {
+    if (currentVal && cleanGroupArray.includes(currentVal)) {
       el.value = currentVal;
     }
   });
 
-  localStorage.setItem('cached_groups', JSON.stringify(groups));
+  localStorage.setItem('cached_groups', JSON.stringify(cleanGroupArray));
 }
 
 function loadFromCache() {
@@ -872,6 +974,8 @@ function filterAdminPlayers() {
     const statusClass = isActive ? 'status-active' : 'status-inactive';
     const btnText = isActive ? 'Set Inactive' : 'Set Active';
     const btnClass = isActive ? 'btn-danger' : 'btn-main';
+    
+    const safePhone = String(p.phone || '').replace(/'/g, "\\'");
 
     html += `
       <div style="display:flex; align-items:center; justify-space-between; padding:0.5rem; border-bottom:1px solid var(--row-border); gap:0.5rem;">
@@ -881,7 +985,7 @@ function filterAdminPlayers() {
         </div>
         <div>
           <span class="status-badge ${statusClass}" style="margin-right:0.5rem;">${p.status || 'Inactive'}</span>
-          <button class="${btnClass}" style="min-height:36px; padding:0.25rem 0.5rem; font-size:0.85rem; width:auto;" onclick="toggleAdminStatus('${p.phone}', this)">${btnText}</button>
+          <button class="${btnClass}" style="min-height:36px; padding:0.25rem 0.5rem; font-size:0.85rem; width:auto;" onclick="toggleAdminStatus('${safePhone}', this)">${btnText}</button>
         </div>
       </div>
     `;
@@ -899,7 +1003,12 @@ async function toggleAdminStatus(phone, btnEl) {
   const selectedGroup = document.getElementById('adminGlobalGroupSelect').value || getSavedGroup();
 
   try {
-    const res = await apiCall('togglePlayerStatus', { phone, groupName: selectedGroup });
+    const res = await apiCall('togglePlayerStatus', { 
+      phone: phone, 
+      groupName: selectedGroup,
+      group: selectedGroup,
+      sheet: "Sched " + selectedGroup
+    });
     if (res && res.success) {
       const p = adminPlayersCache.find(x => String(x.phone) === String(phone));
       if (p) {
@@ -934,7 +1043,16 @@ async function submitAdminRegistration() {
   if (statusEl) statusEl.innerText = 'Adding pending player...';
 
   try {
-    const res = await apiCall('addNewUser', { first, last, phone, email, group });
+    const res = await apiCall('addNewUser', { 
+        first, 
+        last, 
+        phone, 
+        email, 
+        group: group,
+        groupName: group,
+        sheet: "Sched " + group
+    });
+    
     if (res && (res.success || !res.error)) {
       if (statusEl) statusEl.innerText = '✅ Player added successfully!';
       document.getElementById('adminRegFirst').value = '';
@@ -969,7 +1087,11 @@ async function loadCheckInPlayers() {
   }
 
   try {
-    const res = await apiCall('getPlayersForCheckIn', { groupName });
+    const res = await apiCall('getPlayersForCheckIn', { 
+        groupName: groupName,
+        group: groupName,
+        sheet: "Sched " + groupName
+    });
     const playersList = Array.isArray(res) ? res : (res && res.players ? res.players : []);
     if (playersList && playersList.length > 0) {
       checkInPlayersCache = playersList;
@@ -979,9 +1101,39 @@ async function loadCheckInPlayers() {
       if (listEl) listEl.innerHTML = '<i>No check-in data found for group.</i>';
     }
   } catch (err) {
-    if (statusEl) statusEl.innerText = '❌ Error loading check-in list.';
+    if (statusEl) statusEl.innerText = '❌ ' + err.message;
   }
 }
+
+async function loadRankingsAndSched() {
+  const groupName = document.getElementById('groupViewerSelect').value || getSavedGroup();
+  const contentEl = document.getElementById('viewerContent');
+  const statusEl = document.getElementById('viewerStatus');
+
+  if (!groupName) {
+    if (contentEl) contentEl.innerHTML = '<i>Select a group above...</i>';
+    return;
+  }
+
+  if (contentEl) contentEl.innerHTML = '<span class="loading-spinner"></span> Loading schedule and ranks...';
+
+  try {
+    const res = await apiCall('getRankingsAndSchedData', { 
+        group: groupName,
+        groupName: groupName,
+        sheet: "Sched " + groupName
+    });
+    if (res && res.html) {
+      if (contentEl) contentEl.innerHTML = res.html;
+      if (statusEl) statusEl.innerText = '';
+    } else {
+      if (contentEl) contentEl.innerHTML = '<i>No published schedule found for group.</i>';
+    }
+  } catch (err) {
+    if (statusEl) statusEl.innerText = '❌ ' + err.message;
+  }
+}
+
 
 function renderCheckInPlayers(players) {
   const listEl = document.getElementById('playerList');
@@ -1017,10 +1169,12 @@ function renderCheckInPlayers(players) {
       const isChecked = p.checkedIn === true || p.checkedIn === 'true' || p.checked === true;
       const rowClass = isChecked ? 'player-row checked' : 'player-row';
       const icon = isChecked ? '✅' : '⬜';
+      
+      const safeIdentifier = String(p.phone || p.name).replace(/'/g, "\\'");
 
       html += `
-        <div class="${rowClass}" data-phone="${p.phone || ''}" data-name="${p.name || ''}" data-checked="${isChecked}" onclick="handlePlayerRowClick(this, '${p.phone || p.name}')">
-          <span class="player-name">${p.name || `${p.first || ''} ${p.last || ''}`}</span>
+        <div class="${rowClass}" data-phone="${p.phone || ''}" data-name="${p.name || ''}" data-checked="${isChecked}" onclick="handlePlayerRowClick(this, '${safeIdentifier}')">
+          <span class="player-name">${p.name || `${p.first || ''} ${p.last || ''}`.trim()}</span>
           <span class="check-icon">${icon}</span>
         </div>
       `;
@@ -1052,7 +1206,9 @@ async function handlePlayerRowClick(rowEl, identifier) {
 
   try {
     const res = await apiCall('toggleSingleCheckIn', { 
-      sheet: groupName, 
+      sheet: "Sched " + groupName,
+      groupName: groupName,
+      group: groupName,
       playerName: identifier, 
       phone: identifier, 
       isCheckedIn: newState 
@@ -1201,7 +1357,9 @@ async function toggleStatus() {
   try {
     const res = await apiCall('togglePlayerStatus', {
       phone: activeLookupPlayer.phone,
-      groupName: activeLookupPlayer.group
+      groupName: activeLookupPlayer.group,
+      group: activeLookupPlayer.group,
+      sheet: "Sched " + activeLookupPlayer.group
     });
     if (res && res.success) {
       activeLookupPlayer.status = res.newStatus;
@@ -1240,7 +1398,15 @@ async function submitRegistration() {
   if (statusEl) statusEl.innerText = 'Submitting registration...';
 
   try {
-    const res = await apiCall('addNewUser', { first, last, phone, email, group });
+    const res = await apiCall('addNewUser', { 
+        first, 
+        last, 
+        phone, 
+        email, 
+        group: group,
+        groupName: group,
+        sheet: "Sched " + group
+    });
     if (res && (res.success || !res.error)) {
       alert('Registration submitted! You are now registered as Pending.');
       cancelRegistration();
@@ -1258,30 +1424,8 @@ function cancelRegistration() {
   document.getElementById('phoneEntrySection').style.display = 'block';
 }
 
-async function loadRankingsAndSched() {
-  const groupName = document.getElementById('groupViewerSelect').value || getSavedGroup();
-  const contentEl = document.getElementById('viewerContent');
-  const statusEl = document.getElementById('viewerStatus');
 
-  if (!groupName) {
-    if (contentEl) contentEl.innerHTML = '<i>Select a group above...</i>';
-    return;
-  }
 
-  if (contentEl) contentEl.innerHTML = '<span class="loading-spinner"></span> Loading schedule and ranks...';
-
-  try {
-    const res = await apiCall('getRankingsAndSchedData', { group: groupName });
-    if (res && res.html) {
-      if (contentEl) contentEl.innerHTML = res.html;
-      if (statusEl) statusEl.innerText = '';
-    } else {
-      if (contentEl) contentEl.innerHTML = '<i>No published schedule found for group.</i>';
-    }
-  } catch (err) {
-    if (statusEl) statusEl.innerText = '❌ Error loading schedule.';
-  }
-}
 
 async function runRescheduleCheckedIn() {
   const groupName = document.getElementById('adminGlobalGroupSelect').value || getSavedGroup();
@@ -1302,7 +1446,9 @@ async function runRescheduleCheckedIn() {
 
   try {
     const res = await apiCall('rescheduleFromCheckIns', {
-      groupName,
+      groupName: groupName,
+      group: groupName,
+      sheet: "Sched " + groupName,
       courts: selectedCourts,
       checkedInOnly: true
     });
@@ -1336,7 +1482,9 @@ async function runRescheduleActive() {
 
   try {
     const res = await apiCall('generateScheduleTabs', {
-      groupName,
+      groupName: groupName,
+      group: groupName,
+      sheet: "Sched " + groupName,
       courts: selectedCourts,
       checkedInOnly: false
     });
@@ -1363,8 +1511,8 @@ async function runAdmin(actionName, extraPayload = {}) {
   const payload = {
     group: groupName,
     groupName: groupName,
-    scoreSheetName: "Score " + groupName.replace(/^Score\s*/i, ""),
-    sheet: "Sched " + groupName.replace(/^Sched\s*/i, ""),
+    scoreSheetName: "Score " + groupName.replace(/^(Score|Sched)\s*/i, ""),
+    sheet: "Sched " + groupName.replace(/^(Score|Sched)\s*/i, ""),
     ...extraPayload
   };
 
@@ -1392,7 +1540,11 @@ async function getAdminPdf() {
   if (statusEl) statusEl.innerText = 'Generating PDF schedule...';
 
   try {
-    const res = await apiCall('webExportSchedulePdf', { groupName });
+    const res = await apiCall('webExportSchedulePdf', { 
+        groupName: groupName,
+        group: groupName,
+        sheet: "Sched " + groupName
+    });
     if (res && res.pdfUrl) {
       window.open(res.pdfUrl, '_blank');
       if (statusEl) statusEl.innerText = '✅ PDF generated!';
@@ -1463,7 +1615,8 @@ function onGroupChange(sourceId) {
 }
 
 function setSavedGroup(groupName) {
-  localStorage.setItem('scpb_selected_group', groupName);
+  const cleanGroup = String(groupName).replace(/^(Sched|Score)\s*/i, '').trim();
+  localStorage.setItem('scpb_selected_group', cleanGroup);
 }
 
 function onGroupContextUpdated(groupName) {
@@ -1486,7 +1639,11 @@ function loadAdminTabData(groupName) {
 async function loadAdminPlayerStatusCache(group) {
   if (!group) return;
   try {
-    let res = await apiCall('getAdminPlayersByGroup', { group: group });
+    let res = await apiCall('getAdminPlayersByGroup', { 
+        group: group,
+        groupName: group,
+        sheet: "Sched " + group 
+    });
     const playersList = Array.isArray(res) ? res : (res && res.players ? res.players : []);
     adminPlayersCache = playersList;
     filterAdminPlayers(); 
@@ -1555,8 +1712,10 @@ function refreshActiveTabData() {
 
 function autoSelectStoredGroup() {
   const savedGroup = getSavedGroup();
-  syncAllGroupDropdowns(savedGroup);
-  refreshActiveTabData();
+  if (savedGroup) {
+      syncAllGroupDropdowns(savedGroup);
+      refreshActiveTabData();
+  }
 }
 
 function forceRefresh() {
@@ -1636,12 +1795,12 @@ function forceRefresh() {
             const maxMeters = GEOFENCE_RADIUS_METERS;
             const maxFeet = Math.round(GEOFENCE_RADIUS_METERS * 3.28084);
 
-            const userNotice = `📍 <b>Check-In Location Restriction</b><br>` +
-              `You must be physically at the Sun City Pickleball Courts to check in.<br><br>` +
-              `• <b>Nearest Venue:</b> ${nearestLocName}<br>` +
-              `• <b>Your Current Distance:</b> ~${distMeters} meters (~${distFeet} ft / ${distMiles} miles) away<br>` +
-              `• <b>Allowed Check-In Distance:</b> Within ${maxMeters} meters (~${maxFeet} ft)<br><br>` +
-              `<i>Please move closer to the pickleball courts and try again once you arrive at the courts.</i>`;
+            const userNotice = `📍 <b>Check-In Location Restriction</b><br>
+              You must be physically at the Sun City Pickleball Courts to check in.<br><br>
+              • <b>Nearest Venue:</b> ${nearestLocName}<br>
+              • <b>Your Current Distance:</b> ~${distMeters} meters (~${distFeet} ft / ${distMiles} miles) away<br>
+              • <b>Allowed Check-In Distance:</b> Within ${maxMeters} meters (~${maxFeet} ft)<br><br>
+              <i>Please move closer to the pickleball courts and try again once you arrive at the courts.</i>`;
 
             if (statusElement) {
               statusElement.innerHTML = `<div style="color: #721c24; background-color: #f8d7da; border: 2px solid #f5c6cb; padding: 0.85rem; border-radius: 0.5rem; text-align: left; font-size: 0.95rem; line-height: 1.4;">${userNotice}</div>`;
