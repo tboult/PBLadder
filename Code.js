@@ -1065,7 +1065,7 @@ function handleApiRequest(e) {
       }
       case 'checkInPlayer':
       case 'CheckInPlayer':          
-          result =  handleCheckInPlaye(payload);
+          result =  handleCheckInPlayer(payload);
           break;
           
       case 'sortActivePlayers':
