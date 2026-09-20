@@ -1006,7 +1006,7 @@ function handleApiRequest(e) {
         result = saveCheckIns(payload.sheet || payload.schedSheetName || payload.tab, payload.checkedNames);
         break;
       case 'findFoursomeByPhone': 
-        result = findFoursomeByPhone(payload.phone);
+        result = findFoursomeByPhone(payload.phone,payload.groupName || payload.group);
         break;
       case 'togglePlayerStatus':
         result = togglePlayerStatus(payload.phone, payload.groupName || payload.group);
