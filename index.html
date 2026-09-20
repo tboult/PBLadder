@@ -1355,6 +1355,126 @@ async function handlePlayerRowClick(rowEl, identifier) {
   }
 }
 
+// Global state
+let activeLookupPlayer = null;
+let activeFoursome = [];
+
+function renderLookupResult(player, foursome) {
+  activeLookupPlayer = player;
+  activeFoursome = foursome || [];
+
+  document.getElementById('phoneEntrySection').style.display = 'none';
+  document.getElementById('registrationSection').style.display = 'none';
+  document.getElementById('lookupResult').style.display = 'block';
+
+  document.getElementById('pNameDisplay').innerText = `${player.first || ''} ${player.last || player.name || ''}`.trim();
+  document.getElementById('pGroupDisplay').innerText = player.group || 'N/A';
+  document.getElementById('pCourtDisplay').innerText = player.court || 'N/A';
+
+  const badge = document.getElementById('pStatusDisplay');
+  const isActive = (player.status || '').toLowerCase() === 'active';
+  badge.innerText = isActive ? 'Active' : 'Inactive';
+  badge.className = isActive ? 'status-badge status-active' : 'status-badge status-inactive';
+
+  const scoreContainer = document.getElementById('scoreInputsContainer');
+  scoreContainer.innerHTML = '';
+
+  if (activeFoursome.length === 4) {
+    const p1 = activeFoursome[0].name;
+    const p2 = activeFoursome[1].name;
+    const p3 = activeFoursome[2].name;
+    const p4 = activeFoursome[3].name;
+
+    scoreContainer.innerHTML = `
+      <div class="card" style="margin-bottom:0.75rem;">
+        <p style="margin:0 0 0.4rem 0;"><b>Court Foursome:</b></p>
+        <ol style="padding-left:1.2rem; margin:0;">
+          <li>${p1}</li>
+          <li>${p2}</li>
+          <li>${p3}</li>
+          <li>${p4}</li>
+        </ol>
+      </div>
+
+      <!-- Game 1: P1 & P4 vs P2 & P3 -->
+      <div style="margin-top:0.5rem; font-weight:bold; font-size:0.95rem;">Game 1: ${p1} & ${p4} vs ${p2} & ${p3}</div>
+      <div class="score-grid">
+        <input type="number" min="0" max="30" id="sc1_p1" placeholder="P1 & P4">
+        <span>-</span>
+        <input type="number" min="0" max="30" id="sc1_p2" placeholder="P2 & P3">
+      </div>
+
+      <!-- Game 2: P1 & P3 vs P2 & P4 -->
+      <div style="margin-top:0.75rem; font-weight:bold; font-size:0.95rem;">Game 2: ${p1} & ${p3} vs ${p2} & ${p4}</div>
+      <div class="score-grid">
+        <input type="number" min="0" max="30" id="sc2_p1" placeholder="P1 & P3">
+        <span>-</span>
+        <input type="number" min="0" max="30" id="sc2_p2" placeholder="P2 & P4">
+      </div>
+
+      <!-- Game 3: P1 & P2 vs P3 & P4 -->
+      <div style="margin-top:0.75rem; font-weight:bold; font-size:0.95rem;">Game 3: ${p1} & ${p2} vs ${p3} & ${p4}</div>
+      <div class="score-grid">
+        <input type="number" min="0" max="30" id="sc3_p1" placeholder="P1 & P2">
+        <span>-</span>
+        <input type="number" min="0" max="30" id="sc3_p2" placeholder="P3 & P4">
+      </div>
+    `;
+  } else {
+    scoreContainer.innerHTML = '<i>No active 4-player court match assignment found.</i>';
+  }
+}
+
+async function saveScores() {
+  if (!activeLookupPlayer || activeFoursome.length < 4) {
+    alert('Active court match assignment not found.');
+    return;
+  }
+
+  const v1_1 = parseInt(document.getElementById('sc1_p1')?.value, 10);
+  const v1_2 = parseInt(document.getElementById('sc1_p2')?.value, 10);
+  const v2_1 = parseInt(document.getElementById('sc2_p1')?.value, 10);
+  const v2_2 = parseInt(document.getElementById('sc2_p2')?.value, 10);
+  const v3_1 = parseInt(document.getElementById('sc3_p1')?.value, 10);
+  const v3_2 = parseInt(document.getElementById('sc3_p2')?.value, 10);
+
+  if ([v1_1, v1_2, v2_1, v2_2, v3_1, v3_2].some(v => isNaN(v) || v < 0)) {
+    alert('Please enter valid non-negative numbers for all game scores.');
+    return;
+  }
+
+  const p1 = activeFoursome[0].name;
+  const p2 = activeFoursome[1].name;
+  const p3 = activeFoursome[2].name;
+  const p4 = activeFoursome[3].name;
+
+  // Frontend maps game rotation directly to explicit player name scores
+  const scoresPayload = [
+    { name: p1, g1: v1_1, g2: v2_1, g3: v3_1, total: v1_1 + v2_1 + v3_1 },
+    { name: p2, g1: v1_2, g2: v2_2, g3: v3_1, total: v1_2 + v2_2 + v3_1 },
+    { name: p3, g1: v1_2, g2: v2_1, g3: v3_2, total: v1_2 + v2_1 + v3_2 },
+    { name: p4, g1: v1_1, g2: v2_2, g3: v3_2, total: v1_1 + v2_2 + v3_2 }
+  ];
+
+  const cleanGroup = String(activeLookupPlayer.group || '').replace(/^(Sched|Score)\s*/i, '').trim();
+  const statusEl = document.getElementById('phoneStatus');
+  if (statusEl) statusEl.innerText = 'Submitting scores...';
+
+  try {
+    const res = await apiCall('submitCourtScores', {
+      group: cleanGroup,
+      scores: scoresPayload
+    });
+
+    if (res && res.success) {
+      if (statusEl) statusEl.innerText = '✅ Scores submitted successfully!';
+    } else {
+      if (statusEl) statusEl.innerText = '❌ Submission failed: ' + (res.message || 'Error');
+    }
+  } catch (err) {
+    if (statusEl) statusEl.innerText = '❌ Error submitting scores: ' + err.message;
+  }
+}
 let activeLookupPlayer = null;
 
 async function lookupPhone() {
@@ -1384,91 +1504,7 @@ async function lookupPhone() {
     if (statusEl) statusEl.innerText = '❌ Error looking up phone number.';
   }
 }
-
-function renderLookupResult(player, foursome) {
-  document.getElementById('phoneEntrySection').style.display = 'none';
-  document.getElementById('registrationSection').style.display = 'none';
-  document.getElementById('lookupResult').style.display = 'block';
-
-  document.getElementById('pNameDisplay').innerText = `${player.first || ''} ${player.last || player.name || ''}`;
-  document.getElementById('pGroupDisplay').innerText = player.group || 'N/A';
-  document.getElementById('pCourtDisplay').innerText = player.court || 'N/A';
-
-  const badge = document.getElementById('pStatusDisplay');
-  const isActive = (player.status || '').toLowerCase() === 'active';
-  badge.innerText = isActive ? 'Active' : 'Inactive';
-  badge.className = isActive ? 'status-badge status-active' : 'status-badge status-inactive';
-
-  const scoreContainer = document.getElementById('scoreInputsContainer');
-  scoreContainer.innerHTML = '';
-
-  if (foursome && foursome.length === 4) {
-    let html = '<div class="card"><p style="margin-top:0;"><b>Foursome Players:</b></p><ol style="padding-left:1.2rem; margin-bottom:0.5rem;">';
-    foursome.forEach(f => {
-      html += `<li>${f.first || f.name || ''} ${f.last || ''}</li>`;
-    });
-    html += '</ol></div>';
-
-    html += `
-      <div class="score-grid">
-        <span><b>Game 1 Score:</b></span>
-        <input type="number" id="sc1_p1" placeholder="Us">
-        <span>-</span>
-        <input type="number" id="sc1_p2" placeholder="Them">
-      </div>
-      <div class="score-grid">
-        <span><b>Game 2 Score:</b></span>
-        <input type="number" id="sc2_p1" placeholder="Us">
-        <span>-</span>
-        <input type="number" id="sc2_p2" placeholder="Them">
-      </div>
-      <div class="score-grid">
-        <span><b>Game 3 Score:</b></span>
-        <input type="number" id="sc3_p1" placeholder="Us">
-        <span>-</span>
-        <input type="number" id="sc3_p2" placeholder="Them">
-      </div>
-    `;
-    scoreContainer.innerHTML = html;
-  } else {
-    scoreContainer.innerHTML = '<i>No active 4-player court match assignment found for score entry.</i>';
-  }
-}
-
-async function saveScores() {
-  if (!activeLookupPlayer) return;
-
-  const g1_1 = document.getElementById('sc1_p1')?.value;
-  const g1_2 = document.getElementById('sc1_p2')?.value;
-  const g2_1 = document.getElementById('sc2_p1')?.value;
-  const g2_2 = document.getElementById('sc2_p2')?.value;
-  const g3_1 = document.getElementById('sc3_p1')?.value;
-  const g3_2 = document.getElementById('sc3_p2')?.value;
-
-  const statusEl = document.getElementById('phoneStatus');
-  if (statusEl) statusEl.innerText = 'Submitting scores...';
-
-  try {
-    const res = await apiCall('submitCourtScores', {
-      phone: activeLookupPlayer.phone,
-      group: activeLookupPlayer.group,
-      court: activeLookupPlayer.court,
-      scores: [
-        [g1_1, g1_2],
-        [g2_1, g2_2],
-        [g3_1, g3_2]
-      ]
-    });
-
-    if (res && (res.success || !res.error)) {
-      if (statusEl) statusEl.innerText = '✅ Scores submitted successfully!';
-    } else {
-      if (statusEl) statusEl.innerText = '❌ Failed to submit scores: ' + (res.message || 'Error');
-    }
-  } catch (err) {
-    if (statusEl) statusEl.innerText = '❌ Error submitting scores.';
-  }
-}
+  
 
 async function toggleStatus() {
   if (!activeLookupPlayer) return;

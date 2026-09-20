@@ -576,14 +576,17 @@ function togglePlayerStatus(phone, groupName) {
  */
 function submitCourtScores(payload) {
   logDebug("submitCourtScores", "Submitting scores payload", payload);
-  if (!payload || !payload.group || !payload.scores) {
-    return { success: false, message: "Invalid score payload: Missing group or scores." };
+  if (!payload || (!payload.group && !payload.groupName) || !Array.isArray(payload.scores)) {
+    return { success: false, message: "Invalid payload: Missing group or scores array." };
   }
+
   const ss = getDb();
-  let cleanGroup = payload.group.replace(/^(Score|Sched)\s*/i, "").trim();
+  let cleanGroup = String(payload.group || payload.groupName).replace(/^(Score|Sched)\s*/i, "").trim();
   let schedSheet = ss.getSheetByName("Sched " + cleanGroup);
 
-  if (!schedSheet) return { success: false, message: `Schedule sheet 'Sched ${cleanGroup}' not found.` };
+  if (!schedSheet) {
+    return { success: false, message: `Schedule sheet 'Sched ${cleanGroup}' not found.` };
+  }
 
   const data = schedSheet.getDataRange().getValues();
   if (data.length <= 1) return { success: false, message: "Schedule sheet has no player rows." };
@@ -597,15 +600,14 @@ function submitCourtScores(payload) {
   let g3Idx = headers.indexOf("game 3");
   let totIdx = headers.indexOf("total");
 
-  let updatedCount = 0;
+  // Create hash map for O(1) lookup by lowercased player name
   let scoresMap = {};
-  if (Array.isArray(payload.scores)) {
-    payload.scores.forEach(item => {
-      if (item.name || item.player) {
-        scoresMap[(item.name || item.player).trim().toLowerCase()] = item;
-      }
-    });
-  }
+  payload.scores.forEach(item => {
+    let key = String(item.name || "").trim().toLowerCase();
+    if (key) scoresMap[key] = item;
+  });
+
+  let updatedCount = 0;
 
   for (let r = 1; r < data.length; r++) {
     let rowName = String(data[r][nameIdx] || "").trim().toLowerCase();
@@ -621,7 +623,6 @@ function submitCourtScores(payload) {
 
   return { success: true, message: `Successfully updated scores for ${updatedCount} player(s) on Sched ${cleanGroup}.` };
 }
-
 /**
  * Builds HTML table views of schedule and standings for external UI embedding.
  * 
