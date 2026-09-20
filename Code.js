@@ -634,7 +634,7 @@ function getRankingsAndSchedData(groupName) {
   const ss = getDb();
   let cleanGroup = groupName.replace(/^(Score|Sched)\s*/i, "").trim();
   let schedSheet = ss.getSheetByName("Sched " + cleanGroup);
-  let scoreSheet = ss.getSheetByName("Score " + cleanGroup);
+  let rankSheet = ss.getSheetByName("Rankings " + cleanGroup);
   let html = `<h3 style="margin-top:0;">📊 ${cleanGroup} Schedule & Standings</h3>`;
 
   if (schedSheet) {
@@ -650,8 +650,8 @@ function getRankingsAndSchedData(groupName) {
     }
   }
 
-  if (scoreSheet) {
-    let scData = scoreSheet.getDataRange().getValues();
+  if (rankSheet) {
+    let scData = rankSheet.getDataRange().getValues();
     if (scData && scData.length > 1) {
       let col = buildColMap(scData[0]);
       html += `<h4 style="margin-top:1rem;">Ladder Rankings</h4><table class="data-table"><thead><tr><th>#</th><th>Player</th><th>Status</th></tr></thead><tbody>`;

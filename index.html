@@ -1105,6 +1105,9 @@ async function loadCheckInPlayers() {
   }
 }
 
+/**
+ * Loads published court schedule and ladder standings for selected group.
+ */
 async function loadRankingsAndSched() {
   const groupName = document.getElementById('groupViewerSelect').value || getSavedGroup();
   const contentEl = document.getElementById('viewerContent');
@@ -1118,11 +1121,7 @@ async function loadRankingsAndSched() {
   if (contentEl) contentEl.innerHTML = '<span class="loading-spinner"></span> Loading schedule and ranks...';
 
   try {
-    const res = await apiCall('getRankingsAndSchedData', { 
-        group: groupName,
-        groupName: groupName,
-        sheet: "Sched " + groupName
-    });
+    const res = await apiCall('getRankingsAndSchedule', { groupName });
     if (res && res.html) {
       if (contentEl) contentEl.innerHTML = res.html;
       if (statusEl) statusEl.innerText = '';
@@ -1130,9 +1129,131 @@ async function loadRankingsAndSched() {
       if (contentEl) contentEl.innerHTML = '<i>No published schedule found for group.</i>';
     }
   } catch (err) {
-    if (statusEl) statusEl.innerText = '❌ ' + err.message;
+    if (statusEl) statusEl.innerText = '❌ Error loading schedule.';
   }
 }
+        
+
+async function runRescheduleCheckedIn() {
+  const groupName = document.getElementById('adminGlobalGroupSelect').value || getSavedGroup();
+  const selectedCourts = getSelectedCourts();
+
+  if (!groupName) {
+    alert('Please select a target group.');
+    return;
+  }
+
+  if (selectedCourts.length === 0) {
+    alert('Please select at least one court checkbox.');
+    return;
+  }
+
+  const statusEl = document.getElementById('adminStatus');
+  if (statusEl) statusEl.innerText = 'Rescheduling checked-in players...';
+
+  try {
+    const res = await apiCall('rescheduleFromCheckIns', {
+      groupName,
+      courts: selectedCourts,
+      checkedInOnly: true
+    });
+    if (res && res.success) {
+      if (statusEl) statusEl.innerText = '✅ Rescheduled checked-in players successfully!';
+      // Refresh admin players cache
+      loadAdminPlayerStatusCache(groupName);
+    } else {
+      if (statusEl) statusEl.innerText = '❌ Reschedule failed: ' + (res.message || 'Error');
+    }
+  } catch (err) {
+    if (statusEl) statusEl.innerText = '❌ Error performing reschedule.';
+  }
+}
+
+/**
+ * Client-side renderer for Rankings and Schedule tables
+ */
+function renderRankingsAndSchedHTML(rankings, schedule) {
+  let html = '';
+  // Render Rankings Table
+  if (Array.isArray(rankings) && rankings.length > 0) {
+    const totalPlayers = rankings.length;
+
+    html += `
+      <div class="rankings-container">
+        <h3>Rankings</h3>
+        <table class="rankings-table">
+          <thead>
+            <tr>
+              <th>Rank</th>
+              <th>Name</th>
+              <th>Win %</th>
+              <th>Total Points</th>
+            </tr>
+          </thead>
+          <tbody>
+    `;
+
+    rankings.forEach((player, idx) => {
+      // Calculate / format Rank Tag (e.g. 1/48, 2/48-R)
+      const isSub = player.isSub || String(player.status).toUpperCase().includes('SUB') || String(player.status) === 'R';
+      const rankTag = player.rank || `${idx + 1}/${totalPlayers}${isSub ? '-R' : ''}`;
+
+      // Format Win %
+      let winPctRaw = player.winPct ?? player['Win %'] ?? 0;
+      if (typeof winPctRaw === 'string') winPctRaw = parseFloat(winPctRaw.replace('%', '')) || 0;
+      if (winPctRaw <= 1.0 && winPctRaw > 0) winPctRaw *= 100;
+      const formattedWinPct = winPctRaw.toFixed(2) + '%';
+
+      // Total Points & Name
+      const totalPoints = player.totalPoints ?? player.points ?? player['Total Points'] ?? 0;
+      const playerName = player.name || player['Player Name'] || 'Unknown';
+
+      html += `
+        <tr>
+          <td>${rankTag}</td>
+          <td>${playerName}</td>
+          <td>${formattedWinPct}</td>
+          <td>${totalPoints}</td>
+        </tr>
+      `;
+    });
+
+    html += `</tbody></table></div>`;
+  }
+
+  // Render Schedule Table if present
+  if (Array.isArray(schedule) && schedule.length > 0) {
+    html += `
+      <div class="schedule-container" style="margin-top:20px;">
+        <h3>Schedule</h3>
+        <table class="schedule-table">
+          <thead>
+            <tr>
+              <th>Player Name</th>
+              <th>Court</th>
+              <th>Check-In</th>
+            </tr>
+          </thead>
+          <tbody>
+    `;
+
+    schedule.forEach(row => {
+      html += `
+        <tr>
+          <td>${row.name || row['Player Name'] || ''}</td>
+          <td>${row.court || row['Court'] || 'BYE'}</td>
+          <td>${row.checkIn || row['Check-In'] || ''}</td>
+        </tr>
+      `;
+    });
+
+    html += `</tbody></table></div>`;
+  }
+
+  return html || '<i>No schedule or ranking data available.</i>';
+}
+
+
 
 
 function renderCheckInPlayers(players) {
