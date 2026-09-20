@@ -371,7 +371,7 @@
           <button class="btn-main" onclick="saveScores()">Submit Scores</button>
         </div>
         
-        <button class="btn-danger" style="margin-top:1.5rem;" onclick="clearPhoneCache()">Sign Out / Clear Saved Phone</button>
+        <button class="btn-danger" style="margin-top:5rem;" onclick="clearPhoneCache()">Clear Saved Phone Number</button>
       </div>
       
       <!-- REGISTRATION FORM -->
@@ -582,7 +582,7 @@ function updateGlobalLoaderStatus() {
   }
 }
 
-function apiCall(action, payload = {}) {
+async function apiCall(action, payload = {}) {
   if (!action) {
     console.error("❌ [API Error] Action cannot be empty.");
     return Promise.reject(new Error("API action cannot be empty"));
@@ -599,11 +599,13 @@ function apiCall(action, payload = {}) {
     console.log(`⚡ [API Cache Hit] Deduplicating "${action}", returning cached players.`, checkInPlayersCache);
     return Promise.resolve({ players: checkInPlayersCache });
   }
-
-  return new Promise((resolve, reject) => {
+  const result = await new Promise((resolve, reject) => {
     apiQueue.push({ action, payload, resolve, reject });
     if (!isProcessingQueue) processApiQueue();
   });
+
+    console.log(`🚀 [API result]`, result,     time: new Date().toLocaleTimeString());
+  return result;
 }
 
 async function processApiQueue() {
@@ -1071,7 +1073,7 @@ async function submitAdminRegistration() {
 let checkInPlayersCache = [];
 
 async function loadCheckInPlayers() {
-  const groupName = document.getElementById('sheetSelect').value || getSavedGroup();
+  const groupName = document.getElementById('sheetSelect')?.value || getSavedGroup();
   const listEl = document.getElementById('playerList');
   const statusEl = document.getElementById('checkInStatus');
 
@@ -1088,12 +1090,26 @@ async function loadCheckInPlayers() {
 
   try {
     const res = await apiCall('getPlayersForCheckIn', { 
-        groupName: groupName,
-        group: groupName,
-        sheet: "Sched " + groupName
+      groupName: groupName,
+      group: groupName,
+      sheet: "Sched " + groupName
     });
-    const playersList = Array.isArray(res) ? res : (res && res.players ? res.players : []);
+
+    let playersList = Array.isArray(res) ? res : (res && res.players ? res.players : []);
+
     if (playersList && playersList.length > 0) {
+      // 1. Remove court references and 2. Sort players alphabetically by name
+      playersList = playersList
+        .map(player => ({
+          ...player,
+          court: '' // Clear court name so it won't render
+        }))
+        .sort((a, b) => {
+          const nameA = String(a.name || `${a.first || ''} ${a.last || ''}`).trim();
+          const nameB = String(b.name || `${b.first || ''} ${b.last || ''}`).trim();
+          return nameA.localeCompare(nameB, undefined, { sensitivity: 'base' });
+        });
+
       checkInPlayersCache = playersList;
       renderCheckInPlayers(playersList);
       if (statusEl) statusEl.innerText = '';
@@ -1104,6 +1120,8 @@ async function loadCheckInPlayers() {
     if (statusEl) statusEl.innerText = '❌ ' + err.message;
   }
 }
+
+
 
 /**
  * Loads published court schedule and ladder standings for selected group.
@@ -1267,7 +1285,7 @@ function renderCheckInPlayers(players) {
 
   const courts = {};
   players.forEach(p => {
-    const c = p.court || 'Unassigned';
+    const c = p.court || 'Courts Unassigned';
     if (!courts[c]) courts[c] = [];
     courts[c].push(p);
   });
