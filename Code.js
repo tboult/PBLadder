@@ -2314,3 +2314,18 @@ function sortActivePlayersForSheet(sheet) {
   sheet.getRange(1, 1, finalRows.length, finalRows[0].length).setValues(finalRows);
   return `✅ Active players sorted successfully on tab '${sheet.getName()}'!`;
 }
+
+/**
+ * Resolves target group name from web API payload or Google Sheets active tab.
+ */
+function getTargetGroup(e) {
+  if (e && (e.group || e.groupName)) {
+    return String(e.group || e.groupName).replace(/^(Sched|Score)\s*/i, '').trim();
+  }
+  try {
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+    return sheet.getName().replace(/^(Sched|Score)\s*/i, '').trim();
+  } catch (err) {
+    return 'Womens'; // Default fallback
+  }
+}

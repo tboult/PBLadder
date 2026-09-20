@@ -326,140 +326,152 @@
 
     <h2 class="header-title" id="mainHeader" onpointerdown="handleSecretTap(event)">🥒 SCPB Ladder 🥒</h2>
 
-    <div id="globalLoader" class="global-loader" style="display: flex;">
+<div id="globalLoader" class="global-loader" style="display: flex;">
       <span class="loading-spinner"></span>
       <span id="globalLoaderText">Loading app...</span>
     </div>
 
-<!-- TAB 1: CONFIG & SETUP (Group Choice + Phone Input) -->
-<div id="helpTab" class="tab-content active">
-  <!-- 1. GROUP CHOICE -->
-  <div class="card" id="helpGroupSelectSection">
-    <h3 style="margin-top:0;">🎯 1. Select Group</h3>
-    <p style="margin-bottom:0.5rem; color:var(--text-secondary); font-size:0.9rem;">
-      Select your group below to activate and eager-load app data.
-    </p>
-    <div id="helpGroupRadioContainer" style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem;">
-      <label style="display:flex; align-items:center; gap:0.5rem; font-size:1.1rem; padding:0.5rem 0.75rem; border:2px solid var(--input-border); border-radius:0.5rem; background:var(--input-bg); cursor:pointer;">
-        <input type="radio" name="helpGroupRadio" value="Womens" onchange="onHelpGroupRadioChange(this.value)" style="width:20px; height:20px; min-height:auto; margin:0; cursor:pointer;">
-        <b>Womens</b>
-      </label>
-      <label style="display:flex; align-items:center; gap:0.5rem; font-size:1.1rem; padding:0.5rem 0.75rem; border:2px solid var(--input-border); border-radius:0.5rem; background:var(--input-bg); cursor:pointer;">
-        <input type="radio" name="helpGroupRadio" value="Mixed" onchange="onHelpGroupRadioChange(this.value)" style="width:20px; height:20px; min-height:auto; margin:0; cursor:pointer;">
-        <b>Mixed</b>
-      </label>
-      <label style="display:flex; align-items:center; gap:0.5rem; font-size:1.1rem; padding:0.5rem 0.75rem; border:2px solid var(--input-border); border-radius:0.5rem; background:var(--input-bg); cursor:pointer;">
-        <input type="radio" name="helpGroupRadio" value="Mens" onchange="onHelpGroupRadioChange(this.value)" style="width:20px; height:20px; min-height:auto; margin:0; cursor:pointer;">
-        <b>Mens</b>
-      </label>
-    </div>
-  </div>
+    <!-- TOP WELCOME BANNER  -->
+    <div id="welcomeBanner" style="display: none; background: var(--bg-color, #f0f4f8); border: 1px solid var(--input-border, #ccc); border-radius: 8px; padding: 0.5rem 1rem; margin-bottom: 0.5rem; text-align: center; font-size: 1.05rem; font-weight: 500;">
+  👋 Welcome, <b id="welcomeName">Player</b>!
+</div>
 
-  <!-- 2. PHONE NUMBER INPUT (MOVED HERE) -->
-  <div class="card" style="margin-top: 1rem;">
-    <h3 style="margin-top:0;">📱 2. Setup Phone Number</h3>
-    <div id="phoneEntrySection">
-      <label><b>Enter Phone Number:</b></label>
-      <div style="display:flex; gap:0.5rem; margin-top:0.25rem;">
-        <input type="tel" id="phoneInput" placeholder="e.g. 555-123-4567" style="flex:1;">
-        <button class="btn-main" onclick="lookupPhone(); switchTab('score');">Find My Foursome</button>
+    <!-- NAVIGATION HEADER  -->
+    <div class="nav">
+      <button id="tabHelpBtn" class="active" onclick="switchTab('help')">Config &<br>Setup</button>
+      <button id="tabCheckinBtn" onclick="switchTab('checkin')">Check-In</button>
+      <button id="tabScoreBtn" onclick="switchTab('score')">Enter<br>Scores</button>
+      <button id="tabRankschedBtn" onclick="switchTab('ranksched')">Schedule<br>& Ranks</button>
+      <button id="tabAdminBtn" style="display:none; background:var(--btn-danger-bg); color:var(--btn-danger-text);" onclick="switchTab('admin')">Admin</button>
+    </div>
+
+
+    <!-- TAB 1: CONFIG & SETUP (Group Choice + Phone Input) -->
+    <div id="helpTab" class="tab-content active">
+      <!-- 1. GROUP CHOICE -->
+      <div class="card" id="helpGroupSelectSection">
+        <h3 style="margin-top:0;">🎯 1. Select Group</h3>
+        <p style="margin-bottom:0.5rem; color:var(--text-secondary); font-size:0.9rem;">
+          Select your group below to activate and eager-load app data.
+        </p>
+        <div id="helpGroupRadioContainer" style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem;">
+          <label style="display:flex; align-items:center; gap:0.5rem; font-size:1.1rem; padding:0.5rem 0.75rem; border:2px solid var(--input-border); border-radius:0.5rem; background:var(--input-bg); cursor:pointer;">
+            <input type="radio" name="helpGroupRadio" value="Womens" onchange="onHelpGroupRadioChange(this.value)" style="width:20px; height:20px; min-height:auto; margin:0; cursor:pointer;">
+            <b>Womens</b>
+          </label>
+          <label style="display:flex; align-items:center; gap:0.5rem; font-size:1.1rem; padding:0.5rem 0.75rem; border:2px solid var(--input-border); border-radius:0.5rem; background:var(--input-bg); cursor:pointer;">
+            <input type="radio" name="helpGroupRadio" value="Mixed" onchange="onHelpGroupRadioChange(this.value)" style="width:20px; height:20px; min-height:auto; margin:0; cursor:pointer;">
+            <b>Mixed</b>
+          </label>
+          <label style="display:flex; align-items:center; gap:0.5rem; font-size:1.1rem; padding:0.5rem 0.75rem; border:2px solid var(--input-border); border-radius:0.5rem; background:var(--input-bg); cursor:pointer;">
+            <input type="radio" name="helpGroupRadio" value="Mens" onchange="onHelpGroupRadioChange(this.value)" style="width:20px; height:20px; min-height:auto; margin:0; cursor:pointer;">
+            <b>Mens</b>
+          </label>
+        </div>
+      </div>
+
+<!-- 2. PHONE NUMBER INPUT -->
+<div class="card" style="margin-top: 1rem;">
+  <h3 style="margin-top:0;">📱 2. Phone Number</h3>
+  <div id="phoneEntrySection">
+    <label style="font-size: 1.1rem;"><b>Enter Phone Number:</b></label>
+    <input type="tel" id="phoneInput" placeholder="e.g. 555-123-4567" style="width: 100%; font-size: 1.25rem; padding: 0.75rem; margin-top: 0.5rem; margin-bottom: 0.75rem; border: 2px solid var(--input-border); border-radius: 0.5rem; box-sizing: border-box; text-align: center;">
+    <button class="btn-main" style="width: 100%; padding: 0.75rem; font-size: 1.1rem;" onclick="lookupPhone(); switchTab('score');">Find My Foursome</button>
+  </div>
+</div>      
+
+      <!-- REFRESH & ACCESSIBILITY -->
+      <button id="forceRefreshBtn" onclick="forceRefresh()" title="Clear browser cache and reload fresh data" style="padding: 8px 12px; cursor: pointer; margin-top: 1rem; width:100%;">
+         <h3> 🔄 Clean Cache & Refresh Data </h3>
+      </button>
+
+      <div class="access-panel" style="margin-top:1rem;">
+        <h3 style="margin-top:0;">📱 Adjust sizes / Contrast</h3>
+        <p> 
+        <button id="btn-size-normal" class="active" onclick="applyTextSize('normal')">Normal</button>
+        <button id="btn-size-large" onclick="applyTextSize('large')">Large</button>
+        <button id="btn-size-huge" onclick="applyTextSize('huge')">HUGE</button></p>
+        <button id="btn-contrast-toggle" onclick="toggleContrast()">High Contrast</button>
+      </div>
+
+      <div class="card" style="margin-top:1rem;">
+        <h3 style="margin-top:0;">📱 Install on Phone</h3>
+        <p>You can add this app directly to your home screen for easy access!</p>
+        <b>iPhone (Safari):</b>
+        <ol style="margin-top:0.25rem; font-size:1rem;">
+          <li>Tap the <b>Share</b> icon at the bottom of the screen (square with an up arrow).</li>
+          <li>Scroll down and tap <b>Add to Home Screen</b>.</li>
+        </ol>
+        <b>Android (Chrome):</b>
+        <ol style="margin-top:0.25rem; font-size:1rem;">
+          <li>Tap the <b>3 dots</b> (menu) in the top right.</li>
+          <li>Tap <b>Add to Home screen</b>.</li>
+        </ol>
+        <div class="help-section" style="margin-top: 20px; text-align: center;">
+          <p style="font-size: 0.9em; color: #666;">Not seeing recent app updates or icons?</p>
+          <button onclick="forceResetApp()" style="background-color: #d9534f; color: white; border: none; padding: 10px 16px; border-radius: 6px; font-weight: bold; cursor: pointer;">
+            🔄 Reset & Hard Refresh App
+          </button>
+        </div>
       </div>
     </div>
-  </div>
 
-  <!-- REFRESH & ACCESSIBILITY -->
-  <button id="forceRefreshBtn" onclick="forceRefresh()" title="Clear browser cache and reload fresh data" style="padding: 8px 12px; cursor: pointer; margin-top: 1rem; width:100%;">
-     <h3> 🔄 Clean Cache & Refresh Data </h3>
-  </button>
-
-  <div class="access-panel" style="margin-top:1rem;">
-    <h3 style="margin-top:0;">📱 Adjust sizes / Contrast</h3>
-    <p> 
-    <button id="btn-size-normal" class="active" onclick="applyTextSize('normal')">Normal</button>
-    <button id="btn-size-large" onclick="applyTextSize('large')">Large</button>
-    <button id="btn-size-huge" onclick="applyTextSize('huge')">HUGE</button></p>
-    <button id="btn-contrast-toggle" onclick="toggleContrast()">High Contrast</button>
-  </div>
-
-  <div class="card" style="margin-top:1rem;">
-    <h3 style="margin-top:0;">📱 Install on Phone</h3>
-    <p>You can add this app directly to your home screen for easy access!</p>
-    <b>iPhone (Safari):</b>
-    <ol style="margin-top:0.25rem; font-size:1rem;">
-      <li>Tap the <b>Share</b> icon at the bottom of the screen (square with an up arrow).</li>
-      <li>Scroll down and tap <b>Add to Home Screen</b>.</li>
-    </ol>
-    <b>Android (Chrome):</b>
-    <ol style="margin-top:0.25rem; font-size:1rem;">
-      <li>Tap the <b>3 dots</b> (menu) in the top right.</li>
-      <li>Tap <b>Add to Home screen</b>.</li>
-    </ol>
-    <div class="help-section" style="margin-top: 20px; text-align: center;">
-      <p style="font-size: 0.9em; color: #666;">Not seeing recent app updates or icons?</p>
-      <button onclick="forceResetApp()" style="background-color: #d9534f; color: white; border: none; padding: 10px 16px; border-radius: 6px; font-weight: bold; cursor: pointer;">
-        🔄 Reset & Hard Refresh App
-      </button>
-    </div>
-  </div>
-</div>
-
-<!-- TAB 2: CHECK-IN SYSTEM -->
-<div id="checkinTab" class="tab-content">
-  <label><b>Select Group:</b></label>
-  <select id="sheetSelect" onchange="onGroupChange('sheetSelect')">
-    <option value="">-- Choose Group --</option>
-  </select>
-  <div id="checkInStatus" class="status-msg" style="margin-top:0.25rem; margin-bottom:0.5rem;"></div>
-  <div id="playerList"><i>Select a group above...</i></div>
-</div>
-
-<!-- TAB 3: ENTER SCORES (SCORE ENTRY PAGE) -->
-<div id="scoreTab" class="tab-content">
-  <h3 style="margin-top:0;">📝 Enter Court Scores</h3>
-  <div id="lookupResult">
-    <div class="card" style="background: var(--bg-color);">
-      <h4 style="margin:0 0 0.25rem 0;" id="pNameDisplay"></h4>
-      <p style="margin:0.25rem 0; font-size:1rem;">Group: <b id="pGroupDisplay"></b> | Court: <b id="pCourtDisplay"></b></p>
-      <p style="margin:0.25rem 0 0 0; font-size:1rem;">Status: <span id="pStatusDisplay" class="status-badge"></span></p>
-      <button class="btn-sub" style="margin-top:0.75rem;" onclick="toggleStatus()">Toggle Active / Inactive</button>
+    <!-- TAB 2: CHECK-IN SYSTEM -->
+    <div id="checkinTab" class="tab-content">
+      <label><b>Select Group:</b></label>
+      <select id="sheetSelect" onchange="onGroupChange('sheetSelect')">
+        <option value="">-- Choose Group --</option>
+      </select>
+      <div id="checkInStatus" class="status-msg" style="margin-top:0.25rem; margin-bottom:0.5rem;"></div>
+      <div id="playerList"><i>Select a group above...</i></div>
     </div>
 
-    <div id="scoreEntrySection" style="margin-top: 0.75rem;">
-      <h4 style="margin: 0.75rem 0 0.25rem 0;">Submit Court Scores</h4>
-      <div id="scoreInputsContainer"></div>
-      <button class="btn-main" style="margin-top:0.75rem;" onclick="saveScores()">Submit Scores</button>
+    <!-- TAB 3: ENTER SCORES (SCORE ENTRY PAGE) -->
+    <div id="scoreTab" class="tab-content">
+      <h3 style="margin-top:0;">📝 Enter Court Scores</h3>
+      <div id="lookupResult">
+        <div class="card" style="background: var(--bg-color);">
+          <h4 style="margin:0 0 0.25rem 0;" id="pNameDisplay"></h4>
+          <p style="margin:0.25rem 0; font-size:1rem;">Group: <b id="pGroupDisplay"></b> | Court: <b id="pCourtDisplay"></b></p>
+          <p style="margin:0.25rem 0 0 0; font-size:1rem;">Status: <span id="pStatusDisplay" class="status-badge"></span></p>
+          <button class="btn-sub" style="margin-top:0.75rem;" onclick="toggleStatus()">Toggle Active / Inactive</button>
+        </div>
+
+        <div id="scoreEntrySection" style="margin-top: 0.75rem;">
+          <h4 style="margin: 0.75rem 0 0.25rem 0;">Submit Court Scores</h4>
+          <div id="scoreInputsContainer"></div>
+          <button class="btn-main" style="margin-top:0.75rem;" onclick="saveScores()">Submit Scores</button>
+        </div>
+
+      </div>
+      
+      <!-- REGISTRATION FORM -->
+      <div id="registrationSection" class="card" style="display:none; margin-top: 1rem;">
+        <h4 style="margin:0 0 0.75rem 0;">New Player Registration</h4>
+        <input type="text" id="regFirst" placeholder="First Name">
+        <input type="text" id="regLast" placeholder="Last Name">
+        <input type="tel" id="regPhone" placeholder="Phone Number">
+        <input type="email" id="regEmail" placeholder="Email">
+        <select id="regGroup" onchange="onGroupChange('regGroup')"><option value="">-- Select Group --</option></select>
+        <button class="btn-main" style="margin-top:0.5rem;" onclick="submitRegistration()">Register Player</button>
+        <button class="btn-sub" style="margin-top:0.5rem;" onclick="cancelRegistration()">Cancel</button>
+      </div>
+      
+      <div id="phoneStatus" class="status-msg" style="margin-top:0.5rem;"></div>
     </div>
 
-    <button class="btn-danger" style="margin-top:1.5rem;" onclick="clearPhoneCache()">Clear Saved Phone Number</button>
-  </div>
-  
-  <!-- REGISTRATION FORM -->
-  <div id="registrationSection" class="card" style="display:none; margin-top: 1rem;">
-    <h4 style="margin:0 0 0.75rem 0;">New Player Registration</h4>
-    <input type="text" id="regFirst" placeholder="First Name">
-    <input type="text" id="regLast" placeholder="Last Name">
-    <input type="tel" id="regPhone" placeholder="Phone Number">
-    <input type="email" id="regEmail" placeholder="Email">
-    <select id="regGroup" onchange="onGroupChange('regGroup')"><option value="">-- Select Group --</option></select>
-    <button class="btn-main" style="margin-top:0.5rem;" onclick="submitRegistration()">Register Player</button>
-    <button class="btn-sub" style="margin-top:0.5rem;" onclick="cancelRegistration()">Cancel</button>
-  </div>
-  
-  <div id="phoneStatus" class="status-msg" style="margin-top:0.5rem;"></div>
-</div>
+    <!-- TAB 4: RANKINGS & SCHEDULE VIEWER -->
+    <div id="rankschedTab" class="tab-content">
+      <label><b>Select Group:</b></label>
+      <select id="groupViewerSelect" onchange="onGroupChange('groupViewerSelect')">
+        <option value="">-- Choose Group --</option>
+      </select>
+      <div id="viewerContent" style="margin-top: 0.75rem;"></div>
+      <div id="viewerStatus" class="status-msg"></div>
+    </div>
 
-<!-- TAB 4: RANKINGS & SCHEDULE VIEWER -->
-<div id="rankschedTab" class="tab-content">
-  <label><b>Select Group:</b></label>
-  <select id="groupViewerSelect" onchange="onGroupChange('groupViewerSelect')">
-    <option value="">-- Choose Group --</option>
-  </select>
-  <div id="viewerContent" style="margin-top: 0.75rem;"></div>
-  <div id="viewerStatus" class="status-msg"></div>
-</div>
-
-<!-- TAB 5: ADMIN -->
-<div id="adminTab" class="tab-content">
+    <!-- TAB 5: ADMIN -->
+    <div id="adminTab" class="tab-content">
       <div class="card">
         <h3 style="margin-top:0; color:var(--btn-danger-bg);">⚙️ Admin Controls</h3>
 
@@ -524,9 +536,11 @@
 
         <div id="adminStatus" class="status-msg"></div>
       </div>
-    </div>n
+    </div>
 
 <script>
+// Global cache variables (ensure these exist in your script)
+
   window.API_URL = "https://script.google.com/macros/s/AKfycbweTOjVcY0R1sxXrYfbN2S9jqMz4yr5b1alVoz0gjVy3P3ty42rtHlfgfpdjtFnF4nFaQ/exec";
   const API_URL = window.API_URL;
   const CURRENT_APP_VERSION = "1.1.5";
@@ -537,6 +551,10 @@
       "Mixed": [3,4,5,6,7,8,15,16,17,18,19,20],
       "Default": [5,6,9,10,13,14,15,16]
   };
+
+  let activeLookupPlayer =  null;
+  let activeLookupFoursome = null;
+
 
   function getCourtsForGroup(groupName) {
     return GROUP_COURT_MAP[groupName] || GROUP_COURT_MAP["Default"];
@@ -1201,9 +1219,114 @@ async function handlePlayerRowClick(rowEl, identifier) {
   }
 }
 
-// Global state
-let activeLookupPlayer = null;
-let activeFoursome = [];
+
+async function lookupPhone() {
+  // 1. Get input element and value safely
+  const phoneEl = document.getElementById('phoneInput');
+  const input = phoneEl ? phoneEl.value.trim() : '';
+
+  if (!input) {
+    alert('Please enter a phone number.');
+    return;
+  }
+
+  // Save phone number to localStorage immediately
+  localStorage.setItem('scpb_saved_phone', input);
+  localStorage.setItem('saved_phone', input);
+
+  // 2. Retrieve cached group saved during check-in / group selection
+  const savedGroup = localStorage.getItem('scpb_saved_group') || 
+                     localStorage.getItem('scpb_selected_group') || 
+                     (typeof getSavedGroup === 'function' ? getSavedGroup() : '');
+
+  if (!savedGroup) {
+    alert('No active group selected. Please select a group on the main/check-in screen first.');
+    return;
+  }
+
+  const statusEl = document.getElementById('phoneStatus');
+  const lookupResultEl = document.getElementById('lookupResult');
+  const regSectionEl = document.getElementById('registrationSection');
+
+  // ⚡ 3. CACHE CHECK: Skip API call if input phone & group match existing active player
+  const normInput = input.replace(/\D/g, '');
+  const cachedPhone = (activeLookupPlayer && activeLookupPlayer.phone) 
+    ? String(activeLookupPlayer.phone).replace(/\D/g, '') 
+    : '';
+  const cachedGroup = activeLookupPlayer ? activeLookupPlayer.group : '';
+
+  if (activeLookupPlayer && normInput.length >= 7 && cachedPhone.endsWith(normInput.slice(-7)) && cachedGroup === savedGroup) {
+    if (statusEl) statusEl.innerText = '';
+    if (regSectionEl) regSectionEl.style.display = 'none';
+    if (lookupResultEl) lookupResultEl.style.display = 'block';
+    
+    // Re-render UI from memory cache without making a network request
+    if (typeof renderLookupResult === 'function' && activeLookupFoursome) {
+      renderLookupResult(activeLookupPlayer, activeLookupFoursome);
+    }
+    return; // Exit early!
+  }
+
+  if (statusEl) statusEl.innerText = 'Searching for player...';
+
+  try {
+    const res = await apiCall('findFoursomeByPhone', { 
+      phone: input, 
+      group: savedGroup 
+    });
+
+      if (res && res.found) {
+      // Save details to cache
+      activeLookupPlayer = res.player;
+      activeLookupFoursome = res.courtFoursome;
+
+      if (res.player.first) {
+      localStorage.setItem('scpb_saved_first_name', res.player.first);
+      }
+      if (res.player.name) {
+      localStorage.setItem('scpb_saved_player_name', res.player.name);
+      }
+
+      // Update Welcome Banner
+      updateWelcomeBanner();
+      
+      // 4. Check if schedule is generated for current week
+      if (res.scheduleReady === false) {
+        if (statusEl) {
+          statusEl.innerHTML = `<div class="card" style="background:#fff3cd; color:#856404; font-weight:bold; text-align:center; padding: 0.75rem;">
+            ⏳ Schedule not yet ready for this week.
+          </div>`;
+        }
+        if (lookupResultEl) lookupResultEl.style.display = 'none';
+        if (regSectionEl) regSectionEl.style.display = 'none';
+        return;
+      }
+
+      // 5. Schedule is ready and player was found -> Store in memory cache
+      activeLookupPlayer = res.player;
+      activeLookupFoursome = res.courtFoursome;
+
+      if (statusEl) statusEl.innerText = '';
+      if (regSectionEl) regSectionEl.style.display = 'none';
+      if (lookupResultEl) lookupResultEl.style.display = 'block';
+
+      renderLookupResult(res.player, res.courtFoursome);
+    } else {
+      // 6. Player not found -> Clear cache & prompt registration
+      activeLookupPlayer = null;
+      activeLookupFoursome = null;
+
+      if (statusEl) statusEl.innerText = '';
+      if (lookupResultEl) lookupResultEl.style.display = 'none';
+      if (regSectionEl) regSectionEl.style.display = 'block';
+      
+      const regPhoneEl = document.getElementById('regPhone');
+      if (regPhoneEl) regPhoneEl.value = input;
+    }
+  } catch (err) {
+    if (statusEl) statusEl.innerText = '❌ Error looking up phone number.';
+  }
+}
 
 function renderLookupResult(player, foursome) {
   activeLookupPlayer = player;
@@ -1340,73 +1463,7 @@ async function saveScores() {
   }
 }
 
-async function lookupPhone() {
-  // 1. Get input element and value safely
-  const phoneEl = document.getElementById('phoneInput');
-  const input = phoneEl ? phoneEl.value.trim() : '';
 
-  // 2. Retrieve cached group saved during check-in / group selection
-  const savedGroup = localStorage.getItem('scpb_saved_group') || 
-                     localStorage.getItem('scpb_selected_group') || 
-                     (typeof getSavedGroup === 'function' ? getSavedGroup() : '');
-
-  if (!input) {
-    alert('Please enter a phone number.');
-    return;
-  }
-
-  if (!savedGroup) {
-    alert('No active group selected. Please select a group on the main/check-in screen first.');
-    return;
-  }
-
-  const statusEl = document.getElementById('phoneStatus');
-  const lookupResultEl = document.getElementById('lookupResult');
-  const regSectionEl = document.getElementById('registrationSection');
-
-  if (statusEl) statusEl.innerText = 'Searching for player...';
-
-  try {
-    const res = await apiCall('findFoursomeByPhone', { 
-      phone: input, 
-      group: savedGroup 
-    });
-
-    if (res && res.found) {
-      // 3. Check if schedule is generated for current week
-      if (res.scheduleReady === false) {
-        if (statusEl) {
-          statusEl.innerHTML = `<div class="card" style="background:#fff3cd; color:#856404; font-weight:bold; text-align:center; padding: 0.75rem;">
-            ⏳ Schedule not yet ready for this week.
-          </div>`;
-        }
-        if (lookupResultEl) lookupResultEl.style.display = 'none';
-        if (regSectionEl) regSectionEl.style.display = 'none';
-        return;
-      }
-
-      // 4. Schedule is ready and player was found
-      activeLookupPlayer = res.player;
-      localStorage.setItem('scpb_saved_phone', input);
-
-      if (statusEl) statusEl.innerText = '';
-      if (regSectionEl) regSectionEl.style.display = 'none';
-      if (lookupResultEl) lookupResultEl.style.display = 'block';
-
-      renderLookupResult(res.player, res.courtFoursome);
-    } else {
-      // 5. Player not found -> prompt registration
-      if (statusEl) statusEl.innerText = '';
-      if (lookupResultEl) lookupResultEl.style.display = 'none';
-      if (regSectionEl) regSectionEl.style.display = 'block';
-      
-      const regPhoneEl = document.getElementById('regPhone');
-      if (regPhoneEl) regPhoneEl.value = input;
-    }
-  } catch (err) {
-    if (statusEl) statusEl.innerText = '❌ Error looking up phone number.';
-  }
-}
 
 
 
@@ -1435,14 +1492,6 @@ async function toggleStatus() {
   }
 }
 
-function clearPhoneCache() {
-  localStorage.removeItem('scpb_saved_phone');
-  activeLookupPlayer = null;
-  document.getElementById('lookupResult').style.display = 'none';
-  document.getElementById('phoneEntrySection').style.display = 'block';
-  document.getElementById('phoneInput').value = '';
-  document.getElementById('phoneStatus').innerText = '';
-}
 
 async function submitRegistration() {
   const first = document.getElementById('regFirst').value.trim();
@@ -1638,12 +1687,6 @@ function stopCheckInAutoRefresh() {
   }
 }
 
-function setSelectedGroup(groupName) {
-  if (!groupName) return;
-  setSavedGroup(groupName);
-  syncAllGroupDropdowns(groupName);
-  onGroupContextUpdated(groupName);
-}
   
 function syncAllGroupDropdowns(groupName) {
   if (!groupName) return;
@@ -1689,18 +1732,6 @@ function setSavedGroup(groupName) {
   localStorage.setItem('scpb_selected_group', cleanGroup);
 }
 
-function onGroupContextUpdated(groupName) {
-  const activeTab = document.querySelector('.tab-content.active');
-  if (!activeTab) return;
-
-  if (activeTab.id === 'checkinTab') {
-    loadCheckInPlayers();
-  } else if (activeTab.id === 'rankschedTab') {
-    loadRankingsAndSched();
-  } else if (activeTab.id === 'adminTab') {
-    loadAdminTabData(groupName);
-  }
-}
 
 function loadAdminTabData(groupName) {
   loadAdminPlayerStatusCache(groupName);
@@ -1722,16 +1753,7 @@ async function loadAdminPlayerStatusCache(group) {
   }
 }
 
-function getSavedGroup() {
-  return localStorage.getItem('selected_group') || '';
-}
 
-function setSelectedGroup(group) {
-  if (!group) return;
-  const cleanGroup = String(group).replace(/^(Sched|Score)\s*/i, '').trim();
-  localStorage.setItem('selected_group', cleanGroup);
-  syncAllGroupDropdowns(cleanGroup);
-}
 
 function switchTab(tabId) {
   const currentGroup = getSavedGroup();
@@ -2033,35 +2055,50 @@ async function setupEventListeners() {
   }
 }  
 
-function loadRankingsAndSched() {
+async function loadRankingsAndSched() {
   const group = getSavedGroup();
   const viewerContent = document.getElementById('viewerContent');
   const viewerStatus = document.getElementById('viewerStatus');
 
-  if (!group) return;
+  if (!group) {
+    if (viewerStatus) viewerStatus.innerHTML = '<i>Please select a group in Config & Setup.</i>';
+    return;
+  }
 
-  viewerStatus.innerHTML = '<i>Loading schedule & rankings...</i>';
+  if (viewerStatus) viewerStatus.innerHTML = '<span class="loading-spinner"></span> <i>Loading schedule & rankings...</i>';
 
-  google.script.run
-    .withSuccessHandler(function(data) {
-      viewerStatus.innerHTML = '';
+  try {
+    const data = await apiCall('getRankingsAndScheduleData', { 
+      group: group, 
+      groupName: group,
+      sheet: "Sched " + group 
+    });
 
-      // Check schedule validity flag
-      if (!data.scheduleReady) {
+    if (viewerStatus) viewerStatus.innerHTML = '';
+
+    if (!data) {
+      if (viewerContent) viewerContent.innerHTML = '<i>No schedule or ranking data returned.</i>';
+      return;
+    }
+
+    // Check schedule validity flag
+    if (data.scheduleReady === false) {
+      if (viewerContent) {
         viewerContent.innerHTML = `
           <div class="card" style="background:#fff3cd; color:#856404; text-align:center; padding:1.5rem;">
             <h3>⏳ Schedule Not Yet Ready</h3>
             <p style="margin:0;">The schedule for this week has not been generated yet. Please check back later.</p>
           </div>`;
-        return;
       }
+      return;
+    }
 
-      // Render valid schedule
-      renderScheduleAndRankingsTable(data);
-    })
-    .getRankingsAndScheduleData(group);
+    // Render using the matching UI function
+    renderRankingsAndSchedule(data);
+  } catch (err) {
+    if (viewerStatus) viewerStatus.innerHTML = '❌ Error loading schedule & rankings: ' + err.message;
+  }
 }
-
 function renderRankingsAndSchedule(data) {
   const viewerContent = document.getElementById('viewerContent');
   if (!viewerContent) return;
@@ -2149,6 +2186,136 @@ function renderRankingsAndSchedule(data) {
 
 
 
+function loadSavedPhone() {
+  const savedPhone = localStorage.getItem('scpb_saved_phone') || 
+                     localStorage.getItem('saved_phone') || '';
+  const phoneInput = document.getElementById('phoneInput');
+  const phoneEntry = document.getElementById('phoneEntrySection');
+  
+  if (phoneEntry) phoneEntry.style.display = 'block';
+  if (phoneInput && savedPhone) {
+    phoneInput.value = savedPhone;
+  }
+}
+// 1. Run after DOM is ready
+document.addEventListener('DOMContentLoaded', function() {
+  setTimeout(loadSavedPhone, 100); // 100ms delay ensures async renders finish first
+});
+
+// 2. Add to your active tab refresh logic so it stays populated when switching tabs
+if (typeof refreshActiveTabData === 'function') {
+  const oldRefresh = refreshActiveTabData;
+  refreshActiveTabData = function() {
+    oldRefresh();
+    loadSavedPhone();
+  };
+}
+
+
+async function triggerAutoCheckIn() {
+  const savedGroup = (activeLookupPlayer && activeLookupPlayer.group) || 
+                     localStorage.getItem('scpb_saved_group') || '';
+  const savedPhone = (activeLookupPlayer && activeLookupPlayer.phone) || 
+                     localStorage.getItem('scpb_saved_phone') || '';
+
+  if (!savedGroup || !savedPhone) return;
+
+  // 1. Automatically set Check-In group dropdown if not set
+  const sheetSelect = document.getElementById('sheetSelect');
+  if (sheetSelect && sheetSelect.value !== savedGroup) {
+    sheetSelect.value = savedGroup;
+    if (typeof onGroupChange === 'function') {
+      onGroupChange('sheetSelect');
+    }
+  }
+
+  // 2. Perform auto check-in API call if player data is cached
+  const checkInStatus = document.getElementById('checkInStatus');
+  if (checkInStatus) checkInStatus.innerText = '⚡ Auto-checking in...';
+
+  try {
+    const res = await apiCall('checkInPlayer', { 
+      phone: savedPhone, 
+      group: savedGroup 
+    });
+
+    if (checkInStatus) {
+      if (res && res.success) {
+        checkInStatus.innerHTML = `<span style="color: #2e7d32; font-weight: bold;">✅ ${res.message || 'Successfully checked in!'}</span>`;
+      } else {
+        checkInStatus.innerText = res?.message || 'Check-in update complete.';
+      }
+    }
+  } catch (err) {
+    if (checkInStatus) checkInStatus.innerText = '⚠️ Auto check-in failed or already checked in.';
+  }
+}
+
+
+const originalSwitchTab = window.switchTab;
+window.switchTab = function(tabId) {
+  if (typeof originalSwitchTab === 'function') {
+    originalSwitchTab(tabId);
+  }
+
+  // Keep banner fresh on tab switches
+  updateWelcomeBanner();
+
+  // Auto check-in when clicking the Check-In tab
+  if (tabId === 'checkin') {
+    triggerAutoCheckIn();
+  }
+};
+
+// Initialize welcome banner on page load
+document.addEventListener('DOMContentLoaded', function() {
+  updateWelcomeBanner();
+  });
+
+// FIND AND REPLACE THIS FUNCTION:
+function updateWelcomeBanner() {
+  const bannerEl = document.getElementById('welcomeBanner');
+  const nameEl = document.getElementById('welcomeName');
+  if (!bannerEl || !nameEl) return;
+
+  const firstName = (activeLookupPlayer && activeLookupPlayer.first) || 
+                    localStorage.getItem('scpb_saved_first_name') || 
+                    localStorage.getItem('scpb_saved_player_name') || '';
+  
+  const group = getSavedGroup(); // Reads current active group selection
+
+  if (firstName) {
+    nameEl.innerHTML = `${firstName}${group ? ` <span style="font-size:0.85em; opacity:0.8;">(${group})</span>` : ''}`;
+    bannerEl.style.display = 'block';
+  } else {
+    bannerEl.style.display = 'none';
+  }
+}
+
+
+function onGroupContextUpdated(groupName) {
+  // Clear player lookup cache if switching to a different group
+  if (activeLookupPlayer && activeLookupPlayer.group !== groupName) {
+    activeLookupPlayer = null;
+    activeLookupFoursome = null;
+    const phoneEntry = document.getElementById('phoneEntrySection');
+    if (phoneEntry) phoneEntry.style.display = 'block';
+  }
+
+  updateWelcomeBanner();
+
+  const activeTab = document.querySelector('.tab-content.active');
+  if (!activeTab) return;
+
+  if (activeTab.id === 'checkinTab') {
+    loadCheckInPlayers();
+  } else if (activeTab.id === 'rankschedTab') {
+    loadRankingsAndSched();
+  } else if (activeTab.id === 'adminTab') {
+    loadAdminTabData(groupName);
+  }
+}
+  
 </script>
   </body>
 </html>
