@@ -227,8 +227,8 @@
       .court-header { font-weight: bold; background: var(--court-header-bg); color: var(--court-header-text); padding: 0.5rem 0.75rem; margin-top: 0; font-size: 1.1rem; border-bottom: 2px solid var(--row-border);}
       .court-header.bye-header { background: var(--bye-header-bg); color: var(--bye-header-text); }
       
-      .score-grid { display: grid; grid-template-columns: 2.2fr 1fr 1fr 1fr; gap: 0.4rem; align-items: center; margin-top: 0.4rem; }
-      .score-grid input { text-align: center; margin-top: 0; padding: 0.5rem; font-size: 1.1rem; min-height: 54px; }
+      .score-grid { display: grid; grid-template-columns: 1fr .25fr 1fr; gap: 0.4rem; align-items: center; margin-top: 0.4rem; }
+      .score-grid input { text-align: center; margin-top: 0; padding: 0.2rem; font-size: 1rem;  }
       
       .status-badge { display: inline-block; padding: 0.25rem 0.75rem; border-radius: 1rem; font-size: 0.9rem; font-weight: bold; }
       .status-active { background-color: var(--row-checked-bg); color: var(--text-color); border: 1px solid var(--text-color); }
@@ -1389,35 +1389,35 @@ function renderLookupResult(player, foursome) {
       <div class="card" style="margin-bottom:0.75rem;">
         <p style="margin:0 0 0.4rem 0;"><b>Court Foursome:</b></p>
         <ol style="padding-left:1.2rem; margin:0;">
-          <li>${p1}</li>
-          <li>${p2}</li>
-          <li>${p3}</li>
-          <li>${p4}</li>
+          <li>P1 ${p1}</li>
+          <li>P2 ${p2}</li>
+          <li>P3 ${p3}</li>
+          <li>P4 ${p4}</li>
         </ol>
       </div>
 
       <!-- Game 1: P1 & P4 vs P2 & P3 -->
-      <div style="margin-top:0.5rem; font-weight:bold; font-size:0.95rem;">Game 1: ${p1} & ${p4} vs ${p2} & ${p3}</div>
+      <div style="margin-top:0.5rem; font-weight:bold; font-size:0.95rem;">Game 1: p1 ${p1} &  p4 ${p4}  <br>  &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;vs &nbsp;&nbsp;  p2  ${p2} & p2 ${p3}</div>
       <div class="score-grid">
-        <input type="number" min="0" max="30" id="sc1_p1" placeholder="P1 & P4">
-        <span>-</span>
-        <input type="number" min="0" max="30" id="sc1_p2" placeholder="P2 & P3">
+        <input type="number" min="0" max="8" id="sc1_p1" placeholder="P1&P4">
+        vs 
+        <input type="number" min="0" max="12" id="sc1_p2" placeholder="P2&P3">
       </div>
 
       <!-- Game 2: P1 & P3 vs P2 & P4 -->
-      <div style="margin-top:0.75rem; font-weight:bold; font-size:0.95rem;">Game 2: ${p1} & ${p3} vs ${p2} & ${p4}</div>
+      <div style="margin-top:0.75rem; font-weight:bold; font-size:0.95rem;">Game 2:  p1 ${p1} & p3 ${p3} <br>   &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;vs &nbsp;&nbsp;  p2 ${p2} & p4 ${p4}</div>
       <div class="score-grid">
-        <input type="number" min="0" max="30" id="sc2_p1" placeholder="P1 & P3">
-        <span>-</span>
-        <input type="number" min="0" max="30" id="sc2_p2" placeholder="P2 & P4">
+        <input type="number" min="0" max="8" id="sc2_p1" placeholder="P1&P3">
+         vs 
+        <input type="number" min="0" max="12" id="sc2_p2" placeholder="P2& 4">
       </div>
 
       <!-- Game 3: P1 & P2 vs P3 & P4 -->
-      <div style="margin-top:0.75rem; font-weight:bold; font-size:0.95rem;">Game 3: ${p1} & ${p2} vs ${p3} & ${p4}</div>
+      <div style="margin-top:0.75rem; font-weight:bold; font-size:0.95rem;">Game 3:p1 ${p1} & p2 ${p2} <br>  &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;vs &nbsp;&nbsp; p3 ${p3} & p4 ${p4}</div>
       <div class="score-grid">
-        <input type="number" min="0" max="30" id="sc3_p1" placeholder="P1 & P2">
-        <span>-</span>
-        <input type="number" min="0" max="30" id="sc3_p2" placeholder="P3 & P4">
+        <input type="number" min="0" max="8" id="sc3_p1" placeholder="P1 & P2">
+        vs
+        <input type="number" min="0" max="12" id="sc3_p2" placeholder="P3 & P4">
       </div>
     `;
   } else {
@@ -1475,12 +1475,19 @@ async function saveScores() {
     if (statusEl) statusEl.innerText = '❌ Error submitting scores: ' + err.message;
   }
 }
-let activeLookupPlayer = null;
 
 async function lookupPhone() {
-  const input = document.getElementById('phoneInput').value.trim();
+  const input = document.getElementById('phoneInput')?.value.trim();
+  // Retrieve cached group saved during check-in / group selection
+  const savedGroup = localStorage.getItem('scpb_selected_group') || '';
+
   if (!input) {
     alert('Please enter a phone number.');
+    return;
+  }
+
+  if (!savedGroup) {
+    alert('No active group selected. Please select a group on the main/check-in screen first.');
     return;
   }
 
@@ -1488,7 +1495,11 @@ async function lookupPhone() {
   if (statusEl) statusEl.innerText = 'Searching for player...';
 
   try {
-    const res = await apiCall('findFoursomeByPhone', { phone: input });
+    const res = await apiCall('findFoursomeByPhone', { 
+      phone: input, 
+      group: savedGroup 
+    });
+
     if (res && res.found) {
       activeLookupPlayer = res.player;
       localStorage.setItem('scpb_saved_phone', input);
@@ -1498,13 +1509,16 @@ async function lookupPhone() {
       if (statusEl) statusEl.innerText = '';
       document.getElementById('lookupResult').style.display = 'none';
       document.getElementById('registrationSection').style.display = 'block';
-      document.getElementById('regPhone').value = input;
+      
+      const regPhoneEl = document.getElementById('regPhone');
+      if (regPhoneEl) regPhoneEl.value = input;
     }
   } catch (err) {
     if (statusEl) statusEl.innerText = '❌ Error looking up phone number.';
   }
 }
-  
+
+
 
 async function toggleStatus() {
   if (!activeLookupPlayer) return;
@@ -1714,14 +1728,16 @@ async function getAdminPdf() {
 }
 
 let checkInRefreshTimer = null;
+let checkincnt=0                                      
 
 function startCheckInAutoRefresh() {
-  stopCheckInAutoRefresh();
+   stopCheckInAutoRefresh();
+   checkincnt= checkincnt+1;                                                                             
   checkInRefreshTimer = setInterval(() => {
     if (document.visibilityState === 'visible' && document.getElementById('checkinTab').classList.contains('active')) {
       loadCheckInPlayers();
     }
-  }, 15000);
+  }, 30000);
 }
 
 function stopCheckInAutoRefresh() {
@@ -1847,11 +1863,13 @@ function refreshActiveTabData() {
   const activeTab = document.querySelector('.tab-content.active');
   if (!activeTab) return;
 
-  if (activeTab.id === 'checkinTab') {
+  /* only do polling if on the checkin tab and have not polled 20 time ~10min on this tab*/
+  if (activeTab.id === 'checkinTab' &&  checkincnt < 20) {
     loadCheckInPlayers();
     startCheckInAutoRefresh();
   } else {
-    stopCheckInAutoRefresh();
+     stopCheckInAutoRefresh();
+     checkincnt=0                                        
   }
 
   if (activeTab.id === 'rankschedTab') {

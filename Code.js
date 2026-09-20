@@ -467,18 +467,34 @@ function fetchPlayersFromSheet(inputName) {
  * Searches score and schedule tabs for a player by phone number to determine court/foursome.
  * 
  * @param {string} phone - Target phone string.
+ * @param {string} groupArg - Group to search for phone
  * @returns {Object} Player search results including court assignment and group foursome details.
  * @throws Assumes phone matches last 7 digits of digits-only string.
  */
-function findFoursomeByPhone(phone) {
-  logDebug("findFoursomeByPhone", "Searching phone", phone);
+function findFoursomeByPhone(phoneOrPayload, groupArg) {
+  // Support both object payload { phone, group } and separate arguments (phone, group)
+  let phone, group;
+  if (typeof phoneOrPayload === "object" && phoneOrPayload !== null) {
+    phone = phoneOrPayload.phone;
+    group = phoneOrPayload.group || phoneOrPayload.groupName || phoneOrPayload.selectedGroup;
+  } else {
+    phone = phoneOrPayload;
+    group = groupArg;
+  }
+
+  logDebug("findFoursomeByPhone", "Searching phone/group", { phone: phone, group: group });
   if (!phone) return { found: false, message: "No phone number provided" };
 
   const ss = getDb();
   const normPhone = String(phone).replace(/\D/g, "");
+  if (normPhone.length < 7) return { found: false, message: "Phone number must be at least 7 digits" };
 
-  for (let group of GROUPS) {
-    let scoreSheet = ss.getSheetByName("Score " + group);
+  // If group is provided, target only that group; otherwise fallback to searching all
+  let cleanGroup = group ? String(group).replace(/^(Score|Sched)\s*/i, "").trim() : null;
+  let targetGroups = cleanGroup ? [cleanGroup] : GROUPS;
+
+  for (let g of targetGroups) {
+    let scoreSheet = ss.getSheetByName("Score " + g);
     if (!scoreSheet) continue;
 
     let data = scoreSheet.getDataRange().getValues();
@@ -489,43 +505,71 @@ function findFoursomeByPhone(phone) {
 
     for (let r = 1; r < data.length; r++) {
       let rowPhone = String(data[r][col.phone] || "").replace(/\D/g, "");
-      if (rowPhone && normPhone.length >= 7 && rowPhone.endsWith(normPhone.slice(-7))) {
+      if (rowPhone && rowPhone.endsWith(normPhone.slice(-7))) {
         let first = col.first !== undefined ? data[r][col.first] : "";
         let last = col.last !== undefined ? data[r][col.last] : "";
         let name = col.name !== undefined ? data[r][col.name] : `${first} ${last}`.trim();
         let status = col.status !== undefined ? data[r][col.status] : "Active";
         let court = "BYE";
         let foursome = [];
-        let schedSheet = ss.getSheetByName("Sched " + group);
-        
+
+        let schedSheet = ss.getSheetByName("Sched " + g);
         if (schedSheet) {
           let sData = schedSheet.getDataRange().getValues();
+          let lowerName = name.toLowerCase();
+
+          // Locate court for this player
           for (let sr = 1; sr < sData.length; sr++) {
-            let sName = (sData[sr][0] || "").toString().trim().toLowerCase();
-            if (sName === name.toLowerCase()) {
-              court = sData[sr][1] ? sData[sr][1].toString().trim() : "BYE";
+            let sName = String(sData[sr][0] || "").trim().toLowerCase();
+            if (sName === lowerName) {
+              court = sData[sr][1] ? String(sData[sr][1]).trim() : "BYE";
               break;
             }
           }
+
+          // Fetch court foursome in exact order
           if (court && court !== "BYE") {
+            let lowerCourt = court.toLowerCase();
             for (let sr = 1; sr < sData.length; sr++) {
-              let sCourt = sData[sr][1] ? sData[sr][1].toString().trim() : "";
-              if (sCourt === court && sData[sr][0]) {
-                foursome.push({ name: sData[sr][0], first: sData[sr][0].split(" ")[0], last: sData[sr][0].split(" ").slice(1).join(" ") });
+              let sCourt = String(sData[sr][1] || "").trim().toLowerCase();
+              if (sCourt === lowerCourt && sData[sr][0]) {
+                let pName = String(sData[sr][0]).trim();
+                let parts = pName.split(" ");
+                foursome.push({
+                  name: pName,
+                  first: parts[0] || "",
+                  last: parts.slice(1).join(" ") || ""
+                });
               }
             }
           }
         }
+
         return {
           found: true,
-          player: { first: first || name.split(" ")[0], last: last || name.split(" ").slice(1).join(" "), name: name, phone: phone, group: group, court: court, status: status },
+          player: {
+            first: first || name.split(" ")[0],
+            last: last || name.split(" ").slice(1).join(" "),
+            name: name,
+            phone: phone,
+            group: g,
+            court: court,
+            status: status
+          },
           courtFoursome: foursome
         };
       }
     }
   }
-  return { found: false, message: "Player phone not found" };
+
+  return { 
+    found: false, 
+    message: cleanGroup 
+      ? `Player phone not found in group '${cleanGroup}'.` 
+      : "Player phone not found in any group." 
+  };
 }
+
 
 /**
  * Toggles a player's ACTIVE/INACTIVE status by phone number.
