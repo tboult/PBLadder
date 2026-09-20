@@ -1,4 +1,4 @@
-
+/*
  * GLOBAL CONFIGURATION & HELPER DEFINITIONS
  * ========================================== */
 
