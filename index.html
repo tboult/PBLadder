@@ -2016,17 +2016,14 @@ async function setupEventListeners() {
   loadFromCache(); // 1. Instantly display cached data from localStorage
 
   const savedGroup = getSavedGroup();
+  const savedPhone = (activeLookupPlayer && activeLookupPlayer.phone) || localStorage.getItem('scpb_saved_phone') || '';
 
   try {
 
-
-  apiCall('getInitialAppData', { 
-});  
     // 2. Single batch API call to fetch all startup data in 1 network round-trip
     const initData = await apiCall('getInitialAppData', {
       groupName: savedGroup,
-      sheet: savedGroup ? "Sched " + savedGroup : ""
-      group: selectedGroup,
+      sheet: savedGroup ? "Sched " + savedGroup : "",
       phone: savedPhone,
       playerId: savedPhone
       

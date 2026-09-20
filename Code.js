@@ -771,20 +771,29 @@ function getRankingsAndSchedData(groupName) {
   if (schedSheet) {
     let sData = schedSheet.getDataRange().getDisplayValues();
     if (sData && sData.length > 0) {
-      let headerRowIdx = 0;
+      let firstCell = String(sData[0][0] || "").trim();
+      
+      // Check if top-left cell has warning symbol or "not ready" text
+      let isScheduleReady = !firstCell.includes("⚠️") && 
+                            !firstCell.toLowerCase().includes("not ready") && 
+                            !firstCell.toLowerCase().includes("draft");
 
-      if (sData[0][0] && String(sData[0][0]).includes("⚠️")) {
-        html += `<div style="background:#f8d7da; color:#721c24; padding:8px; margin-bottom:10px; border-radius:4px; font-weight:bold; text-align:center;">${sData[0][0]}</div>`;
-        headerRowIdx = 1;
-      }
-
-      if (sData.length > headerRowIdx + 1) {
+      if (!isScheduleReady) {
+        // Display Warning Box & DO NOT render court assignment table
+        let alertMsg = firstCell || `⏳ Schedule for ${cleanGroup} is not yet ready for this week.`;
+        html += `
+          <div style="background:#fff3bf; color:#856404; border:1px solid #ffeeba; padding:12px; margin-bottom:15px; border-radius:6px; font-weight:bold; text-align:center;">
+            ${alertMsg}
+          </div>`;
+        hasData = true; // Mark as handled so it doesn't return "no published schedule"
+      } else if (sData.length > 1) {
+        // Schedule is up to date -> Render Court Assignments
         html += `<h4>Current Court Assignments</h4>
                  <table class="data-table">
                    <thead><tr><th>Player</th><th>Court</th></tr></thead>
                    <tbody>`;
 
-        for (let r = headerRowIdx + 1; r < sData.length; r++) {
+        for (let r = 1; r < sData.length; r++) {
           let pName = sData[r][0];
           let court = sData[r][1] || 'BYE';
 
@@ -802,10 +811,9 @@ function getRankingsAndSchedData(groupName) {
   if (rankSheet) {
     let scData = rankSheet.getDataRange().getDisplayValues();
     if (scData && scData.length > 1) {
-      let colMap = buildColMap(scData[0]);
+      let colMap = typeof buildColMap === "function" ? buildColMap(scData[0]) : {};
       let headers = scData[0];
 
-      // Flexible column resolver helper
       let findColIdx = function(possibleKeys) {
         if (colMap) {
           for (let k of possibleKeys) {
@@ -829,7 +837,7 @@ function getRankingsAndSchedData(groupName) {
       let winIdx   = findColIdx(["Win %", "WinPct", "Win", "Pct", "Win Rate"]);
       let totalIdx = findColIdx(["Total Points", "TotalPoints", "Total", "Points", "Pts", "Tot", "Score"]);
 
-      html += `<h4 style="margin-top:1rem;">Ladder Rankings</h4>
+      html += `<h4 style="margin-top:1.5rem;">Ladder Rankings</h4>
                <table class="data-table">
                  <thead>
                    <tr><th>Player</th><th>Rank</th><th>Win %</th><th>Total</th></tr>
@@ -841,38 +849,24 @@ function getRankingsAndSchedData(groupName) {
 
       for (let r = 1; r < scData.length; r++) {
         let row = scData[r];
-
-        // Player Name
         let name = nameIdx !== undefined ? row[nameIdx] : `${row[colMap.first || 0] || ''} ${row[colMap.last || 1] || ''}`.trim();
 
-        // Skip headers or blank rows
         if (!name || name === "Player Name" || name.startsWith("---")) continue;
 
-        // Rank
         let rankVal = (rankIdx !== undefined && row[rankIdx]) ? row[rankIdx] : `${rankorder}/${totalPlayers}`;
 
-        // Win %
-          let winVal = "0.0%";
-          if (winIdx !== undefined && row[winIdx] !== "" && row[winIdx] !== null) {
-              // 1. Convert to string and remove any existing "%" symbol
-              let rawWinStr = String(row[winIdx]).replace('%', '').trim();
-              let winNum = parseFloat(rawWinStr) || 0;
-              
-              // 2. Convert decimal format (e.g., 0.9310) to percentage scale (93.1)
-              if (winNum <= 1.0 && winNum > 0) {
-                  winNum = winNum * 100;
-              }
-              
-              // 3. Round to 1 decimal place
-              winVal = winNum.toFixed(1) + "%";
-          }          
-          
-          // Total Points Resolution
+        let winVal = "0.0%";
+        if (winIdx !== undefined && row[winIdx] !== "" && row[winIdx] !== null) {
+          let rawWinStr = String(row[winIdx]).replace('%', '').trim();
+          let winNum = parseFloat(rawWinStr) || 0;
+          if (winNum <= 1.0 && winNum > 0) winNum = winNum * 100;
+          winVal = winNum.toFixed(1) + "%";
+        }          
+
         let totalVal = "";
         if (totalIdx !== undefined && row[totalIdx] !== "" && row[totalIdx] !== null) {
           totalVal = row[totalIdx];
         } else {
-          // Fallback: sum individual Game columns if Total column is missing/empty
           let gameSum = 0;
           let foundGames = false;
           for (let c = 0; c < row.length; c++) {
@@ -895,6 +889,7 @@ function getRankingsAndSchedData(groupName) {
           <td>${totalVal}</td>
         </tr>`;
         hasData = true;
+        rankorder++;
       }
       html += `</tbody></table>`;
     }
@@ -1770,7 +1765,8 @@ function generateScheduleTabs(genTarget, courts) {
   let groupsToProcess = [];
   const group = getTargetGroup();
   const currentWeek = getCurrentWeekIdentifier(); // e.g., "W10" or "Week 10"
-  const sheet = getScheduleSheetForGroup(group);
+  const sheet =   ss.getSheetByName("Sched " + groupName) || ss.getSheetByName("Schedule " + groupName);
+
   
     // Stamp week metadata in H1 and H2
     var h1Cell = sheet.getRange("H1");
