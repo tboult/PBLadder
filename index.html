@@ -2229,27 +2229,49 @@ async function triggerAutoCheckIn() {
     }
   }
 
-  // 2. Perform auto check-in API call if player data is cached
   const checkInStatus = document.getElementById('checkInStatus');
+
+  // 2. Verify geofence before making backend call
+  if (checkInStatus) checkInStatus.innerText = '📍 Verifying court location...';
+
+  const isAtCourts = typeof checkGeofence === 'function' ? await checkGeofence(true) : true;
+
+  if (!isAtCourts) {
+    if (checkInStatus) {
+      checkInStatus.innerHTML = `
+        <div style="color: #856404; background-color: #fff3bf; border: 1px solid #ffeeba; padding: 0.75rem; border-radius: 0.5rem; text-align: left; margin-top: 0.5rem; line-height: 1.4;">
+          📍 <b>Check-In Restricted:</b> Auto check-in is only available when you are physically at the pickleball courts.<br>
+          <i>Please reopen or refresh the app once you arrive at the courts to check in!</i>
+        </div>`;
+    }
+    return;
+  }
+
+  // 3. Perform auto check-in API call (Parameters clean & unified)
   if (checkInStatus) checkInStatus.innerText = '⚡ Auto-checking in...';
 
   try {
     const res = await apiCall('checkInPlayer', { 
       phone: savedPhone, 
-      group: savedGroup 
+      playerId: savedPhone,
+      group: savedGroup,
+      playerName: (activeLookupPlayer && activeLookupPlayer.name) || ''
     });
 
     if (checkInStatus) {
-      if (res && res.success) {
+      if (res && res.status === 'already_checked_in') {
+        checkInStatus.innerHTML = `<span style="color: #0c5460; font-weight: bold;">ℹ️ ${res.message || 'Already checked in for today.'}</span>`;
+      } else if (res && res.success) {
         checkInStatus.innerHTML = `<span style="color: #2e7d32; font-weight: bold;">✅ ${res.message || 'Successfully checked in!'}</span>`;
       } else {
-        checkInStatus.innerText = res?.message || 'Check-in update complete.';
+        checkInStatus.innerHTML = `<span style="color: #721c24; font-weight: bold;">⚠️ ${res?.message || 'Check-in update complete.'}</span>`;
       }
     }
   } catch (err) {
-    if (checkInStatus) checkInStatus.innerText = '⚠️ Auto check-in failed or already checked in.';
+    if (checkInStatus) checkInStatus.innerHTML = '<span style="color: #721c24; font-weight: bold;">⚠️ Auto check-in failed. Please try again.</span>';
   }
 }
+
 
 function setSelectedGroup(groupName) {
   if (!groupName) return;

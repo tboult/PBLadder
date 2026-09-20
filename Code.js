@@ -1064,7 +1064,8 @@ function handleApiRequest(e) {
         }
       }
       case 'checkInPlayer':
-          result = CheckInPlayer(payload);
+      case 'CheckInPlayer':          
+          result =  handleCheckInPlaye(payload);
           break;
           
       case 'sortActivePlayers':
@@ -2407,73 +2408,121 @@ function getActiveWeekForGroup(group) {
   return getCurrentWeekIdentifier(group);
 }
 
+
+
+
+
 /**
- * Backend CheckInPlayer function
- * @param {Object} payload - Object containing playerId, group, status, etc.
+ * Action Handler for 'checkInPlayer'
  */
-function CheckInPlayer(payload) {
+function handleCheckInPlayer(payload) {
   try {
-    // Fallback to payload.phone if payload.playerId is undefined
-    const playerId = payload.playerId || payload.phone || payload.id;
+    const groupName = payload.group || payload.sheet || payload.schedSheetName || "";
+    // Extracts identifier regardless of key name used by client
+    const playerTarget = payload.phone || payload.playerId || payload.playerName || payload.name || "";
 
-     if (!playerId) {
+    if (!playerTarget) {
       return {
         status: "failed",
         success: false,
-        message: "Missing required parameter: playerId"
+        message: "Missing required parameter: phone number or player name"
       };
     }
 
-    // 1. Fetch player from database or Google Sheet
-    const player = getPlayerById(playerId);
-
-    // Case 1: Player doesn't exist
-    if (!player) {
-      return {
-        status: "failed",
-        success: false,
-        message: `Player ID ${playerId} was not found.`
-      };
-    }
-
-    // Case 2: Player is ALREADY checked in
-    if (player.checkedIn === true) {
-      return {
-        status: "already_checked_in",
-        success: true, // Request succeeded, but status is informational
-        message: `${player.name || playerId} is already checked in.`,
-        player: {
-          id: player.id,
-          name: player.name,
-          checkInTime: player.checkInTime
-        }
-      };
-    }
-
-    // 3. Mark player checked in
-    player.checkedIn = true;
-    player.checkInTime = new Date().toLocaleTimeString();
-    savePlayerData(player);
-
-    // Case 3: Fresh check-in SUCCESS
-    return {
-      status: "success",
-      success: true,
-      message: `${player.name || playerId} checked in successfully.`,
-      player: {
-        id: player.id,
-        name: player.name,
-        checkInTime: player.checkInTime
-      }
-    };
-
+    return ensurePlayerCheckedIn(groupName, playerTarget);
   } catch (err) {
-    // Case 4: Server execution failure
     return {
       status: "failed",
       success: false,
-      message: `System error during check-in: ${err.toString()}`
+      message: err.toString()
     };
   }
 }
 
+/**
+ * Guarantees check-in state is set to 'X'.
+ * Matches target by Name OR Phone Number. Never toggles off.
+ */
+function ensurePlayerCheckedIn(sheetName, targetPlayer) {
+  if (typeof logDebug === 'function') {
+    logDebug("ensurePlayerCheckedIn", "Ensuring player is checked in", { sheetName, targetPlayer });
+  }
+
+  if (!sheetName || !targetPlayer) {
+    return { success: false, status: "failed", message: "Missing required group or player parameters." };
+  }
+
+  const ss = typeof getDb === 'function' ? getDb() : SpreadsheetApp.getActiveSpreadsheet();
+  let cleanGroupName = String(sheetName).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
+  let sheet = ss.getSheetByName("Sched " + cleanGroupName) || 
+              ss.getSheetByName("Score " + cleanGroupName) || 
+              ss.getSheetByName(sheetName);
+
+  if (!sheet) {
+    return { success: false, status: "failed", message: "Sheet not found: " + sheetName };
+  }
+
+  const data = sheet.getDataRange().getValues();
+  if (!data || data.length <= 1) {
+    return { success: false, status: "failed", message: "No data found in sheet." };
+  }
+
+  // Header mapping
+  const headers = data[0].map(h => h.toString().toLowerCase().replace(/[\s\-_]/g, "").trim());
+  
+  let nameIdx = headers.findIndex(h => h.includes("name") || h.includes("player"));
+  if (nameIdx === -1) nameIdx = 0;
+
+  let phoneIdx = headers.findIndex(h => h.includes("phone") || h.includes("mobile") || h.includes("tel"));
+
+  let checkInIdx = headers.findIndex(h => h.includes("checkin") || h.includes("checkedin") || h === "x");
+  if (checkInIdx === -1 && data[0].length >= 7) checkInIdx = 6; // Default to Column 7 (index 6)
+
+  // Normalization for comparison
+  const targetStr = String(targetPlayer).trim().toLowerCase();
+  const targetDigits = String(targetPlayer).replace(/\D/g, "");
+
+  for (let r = 1; r < data.length; r++) {
+    let pName = String(data[r][nameIdx] || "").trim().toLowerCase();
+    let pPhone = phoneIdx !== -1 ? String(data[r][phoneIdx] || "").replace(/\D/g, "") : "";
+
+    // Match by Name OR Phone Number
+    const isMatch = (pName && pName === targetStr) || 
+                    (targetDigits.length >= 7 && pPhone && pPhone === targetDigits);
+
+    if (isMatch) {
+      const matchedName = data[r][nameIdx] || targetPlayer;
+      const currentVal = String(data[r][checkInIdx] || "").trim().toUpperCase();
+
+      // Case 1: Already checked in ('X') -> Do not write, return already_checked_in
+      if (currentVal === "X" || currentVal === "YES" || currentVal === "TRUE") {
+        return {
+          success: true,
+          status: "already_checked_in",
+          message: `${matchedName} is already checked in.`
+        };
+      }
+
+      // Case 2: Not checked in -> Force write "X"
+      sheet.getRange(r + 1, checkInIdx + 1).setValue("X");
+
+      // Clear server cache so reads immediately reflect the new status
+      try {
+        const cacheKey = typeof getCheckInCacheKey === 'function' ? getCheckInCacheKey(sheetName) : null;
+        if (cacheKey) CacheService.getScriptCache().remove(cacheKey);
+      } catch(e) {}
+
+      return {
+        success: true,
+        status: "success",
+        message: `${matchedName} checked in successfully!`
+      };
+    }
+  }
+
+  return { 
+    success: false, 
+    status: "failed", 
+    message: `Player '${targetPlayer}' was not found on the '${sheet.getName()}' sheet.` 
+  };
+}
