@@ -1357,36 +1357,36 @@ function renderLookupResult(player, foursome) {
     scoreContainer.innerHTML = `
       <div class="card" style="margin-bottom:0.75rem;">
         <p style="margin:0 0 0.4rem 0;"><b>Court Foursome:</b></p>
-        <ol style="padding-left:1.2rem; margin:0;">
+        <ul style="padding-left:1.2rem; margin:0;">
           <li>p1 ${p1}</li>
           <li>p2 ${p2}</li>
           <li>p3 ${p3}</li>
           <li>p4 ${p4}</li>
-        </ol>
+        </ul>
       </div>
 
       <!-- Game 1: P1 & P4 vs P2 & P3 -->
-      <div style="margin-top:0.5rem; font-weight:bold; font-size:0.95rem;">Game 1: p1 ${p1} &  p4 ${p4}  <br>  &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;vs &nbsp;&nbsp;  p2  ${p2} & p2 ${p3}</div>
+      <div style="margin-top:0.5rem; font-weight:bold; font-size:0.95rem;">Game 1: p1 ${p1} &  p4 ${p4}  <br>  &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;vs &nbsp;&nbsp;  p2  ${p2} & p3 ${p3}</div>
       <div class="score-grid">
-        <input type="number" min="0" max="8" id="sc1_p1" placeholder="P1&P4">
+        <input type="number" min="0" max="15" id="sc1_p1" placeholder="P1&P4">
         vs 
-        <input type="number" min="0" max="12" id="sc1_p2" placeholder="P2&P3">
+        <input type="number" min="0" max="15" id="sc1_p2" placeholder="P2&P3">
       </div>
 
       <!-- Game 2: P1 & P3 vs P2 & P4 -->
       <div style="margin-top:0.75rem; font-weight:bold; font-size:0.95rem;">Game 2:  p1 ${p1} & p3 ${p3} <br>   &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;vs &nbsp;&nbsp;  p2 ${p2} & p4 ${p4}</div>
       <div class="score-grid">
-        <input type="number" min="0" max="8" id="sc2_p1" placeholder="P1&P3">
+        <input type="number" min="0" max="15" id="sc2_p1" placeholder="P1&P3">
          vs 
-        <input type="number" min="0" max="12" id="sc2_p2" placeholder="P2& 4">
+        <input type="number" min="0" max="15" id="sc2_p2" placeholder="P2& P4">
       </div>
 
       <!-- Game 3: P1 & P2 vs P3 & P4 -->
       <div style="margin-top:0.75rem; font-weight:bold; font-size:0.95rem;">Game 3:p1 ${p1} & p2 ${p2} <br>  &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;vs &nbsp;&nbsp; p3 ${p3} & p4 ${p4}</div>
       <div class="score-grid">
-        <input type="number" min="0" max="8" id="sc3_p1" placeholder="P1 & P2">
+        <input type="number" min="0" max="15" id="sc3_p1" placeholder="P1 & P2">
         vs
-        <input type="number" min="0" max="12" id="sc3_p2" placeholder="P3 & P4">
+        <input type="number" min="0" max="15" id="sc3_p2" placeholder="P3 & P4">
       </div>
     `;
   } else {
@@ -2251,6 +2251,20 @@ async function triggerAutoCheckIn() {
   }
 }
 
+function setSelectedGroup(groupName) {
+  if (!groupName) return;
+  const cleanGroup = String(groupName).replace(/^(Sched|Score)\s*/i, '').trim();
+  
+  // Save group choice to local storage
+  setSavedGroup(cleanGroup);
+  localStorage.setItem('scpb_saved_group', cleanGroup);
+  
+  // Synchronize all dropdowns and context UI elements across all tabs
+  syncAllGroupDropdowns(cleanGroup);
+  if (typeof onGroupContextUpdated === 'function') {
+    onGroupContextUpdated(cleanGroup);
+  }
+}
 
 const originalSwitchTab = window.switchTab;
 window.switchTab = function(tabId) {

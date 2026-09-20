@@ -1062,7 +1062,11 @@ function handleApiRequest(e) {
         } catch (err) {
           console.warn("Failed fetching initial players:", err);
         }
-      }          
+      }
+      case 'CheckInPlayer':
+          result = CheckInPlayer(payload);
+          break;
+          
       case 'sortActivePlayers':
       case 'sortActivePlayersForSheet':
         result = sortActivePlayersForSheet(getValidActiveScoreSheet(payload.arg || payload.group || payload.groupName));
@@ -2375,4 +2379,66 @@ function setWeekNumber(sheet, weekNum) {
   var valueCell = sheet.getRange("H2");
   valueCell.setValue(weekNum);
   valueCell.setHorizontalAlignment("center");
+}
+
+/**
+ * Returns the week identifier (e.g. "W10" for Week 10) for any group.
+ * @param {string} group - Group name ("Womens", "Mens", etc.)
+ * @returns {string} Formatted week identifier (e.g., "W10")
+ */
+function getCurrentWeekIdentifier(group) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var targetGroup = group ? String(group).replace(/^(Sched|Score)\s*/i, '').trim() : '';
+  var sheet = ss.getSheetByName("Sched " + targetGroup) || ss.getSheetByName(targetGroup) || ss.getActiveSheet();
+  
+  // Read value from H2
+  var rawWeek = getWeekNumber(sheet);
+  
+  // Extract digits (e.g., "10" from "10" or "W10")
+  var weekNum = String(rawWeek).replace(/[^0-9]/g, '');
+  
+  // Return "W10" for Week 10 across all groups
+  return weekNum ? "W" + weekNum : "W1";
+}
+
+// Alias to ensure compatibility
+function getActiveWeekForGroup(group) {
+  return getCurrentWeekIdentifier(group);
+}
+
+/**
+ * Backend CheckInPlayer function
+ * @param {Object} payload - Object containing playerId, group, status, etc.
+ */
+function CheckInPlayer(payload) {
+  try {
+    const playerId = payload.playerId || payload.id;
+    const groupName = payload.group || payload.groupName;
+
+    if (!playerId) {
+      return { success: false, error: "Missing required parameter: playerId" };
+    }
+
+    // --- Update Data Store (e.g., Database or Google Sheet) ---
+    // Example logic for updating a database record or Sheet row:
+    const updated = updatePlayerRecord(playerId, {
+      checkedIn: true,
+      checkInTimestamp: new Date().toISOString(),
+      group: groupName
+    });
+
+    if (!updated) {
+      return { success: false, error: `Player ID ${playerId} not found.` };
+    }
+
+    return {
+      success: true,
+      message: `Player ${playerId} successfully checked in.`,
+      playerId: playerId,
+      checkInTime: new Date().toLocaleTimeString()
+    };
+
+  } catch (err) {
+    return { success: false, error: err.toString() };
+  }
 }
