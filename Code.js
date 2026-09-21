@@ -844,20 +844,39 @@ function handleApiRequest(e) {
   let lock = null;
 
   try {
-    let action = (e && e.parameter && e.parameter.action) ? e.parameter.action : "";
-    let payload = {};
+    // 1. Safely parse URL query parameters and JSON post body
+    e = e || {};
+    let urlParams = e.parameter || {};
+    let bodyParams = {};
 
-    if (e && e.postData && e.postData.contents) {
+    if (e.postData && e.postData.contents) {
       try {
-        payload = JSON.parse(e.postData.contents);
-        if (!action && payload.action) action = payload.action;
-      } catch(ex) {}
-    } else if (e && e.parameter) {
-      payload = e.parameter;
+        bodyParams = JSON.parse(e.postData.contents) || {};
+      } catch (ex) {
+        console.warn("Could not parse JSON post body:", ex);
+      }
     }
 
+    // Merge URL and Body parameters (Body parameters take precedence)
+    let payload = Object.assign({}, urlParams, bodyParams);
+
+    // 2. Extract action from parameter, top-level body, or nested payload wrapper
+    let rawAction = urlParams.action || 
+                    bodyParams.action || 
+                    (bodyParams.payload && bodyParams.payload.action) || 
+                    "";
+
+    // 3. Clean hidden non-breaking spaces (\u00A0) and whitespace
+    let action = String(rawAction)
+      .replace(/[\u00A0\u1680\u180E\u2000-\u200B\u202F\u205F\u3000\uFEFF]/g, " ")
+      .trim();
+
     if (typeof logDebug === 'function') {
-      logDebug("handleApiRequest", "Processing action: " + action);
+      logDebug("handleApiRequest", "Processing action: '" + action + "'");
+    }
+
+    if (!action) {
+      throw new Error("Invalid or missing API action: action parameter is empty or undefined");
     }
 
     const WRITE_ACTIONS = [
@@ -886,10 +905,16 @@ function handleApiRequest(e) {
     switch(action) {
 
       case 'getInitialAppData':
-        var initData = getInitialAppData((payload && payload.phone) ? payload.phone : null) || {};
-        var groupName = payload.groupName || payload.group || '';
+        // Resolve nested payload object if frontend passes data as { payload: { phone: "...", group: "..." } }
+        var actualPayload = (payload.payload && typeof payload.payload === 'object') ? payload.payload : payload;
+        var userPhone = actualPayload.phone || payload.phone || null;
+        var groupName = actualPayload.groupName || actualPayload.group || payload.groupName || payload.group || '';
+
+        var initData = getInitialAppData(userPhone) || {};
         initData.checkInPlayers = initData.checkInPlayers || [];
-        if (groupName) {
+
+        // Ignore 'N/A' placeholder values from initial load
+        if (groupName && groupName.toUpperCase() !== 'N/A') {
           try {
             var targetSheet = "Sched " + String(groupName).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
             var players = getPlayersForCheckIn(targetSheet);
@@ -904,7 +929,7 @@ function handleApiRequest(e) {
         break;
 
       case 'checkInPlayer':
-      case 'CheckInPlayer':          
+      case 'CheckInPlayer':         
         result = handleCheckInPlayer(payload);
         break;
 
