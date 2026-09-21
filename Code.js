@@ -805,7 +805,7 @@ function getRankingsAndSchedData(groupName) {
   // --- 1. PROCESS SCHEDULE TAB ---
   if (schedSheet) {
     // Read week number from cell I2
-    let sheetWeekVal = (typeof getWeekNumber === "function") ? getWeekNumber(schedSheet) : schedSheet.getRange("I2").getValue(); 
+    let sheetWeekVal = (typeof getWeekNumber === "function") ? getWeekNumber(schedSheet) : schedSheet.getRange("I2").getValue();
     let sheetWeekNum = String(sheetWeekVal || "").replace(/\D/g, "");
 
     // Get current active week with fallback to calculateCurrentWeekNumber()
@@ -1252,20 +1252,6 @@ function getValidActiveScoreSheet(overrideTabName) {
   throw new Error("⚠️ Action Cancelled: Could not resolve a valid Score tab. Please specify 'Score Womens', 'Score Mens', or 'Score Mixed'.");
 }
 
-/**
- * Retrieves a score sheet instance by group name string.
- * 
- * @param {string} groupName - Ladder group identifier.
- * @returns {GoogleAppsScript.Spreadsheet.Sheet|null} Target sheet object or null.
- * @throws Assumes score tabs follow "Score <GroupName>" naming convention.
- */
-function getScoreSheetByGroup(groupName) {
-  if (!groupName) return null;
-  const ss = getDb();
-  let cleanName = groupName.toString().trim();
-  if (!cleanName.startsWith("Score ")) cleanName = "Score " + cleanName;
-  return ss.getSheetByName(cleanName);
-}
 
 /**
  * Legacy helper resolving target score sheet for group or tab strings.
@@ -2383,17 +2369,79 @@ function sortActivePlayersForSheet(sheet) {
 /**
  * Resolves target group name from web API payload or Google Sheets active tab.
  */
-function getTargetGroup(e) {
-  if (e && (e.group || e.groupName)) {
-    return String(e.group || e.groupName).replace(/^(Sched|Score)\s*/i, '').trim();
+/**
+ * Extracts and normalizes the target group name from an active sheet or provided string.
+ * Recognizes prefixes: 'Score', 'Sched', and 'Rankings'.
+ * STRICT MODE: Throws an error and pops up a UI alert if the sheet cannot determine a valid group.
+ *
+ * @param {string|GoogleAppsScript.Spreadsheet.Sheet} [sheetOrName] Optional sheet object or name string
+ * @returns {string} Cleaned group name (e.g. "Mens", "Womens")
+ */
+function getTargetGroup(sheetOrName) {
+  let sheetName = "";
+
+  if (sheetOrName) {
+    sheetName = typeof sheetOrName === 'string' ? sheetOrName : (sheetOrName.getName ? sheetOrName.getName() : "");
+  } else {
+    try {
+      const activeSheet = getDb().getActiveSheet();
+      if (activeSheet) sheetName = activeSheet.getName();
+    } catch (e) {
+      logDebug("getTargetGroup", "Could not fetch active sheet", e.toString());
+    }
   }
+
+  if (sheetName) {
+    // 1. Match 'Score', 'Sched', or 'Rankings' followed by group name (e.g., "Sched Mens")
+    let match = sheetName.match(/^(Score|Sched|Rankings)\s+(.+)$/i);
+    if (match && match[2] && match[2].trim()) {
+      return match[2].trim();
+    }
+
+    // 2. Check if the sheet name directly matches an item in GROUPS array (e.g., "Mens")
+    let rawClean = sheetName.trim();
+    if (typeof GROUPS !== 'undefined' && Array.isArray(GROUPS) && GROUPS.includes(rawClean)) {
+      return rawClean;
+    }
+  }
+
+  // NO FALLBACK PERMITTED: Pop up error alert in Google Sheets and throw Exception
+  let errorMessage = `Invalid Active Sheet ('${sheetName || "Unknown"}'). Please select a valid Group tab (e.g., 'Score Mens', 'Sched Mens', or 'Rankings Mens') before running this action.`;
+
   try {
-    var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-    return sheet.getName().replace(/^(Sched|Score)\s*/i, '').trim();
-  } catch (err) {
-    return 'Womens'; // Default fallback
+    let ui = SpreadsheetApp.getUi();
+    if (ui) {
+      ui.alert("⚠️ Action Stopped: Invalid Sheet", errorMessage, ui.ButtonSet.OK);
+    }
+  } catch (e) {
+    // UI alert ignored if executing via headless Web API/doPost
   }
+
+  throw new Error(errorMessage);
 }
+
+/**
+ * Utility to strip tab prefixes and clean up group names anywhere in the backend.
+ */
+function cleanGroupName(input) {
+  if (!input) return getTargetGroup();
+  let str = (typeof input === 'object' && input !== null) ? (input.group || input.sheet || input.groupName || "") : String(input);
+  if (!str.trim()) return getTargetGroup();
+  return str.replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
+}
+
+/**
+ * Safely fetches the Score sheet for a group using the unified group parser.
+ */
+function getScoreSheetByGroup(groupName) {
+  const ss = getDb();
+  const group = cleanGroupName(groupName);
+  
+  return ss.getSheetByName("Score " + group) || 
+         ss.getSheetByName("Rankings " + group) || 
+         ss.getSheetByName(group);
+}
+
 
 /**
  * Gets the current week number from cell I2.
