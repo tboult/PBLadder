@@ -235,12 +235,19 @@ function getAvailableGroups() {
 /**
  * Fetches players and check-in states from CacheService or Google Sheet.
  * 
- * @param {string} sheetName - Target tab or group name.
+ * @param {string|Object} sheetNameOrData - Target tab/group name string OR payload object.
  * @returns {Array<Object>} List of player check-in objects.
- * @throws Assumes CacheService is available and stringified payload fits cache limits.
  */
-function getPlayersForCheckIn(sheetName) {
+function getPlayersForCheckIn(sheetNameOrData) {
+  if (!sheetNameOrData) return [];
+  
+  // Extract sheet name if passed as object
+  let sheetName = sheetNameOrData;
+  if (typeof sheetNameOrData === 'object' && sheetNameOrData !== null) {
+    sheetName = sheetNameOrData.sheet || sheetNameOrData.schedSheetName || sheetNameOrData.tab || sheetNameOrData.groupName || sheetNameOrData.group || "";
+  }
   if (!sheetName) return [];
+
   const cacheKey = getCheckInCacheKey(sheetName);
   const cache = CacheService.getScriptCache();
 
@@ -261,6 +268,7 @@ function getPlayersForCheckIn(sheetName) {
   }
   return players;
 }
+
 
 /**
  * Toggles single-player check-in status and updates cache in place.
@@ -1086,18 +1094,21 @@ function handleApiRequest(e) {
 
     let result;
       switch(action) {
+
       case 'getInitialAppData':
-      var groupName = payload.groupName || '';
-      var checkInPlayers = [];
-      
-      // Fetch initial check-in players if a group is already selected
-      if (groupName) {
-        try {
-          checkInPlayers = getPlayersForCheckIn({ groupName: groupName, sheet: "Sched " + groupName });
-        } catch (err) {
-          console.warn("Failed fetching initial players:", err);
+        var initData = getInitialAppData((payload && payload.phone) ? payload.phone : null);
+        var groupName = payload.groupName || payload.group || '';
+        if (groupName) {
+          try {
+            var targetSheet = "Sched " + String(groupName).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
+            initData.checkInPlayers = getPlayersForCheckIn(targetSheet);
+          } catch (err) {
+            console.warn("Failed fetching initial players:", err);
+          }
         }
-      }
+        result = initData;
+          break;
+          
       case 'checkInPlayer':
       case 'CheckInPlayer':          
           result =  handleCheckInPlayer(payload);
