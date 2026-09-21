@@ -1,4 +1,4 @@
-const CACHE_NAME = 'scpb-ladder-v1.1.20260902064051'; // Incremented to force update
+const CACHE_NAME = 'scpb-ladder-v20260920201035';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -8,28 +8,27 @@ const ASSETS_TO_CACHE = [
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS_TO_CACHE))
+    caches.open(CACHE_NAME)
+      .then((cache) => cache.addAll(ASSETS_TO_CACHE))
+      .then(() => self.skipWaiting()) // Only skip waiting AFTER caching completes
   );
-  self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => {
-      return Promise.all(
+    caches.keys()
+      .then((keys) => Promise.all(
         keys.map((key) => {
           if (key !== CACHE_NAME) return caches.delete(key);
         })
-      );
-    })
+      ))
+      .then(() => self.clients.claim()) // Claim clients AFTER cache cleanup
   );
-  self.clients.claim();
 });
 
 self.addEventListener('fetch', (event) => {
-  // Completely bypass Service Worker for Google API calls
   if (event.request.url.includes('script.google.com')) {
-    return; // Omit event.respondWith entirely
+    return;
   }
 
   event.respondWith(

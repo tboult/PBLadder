@@ -2357,6 +2357,13 @@ function onGroupContextUpdated(groupName) {
     loadAdminTabData(groupName);
   }
 }
+
+let refreshing = false;
+navigator.serviceWorker.addEventListener('controllerchange', () => {
+  if (refreshing) return;
+  refreshing = true;
+  window.location.reload();
+});  
   
 </script>
   </body>
