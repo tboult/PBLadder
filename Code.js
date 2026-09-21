@@ -1732,6 +1732,30 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
   let prevRColIdx = col["r" + (weekNum - 1)];
   let rawRankColIdx = col.rawRankCol;
 
+  // Helper to safely parse rank values (recovers Date objects and extracts numeric primary rank)
+  function safeParseRankVal(val) {
+    if (val === null || val === undefined || val === "") {
+      return { rank: Infinity, numPeople: 0, rawStr: "" };
+    }
+    let str = "";
+    if (val instanceof Date) {
+      // Reconstruct "1/23" if Google Sheets converted the string to a Date object
+      str = (val.getMonth() + 1) + "/" + val.getDate();
+    } else {
+      str = val.toString().trim();
+    }
+    str = str.replace(/^'/, ""); // Remove leading quote prefix if present
+    let clean = str.replace(/-R$/i, "").trim();
+    let parts = clean.split("/");
+    let rank = parseInt(parts[0], 10);
+    let numPeople = parts.length > 1 ? parseInt(parts[1], 10) : 0;
+    return {
+      rank: isNaN(rank) ? Infinity : rank,
+      numPeople: isNaN(numPeople) ? 0 : numPeople,
+      rawStr: str
+    };
+  }
+
   let activePlayers = [];
   let inactivePlayers = [];
   const maxPtsPerWeek = typeof MAX_POINTS_PER_WEEK !== "undefined" ? MAX_POINTS_PER_WEEK : 60;
@@ -1765,10 +1789,14 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
 
     let prevRankInfo = { rank: Infinity, numPeople: 0, rawStr: "" };
     if (prevRColIdx !== undefined && row[prevRColIdx] !== "" && row[prevRColIdx] !== null) {
-      prevRankInfo = parseRankVal(row[prevRColIdx]);
-      prevRankInfo.rawStr = row[prevRColIdx].toString().trim();
+      prevRankInfo = safeParseRankVal(row[prevRColIdx]);
     } else {
-      prevRankInfo = getMostRecentRank(row, col, weekNum - 1);
+      let recent = getMostRecentRank(row, col, weekNum - 1);
+      if (recent && typeof recent === "object" && recent.rank !== undefined) {
+        prevRankInfo = recent;
+      } else {
+        prevRankInfo = safeParseRankVal(recent);
+      }
     }
 
     let currentWeekScore = hasScore ? parseFloat(rawScoreVal) : 0;
@@ -1794,6 +1822,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
   let numActive = activePlayers.length;
   const maxMove = typeof MAX_MOVEMENT !== "undefined" ? MAX_MOVEMENT : 4;
 
+  // Primary active player sort (Numeric)
   activePlayers.sort((a, b) => {
     if (Math.abs(b.cumPct - a.cumPct) > 0.0001) return b.cumPct - a.cumPct;
     if (a.prevRank !== b.prevRank) return a.prevRank - b.prevRank;
@@ -1814,10 +1843,11 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
     }
   });
 
+  // Clamped rank sort (Numeric)
   activePlayers.sort((a, b) => {
     if (a.clampedRank !== b.clampedRank) return a.clampedRank - b.clampedRank; 
     if (Math.abs(b.cumPct - a.cumPct) > 0.0001) return b.cumPct - a.cumPct;    
-    if (a.prevRank !== b.prevRank) return a.prevRank - b.prevRank;              
+    if (a.prevRank !== b.prevRank) return a.prevRank - b.prevRank;             
     return b.prevNumPeople - a.prevNumPeople;                                   
   });
 
@@ -1843,10 +1873,11 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
     if (col.winPct !== undefined) p.rowRaw[col.winPct] = p.winPct;
     if (col.status !== undefined) p.rowRaw[col.status] = "ACTIVE";
     if (rawRankColIdx !== undefined) p.rowRaw[rawRankColIdx] = p.rawRank;
-    if (currRColIdx !== undefined) p.rowRaw[currRColIdx] = p.rjStr;
+    if (currRColIdx !== undefined) p.rowRaw[currRColIdx] = p.rjStr ? "'" + p.rjStr.replace(/^'/, "") : "";
     if (col.rNum !== undefined) p.rowRaw[col.rNum] = p.finalRank;
   });
 
+  // Inactive player sort (Numeric)
   inactivePlayers.sort((a, b) => {
     if (a.prevRank === b.prevRank) return 0;
     if (a.prevRank === Infinity) return 1;
@@ -1860,12 +1891,17 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
     if (col.winPct !== undefined) p.rowRaw[col.winPct] = p.winPct;
     if (col.status !== undefined) p.rowRaw[col.status] = "INACTIVE";
     if (rawRankColIdx !== undefined) p.rowRaw[rawRankColIdx] = "";
-    if (currRColIdx !== undefined) p.rowRaw[currRColIdx] = p.rjStr;
+    if (currRColIdx !== undefined) p.rowRaw[currRColIdx] = p.rjStr ? "'" + p.rjStr.replace(/^'/, "") : "";
   });
 
   let finalRows = [headerRow];
   activePlayers.forEach(p => finalRows.push(p.rowRaw));
   inactivePlayers.forEach(p => finalRows.push(p.rowRaw));
+
+  // Set number format of target rank column to Plain Text to prevent Google Sheets date auto-coercion
+  if (currRColIdx !== undefined) {
+    sheet.getRange(1, currRColIdx + 1, finalRows.length, 1).setNumberFormat('@');
+  }
 
   sheet.clearContents();
   sheet.getRange(1, 1, finalRows.length, finalRows[0].length).setValues(finalRows);
@@ -1873,6 +1909,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
 
   return `✅ Standings and Week ${weekNum} Rankings (R${weekNum}) processed for '${sheet.getName()}'! (${activePlayers.length} Active, ${inactivePlayers.length} Inactive)`;
 }
+
 
 function testWomensRankingsWeeks1To10() {
   const ss = getDb();
