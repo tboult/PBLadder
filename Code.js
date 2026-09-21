@@ -805,19 +805,20 @@ function getRankingsAndSchedData(groupName) {
   // --- 1. PROCESS SCHEDULE TAB ---
   if (schedSheet) {
     // Read week number from cell I2
-    let sheetWeekVal = getWeekNumber(schedSheet); 
+    let sheetWeekVal = (typeof getWeekNumber === "function") ? getWeekNumber(schedSheet) : schedSheet.getRange("I2").getValue(); 
     let sheetWeekNum = String(sheetWeekVal || "").replace(/\D/g, "");
 
-    // Get current target active week for system/group
-    let activeWeekVal = (typeof getActiveWeek === "function") ? getActiveWeek() : 
-                        (typeof getActiveWeekForGroup === "function") ? getActiveWeekForGroup(cleanGroup) : null;
+    // Get current active week with fallback to calculateCurrentWeekNumber()
+    let activeWeekVal = (typeof getActiveWeek === "function" && getActiveWeek()) ? getActiveWeek() : 
+                        (typeof getActiveWeekForGroup === "function" && getActiveWeekForGroup(cleanGroup)) ? getActiveWeekForGroup(cleanGroup) : 
+                        (typeof calculateCurrentWeekNumber === "function") ? calculateCurrentWeekNumber() : null;
     let activeWeekNum = activeWeekVal ? String(activeWeekVal).replace(/\D/g, "") : "";
 
-    // Schedule is finalized ONLY if I2 has a valid week matching current active week
-    let isWeekFinalized = sheetWeekNum !== "" && (activeWeekNum !== "" ? sheetWeekNum === activeWeekNum : true);
+    // Schedule is finalized ONLY if BOTH week numbers exist and match strictly
+    let isWeekFinalized = Boolean(sheetWeekNum) && Boolean(activeWeekNum) && (sheetWeekNum === activeWeekNum);
 
     if (!isWeekFinalized) {
-      // Week is outdated or unassigned -> Show warning banner & hide court table
+      // Week is outdated, unassigned, or mismatched -> Show warning banner & hide court table
       html += `
         <div style="background:#fff3bf; color:#856404; border:1px solid #ffeeba; padding:12px; margin-bottom:15px; border-radius:6px; font-weight:bold; text-align:center;">
           ⏳ Schedule for this week not yet finalized
