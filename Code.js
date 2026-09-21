@@ -2616,5 +2616,14 @@ function toggleSingleCheckIn(payload) {
 }
 
 
-
-
+function clearBackendAdminCache(groupName) {
+  try {
+    const cleanGroup = String(groupName || "").replace(/^(Score|Sched)\s*/i, "").trim();
+    if (cleanGroup && typeof CacheService !== 'undefined') {
+      CacheService.getScriptCache().remove("admin_roster_cache_" + cleanGroup);
+    }
+  } catch (e) {
+    // Fail silently - it's just a cache clearer
+    console.warn("Failed to clear cache: " + e.message);
+  }
+}
