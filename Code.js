@@ -22,12 +22,6 @@ const GROUP_COURT_MAP = {
 
 let _dbInstance = null;
 
-/**
- * Executes a direct test of the single-player check-in functionality.
- * 
- * @returns {void}
- * @throws Assumes "Sched Women" sheet exists and contains "Jennifer Little".
- */
 function testCheckInDirectly() {
   try {
     const result = toggleSingleCheckIn({
@@ -41,15 +35,6 @@ function testCheckInDirectly() {
   }
 }
 
-/**
- * Logs structured debug messages to the console if logging is enabled.
- * 
- * @param {string} fnName - The name of the calling function.
- * @param {string} msg - The primary log message.
- * @param {*} [extra=""] - Additional object or primitive to log.
- * @returns {void}
- * @throws Assumes console.log is supported in the environment.
- */
 function logDebug(fnName, msg, extra = "") {
   if (typeof ENABLE_LOGGING !== 'undefined' && !ENABLE_LOGGING) return;
   let extraStr = "";
@@ -67,12 +52,6 @@ function logDebug(fnName, msg, extra = "") {
   console.log(`[${new Date().toISOString()}] [${fnName}] ${msg} ${extraStr}`.trim());
 }
 
-/**
- * Retrieves and caches the active Google Spreadsheet instance.
- * 
- * @returns {GoogleAppsScript.Spreadsheet.Spreadsheet} The open Spreadsheet instance.
- * @throws Assumes SPREADSHEET_ID is valid or script has access to active spreadsheet.
- */
 function getDb() {
   if (_dbInstance) return _dbInstance;
   if (typeof SPREADSHEET_ID !== 'undefined' && SPREADSHEET_ID) {
@@ -87,26 +66,12 @@ function getDb() {
   return _dbInstance;
 }
 
-/**
- * Sanitizes a sheet name to build a consistent cache key.
- * 
- * @param {string} sheetName - The target sheet name.
- * @returns {string} Sanitized CacheService key string.
- * @throws Assumes non-alphanumeric characters can be safely converted to underscores.
- */
 function getCheckInCacheKey(sheetName) {
   if (!sheetName) return "checkin_default";
   const clean = String(sheetName).replace(/[^a-zA-Z0-9]/g, "_").toLowerCase();
   return "checkin_" + clean;
 }
 
-/**
- * Creates a normalized column mapping object from a sheet header row.
- * 
- * @param {Array<*>} header - 1D array of header strings from row 1.
- * @returns {Object<string, number>} Hash map of column identifiers to 0-based index numbers.
- * @throws Assumes standard header naming conventions across ladder tabs.
- */
 function buildColMap(header) {
   let col = {};
   if (!header) return col;
@@ -132,14 +97,6 @@ function buildColMap(header) {
   return col;
 }
 
-/**
- * Evaluates candidates to find a matching column index from a built map.
- * 
- * @param {Object<string, number>} colMap - Normalized column map object.
- * @param {Array<string>} candidates - List of candidate column header names.
- * @returns {number|undefined} The matched 0-based column index, or undefined.
- * @throws Assumes candidate strings can be normalized using regex replacement.
- */
 function getColIdx(colMap, candidates) {
   for (let c of candidates) {
     let clean = c.toLowerCase().replace(/[\s\-_#]/g, "");
@@ -148,13 +105,6 @@ function getColIdx(colMap, candidates) {
   return undefined;
 }
 
-/**
- * Converts a cell value into a boolean check-in status.
- * 
- * @param {*} val - Cell value to evaluate.
- * @returns {boolean} True if value represents checked-in state; false otherwise.
- * @throws Assumes "yes", "true", "x", "checked in", or "1" indicate true status.
- */
 function isCheckInTrue(val) {
   if (val === true) return true;
   if (!val) return false;
@@ -162,23 +112,10 @@ function isCheckInTrue(val) {
   return ["yes", "true", "x", "checked in", "1"].includes(str);
 }
 
-/**
- * Retrieves designated court numbers for a specified ladder group.
- * 
- * @param {string} groupName - The target ladder group name.
- * @returns {Array<number>} Array of assigned court numbers.
- * @throws Assumes GROUP_COURT_MAP contains mappings or defaults.
- */
 function getCourtsForGroup(groupName) {
   return GROUP_COURT_MAP[groupName] || GROUP_COURT_MAP["Default"];
 }
 
-/**
- * Exports hardcoded configuration constants to external clients.
- * 
- * @returns {Object} Dictionary containing system configuration constants.
- * @throws Assumes system constants are globally declared.
- */
 function getConstantsConfig() {
   logDebug("getConstantsConfig", "Serving raw code constants");
   return {
@@ -191,78 +128,29 @@ function getConstantsConfig() {
   };
 }
 
-/**
- * Returns current application version string.
- * 
- * @returns {string} Application version number.
- * @throws None.
- */
 function getAppVersion() {
   logDebug("getAppVersion", "Retrieving app version");
   return "1.1.4"; 
 }
 
-/**
- * Retrieves valid scoring tab names.
- * 
- * @returns {Array<string>} List of score tab names.
- * @throws Assumes SCORE_TABS contains valid tab strings.
- */
-function getValidScoreTabs() {
-  return SCORE_TABS;
-}
+function getValidScoreTabs() { return SCORE_TABS; }
+function getSchedTabNames() { return SCHEDULE_TABS; }
+function getAvailableGroups() { return GROUPS; }
 
-/**
- * Retrieves valid schedule tab names.
- * 
- * @returns {Array<string>} List of schedule tab names.
- * @throws Assumes SCHEDULE_TABS contains valid tab strings.
- */
-function getSchedTabNames() { 
-  return SCHEDULE_TABS;
-}
-
-/**
- * Retrieves available ladder group names.
- * 
- * @returns {Array<string>} List of group names.
- * @throws Assumes GROUPS contains valid group strings.
- */
-function getAvailableGroups() {
-  return GROUPS;
-}
-
-/**
- * Fetches players and check-in states from CacheService or Google Sheet.
- * 
- * @param {string|Object} sheetNameOrData - Target tab/group name string OR payload object.
- * @returns {Array<Object>} List of player check-in objects.
- */
-/**
- * Fetches players and check-in states from CacheService or Google Sheet.
- * Normalizes tab names to "Sched <Group>" and safely defaults to an empty array.
- * 
- * @param {string|Object} sheetNameOrData - Sheet name string OR payload object.
- * @returns {Array<Object>} List of player check-in objects.
- */
 function getPlayersForCheckIn(sheetNameOrData) {
   try {
     if (!sheetNameOrData) return [];
     
-    // 1. Extract raw sheet name from string or payload object
     let rawSheet = sheetNameOrData;
     if (typeof sheetNameOrData === 'object' && sheetNameOrData !== null) {
       rawSheet = sheetNameOrData.sheet || sheetNameOrData.schedSheetName || sheetNameOrData.tab || sheetNameOrData.groupName || sheetNameOrData.group || "";
     }
     if (!rawSheet || typeof rawSheet !== 'string') return [];
 
-    // 2. Normalize to "Sched <Group>" (e.g., "Mens", "Score Mens" -> "Sched Mens")
     const cleanGroup = rawSheet.replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
     if (!cleanGroup) return [];
     
     const schedSheetName = "Sched " + cleanGroup;
-
-    // 3. Check Cache
     const cacheKey = getCheckInCacheKey(schedSheetName);
     const cache = CacheService.getScriptCache();
 
@@ -276,15 +164,13 @@ function getPlayersForCheckIn(sheetNameOrData) {
       console.warn("Cache read error in getPlayersForCheckIn:", err);
     }
 
-    // 4. Fetch from Sheet
     const players = fetchPlayersFromSheet(schedSheetName);
 
-    // 5. Cache & Return Valid Array
     if (Array.isArray(players) && players.length > 0) {
       try {
         const payloadString = JSON.stringify(players);
         if (payloadString.length < 100000) {
-          cache.put(cacheKey, payloadString, 600); // 10 minute cache
+          cache.put(cacheKey, payloadString, 600);
         }
       } catch (err) {
         console.warn("Cache write error in getPlayersForCheckIn:", err);
@@ -300,17 +186,6 @@ function getPlayersForCheckIn(sheetNameOrData) {
   }
 }
 
-
-
-/**
- * Toggles single-player check-in status and updates cache in place.
- * 
- * @param {Object|string} sheetNameOrData - Sheet name or payload object.
- * @param {string} [playerName] - Name of target player.
- * @param {boolean} [isCheckedIn] - Target check-in state.
- * @returns {Object} Status object indicating update outcome.
- * @throws Assumes target sheet exists and player can be matched by name/phone.
- */
 function toggleSingleCheckIn(sheetNameOrData, playerName, isCheckedIn) {
   let sheetName, targetPlayer, checkedState;
   if (typeof sheetNameOrData === 'object' && sheetNameOrData !== null) {
@@ -347,15 +222,6 @@ function toggleSingleCheckIn(sheetNameOrData, playerName, isCheckedIn) {
   return result;
 }
 
-/**
- * Writes updated check-in status ("X" or empty) directly to the Google Sheet row.
- * 
- * @param {string} sheetName - Target tab name.
- * @param {string} targetPlayer - Player name string.
- * @param {boolean} checkedState - Target toggle state.
- * @returns {Object} Result object with success boolean and text message.
- * @throws Assumes sheet includes player name and check-in columns.
- */
 function updatePlayerCheckInInSheet(sheetName, targetPlayer, checkedState) {
   logDebug("updatePlayerCheckInInSheet", "Updating check-in", { sheetName, targetPlayer, checkedState });
   if (!sheetName || !targetPlayer) return { success: false, message: "Missing parameter" };
@@ -392,14 +258,6 @@ function updatePlayerCheckInInSheet(sheetName, targetPlayer, checkedState) {
   return { success: found, message: found ? "Updated check-in" : "Player not found on sheet" };
 }
 
-/**
- * Saves check-ins in bulk for a schedule sheet and invalidates the cache.
- * 
- * @param {string} schedSheetName - Target schedule sheet name.
- * @param {Array<string>|string} checkedPlayerNames - Array or JSON string of checked-in player names.
- * @returns {string} User feedback message.
- * @throws Assumes sheet exists and column 7 or check-in header holds status markers.
- */
 function saveCheckIns(schedSheetName, checkedPlayerNames) {
   logDebug("saveCheckIns", "Saving check-ins for sheet", { schedSheetName, checkedPlayerNames });
   if (!schedSheetName) return "⚠️ Error: No target sheet specified.";
@@ -438,13 +296,6 @@ function saveCheckIns(schedSheetName, checkedPlayerNames) {
   return `✅ Check-ins saved successfully (${updatedCount} checked in)!`;
 }
 
-/**
- * Reads players and check-in statuses from a schedule or score sheet.
- * 
- * @param {string} inputName - Target sheet or group name.
- * @returns {Array<Object>} List of parsed player objects containing check-in states and court values.
- * @throws Throws explicit Error listing available tabs if requested tab is missing.
- */
 function fetchPlayersFromSheet(inputName) {
   if (!inputName) return [];
 
@@ -455,9 +306,7 @@ function fetchPlayersFromSheet(inputName) {
   const schedSheetName = "Sched " + cleanGroupName;
   let sheet = ss.getSheetByName(schedSheetName);
 
-  if (!sheet) {
-    sheet = ss.getSheetByName(inputName);
-  }
+  if (!sheet) sheet = ss.getSheetByName(inputName);
 
   if (!sheet) {
     const availableTabs = ss.getSheets().map(s => '"' + s.getName() + '"').join(", ");
@@ -480,13 +329,9 @@ function fetchPlayersFromSheet(inputName) {
     if (!pName || pName.startsWith("---") || pName.toLowerCase().startsWith("time:")) continue;
 
     let checkVal = checkInIdx !== -1 ? data[r][checkInIdx] : false;
-    
-    let isCheckedIn = false;
-    if (typeof isCheckInTrue === 'function') {
-      isCheckedIn = isCheckInTrue(checkVal);
-    } else {
-      isCheckedIn = (checkVal === true || String(checkVal).toUpperCase() === "TRUE" || String(checkVal).toUpperCase() === "YES" || String(checkVal) === "1");
-    }
+    let isCheckedIn = (typeof isCheckInTrue === 'function') 
+      ? isCheckInTrue(checkVal) 
+      : (checkVal === true || String(checkVal).toUpperCase() === "TRUE" || String(checkVal).toUpperCase() === "YES" || String(checkVal) === "1");
 
     let courtVal = (data[r][1] !== undefined && data[r][1] !== null && String(data[r][1]).trim() !== "") 
       ? String(data[r][1]).trim() 
@@ -503,16 +348,7 @@ function fetchPlayersFromSheet(inputName) {
   return players;
 }
 
-/**
- * Searches score and schedule tabs for a player by phone number to determine court/foursome.
- * 
- * @param {string} phone - Target phone string.
- * @param {string} groupArg - Group to search for phone
- * @returns {Object} Player search results including court assignment and group foursome details.
- * @throws Assumes phone matches last 7 digits of digits-only string.
- */
 function findFoursomeByPhone(phoneOrPayload, groupArg) {
-  // Support both object payload { phone, group } and separate arguments (phone, group)
   let phone, group;
   if (typeof phoneOrPayload === "object" && phoneOrPayload !== null) {
     phone = phoneOrPayload.phone;
@@ -529,7 +365,6 @@ function findFoursomeByPhone(phoneOrPayload, groupArg) {
   const normPhone = String(phone).replace(/\D/g, "");
   if (normPhone.length < 7) return { found: false, scheduleReady: false, message: "Phone number must be at least 7 digits" };
 
-  // If group is provided, target only that group; otherwise fallback to searching all
   let cleanGroup = group ? String(group).replace(/^(Score|Sched)\s*/i, "").trim() : null;
   let targetGroups = cleanGroup ? [cleanGroup] : GROUPS;
 
@@ -558,36 +393,27 @@ function findFoursomeByPhone(phoneOrPayload, groupArg) {
         if (schedSheet) {
           let sData = schedSheet.getDataRange().getValues();
 
-            if (sData && sData.length > 0) {
-                // Check cell I1 (row 0, col 8) and I2 (row 1, col 8) for week header validity
-                let headerI1 = (sData[0] && sData[0][8] !== undefined) ? String(sData[0][8] || "").trim() : "";
-                let valueI2  = (sData.length > 1 && sData[1] && sData[1][8] !== undefined) ? String(sData[1][8] || "").trim() : "";
-                let currentActiveWeek = typeof getActiveWeekForGroup === "function" ? getActiveWeekForGroup(g) : null;
+          if (sData && sData.length > 0) {
+            let headerI1 = (sData[0] && sData[0][8] !== undefined) ? String(sData[0][8] || "").trim() : "";
+            let valueI2  = (sData.length > 1 && sData[1] && sData[1][8] !== undefined) ? String(sData[1][8] || "").trim() : "";
+            let currentActiveWeek = typeof getActiveWeekForGroup === "function" ? getActiveWeekForGroup(g) : null;
 
-                // Combine I1 and I2 to handle stamps like "SCHEDULE_WEEK:W10" or "Week" in I1 with "10" in I2
-                let fullWeekStamp = headerI1.indexOf("SCHEDULE_WEEK:") === 0 ? headerI1 : `${headerI1}:${valueI2}`;
-
-                if (headerI1.indexOf("SCHEDULE_WEEK") === 0) {
-                    if (!currentActiveWeek || headerI1.includes(currentActiveWeek)) {
-                        scheduleReady = true;
-                    }
-                } else if (headerI1.toLowerCase().includes("week") && valueI2 !== "") {
-                    // Matches "Week" in I1 and week value in I2
-                    if (!currentActiveWeek || valueI2.includes(currentActiveWeek) || String(currentActiveWeek).includes(valueI2)) {
-                        scheduleReady = true;
-                    }
-                } else if (headerI1 !== "" || valueI2 !== "") {
-                    // Fallback for legacy sheets without exact header stamp
-                    scheduleReady = true;
-                }
+            if (headerI1.indexOf("SCHEDULE_WEEK") === 0) {
+              if (!currentActiveWeek || headerI1.includes(currentActiveWeek)) {
+                scheduleReady = true;
+              }
+            } else if (headerI1.toLowerCase().includes("week") && valueI2 !== "") {
+              if (!currentActiveWeek || valueI2.includes(currentActiveWeek) || String(currentActiveWeek).includes(valueI2)) {
+                scheduleReady = true;
+              }
+            } else if (headerI1 !== "" || valueI2 !== "") {
+              scheduleReady = true;
             }
+          }
 
-
-          // Only extract court and foursome if schedule is confirmed ready
           if (scheduleReady) {
             let lowerName = name.toLowerCase();
 
-            // Locate court for this player
             for (let sr = 1; sr < sData.length; sr++) {
               let sName = String(sData[sr][0] || "").trim().toLowerCase();
               if (sName === lowerName) {
@@ -596,7 +422,6 @@ function findFoursomeByPhone(phoneOrPayload, groupArg) {
               }
             }
 
-            // Fetch court foursome in exact order
             if (court && court !== "BYE") {
               let lowerCourt = court.toLowerCase();
               for (let sr = 1; sr < sData.length; sr++) {
@@ -615,7 +440,6 @@ function findFoursomeByPhone(phoneOrPayload, groupArg) {
           }
         }
 
-        // Return result including scheduleReady state
         return {
           found: true,
           scheduleReady: scheduleReady,
@@ -644,16 +468,6 @@ function findFoursomeByPhone(phoneOrPayload, groupArg) {
   };
 }
 
-
-
-/**
- * Toggles a player's ACTIVE/INACTIVE status by phone number.
- * 
- * @param {string} phone - Player phone number string.
- * @param {string} [groupName] - Optional group filter.
- * @returns {Object} Result object indicating status toggle outcome.
- * @throws Assumes player exists on score sheet with a valid phone cell.
- */
 function togglePlayerStatus(phone, groupName) {
   logDebug("togglePlayerStatus", "Toggling status for phone", { phone, groupName });
   if (!phone) return { success: false, message: "Missing phone" };
@@ -686,13 +500,6 @@ function togglePlayerStatus(phone, groupName) {
   return { success: false, message: "Player not found to toggle status" };
 }
 
-/**
- * Records submitted court game scores directly to the schedule sheet.
- * Preserves previously saved scores if a score field is left blank.
- * 
- * @param {Object} payload - Object containing group string, scores array, and submittedBy phone.
- * @returns {Object} Outcome dictionary with success flag and status message.
- */
 function submitCourtScores(payload) {
   logDebug("submitCourtScores", "Submitting scores payload", payload);
   if (!payload || (!payload.group && !payload.groupName) || !Array.isArray(payload.scores)) {
@@ -719,18 +526,15 @@ function submitCourtScores(payload) {
   let g3Idx = headers.indexOf("game 3");
   let totIdx = headers.indexOf("total");
 
-  // Locate "Entered" column (Column 8 / Index 7 fallback)
   let submitterIdx = headers.findIndex(h => 
     h === "entered" || h === "entered by" || h === "submitted by" || h.includes("entered")
   );
   if (submitterIdx === -1 && data[0].length >= 8) {
-    submitterIdx = 7; // Column H (8th column)
+    submitterIdx = 7; 
   }
 
-  // 1. Extract submitter name from payload properties
   let submitterName = payload.submittedByName || payload.userName || payload.enteredBy || payload.user || "";
 
-  // 2. Fallback: If only phone was provided, look up player name via helper
   if (!submitterName) {
     let rawPhone = payload.submittedBy || payload.phone || payload.userPhone || "";
     let phoneDigits = String(rawPhone).replace(/\D/g, "");
@@ -744,13 +548,11 @@ function submitCourtScores(payload) {
       } catch (e) {}
     }
 
-    // Final fallback if name lookup fails
     if (!submitterName && rawPhone) {
       submitterName = String(rawPhone).trim();
     }
   }
 
-  // Create hash map for O(1) lookup by lowercased player name
   let scoresMap = {};
   payload.scores.forEach(item => {
     let key = String(item.name || "").trim().toLowerCase();
@@ -764,12 +566,10 @@ function submitCourtScores(payload) {
     if (scoresMap[rowName]) {
       let pScore = scoresMap[rowName];
 
-      // Track current values from row to accurately recalculate total
       let curG1 = g1Idx !== -1 ? data[r][g1Idx] : "";
       let curG2 = g2Idx !== -1 ? data[r][g2Idx] : "";
       let curG3 = g3Idx !== -1 ? data[r][g3Idx] : "";
 
-      // Only update cells if new value is provided
       if (g1Idx !== -1 && pScore.g1 !== undefined && pScore.g1 !== null && pScore.g1 !== "") {
         curG1 = pScore.g1;
         schedSheet.getRange(r + 1, g1Idx + 1).setValue(pScore.g1);
@@ -783,7 +583,6 @@ function submitCourtScores(payload) {
         schedSheet.getRange(r + 1, g3Idx + 1).setValue(pScore.g3);
       }
 
-      // Calculate Total score
       if (totIdx !== -1) {
         let sum = 0;
         let hasAnyScore = false;
@@ -799,7 +598,6 @@ function submitCourtScores(payload) {
         }
       }
 
-      // Record submitter Name in "Entered" column
       if (submitterIdx !== -1 && submitterName) {
         schedSheet.getRange(r + 1, submitterIdx + 1).setValue(submitterName);
       }
@@ -808,7 +606,6 @@ function submitCourtScores(payload) {
     }
   }
 
-  // Invalidate Cache for fresh reads
   const cacheKey = getCheckInCacheKey("Sched " + cleanGroup);
   if (typeof CacheService !== 'undefined' && cacheKey) {
     CacheService.getScriptCache().remove(cacheKey);
@@ -820,15 +617,6 @@ function submitCourtScores(payload) {
   };
 }
 
-
-
-/**
- * Builds HTML table views of schedule and standings for external UI embedding.
- * 
- * @param {string} groupName - Ladder group identifier.
- * @returns {Object} Object containing rendered html string.
- * @throws Assumes group schedule and score sheets are available.
- */
 function getRankingsAndSchedData(groupName) {
   if (!groupName) return { html: "<i>No group specified.</i>" };
   const ss = getDb();
@@ -842,23 +630,18 @@ function getRankingsAndSchedData(groupName) {
   let html = `<h3 style="margin-top:0;">📊 ${cleanGroup} Schedule & Standings</h3>`;
   let hasData = false;
 
-  // --- 1. PROCESS SCHEDULE TAB ---
   if (schedSheet) {
-    // Read week number from cell I2
     let sheetWeekVal = (typeof getWeekNumber === "function") ? getWeekNumber(schedSheet) : schedSheet.getRange("I2").getValue();
     let sheetWeekNum = String(sheetWeekVal || "").replace(/\D/g, "");
 
-    // Get current active week with fallback to calculateCurrentWeekNumber()
     let activeWeekVal = (typeof getActiveWeek === "function" && getActiveWeek()) ? getActiveWeek() : 
                         (typeof getActiveWeekForGroup === "function" && getActiveWeekForGroup(cleanGroup)) ? getActiveWeekForGroup(cleanGroup) : 
                         (typeof calculateCurrentWeekNumber === "function") ? calculateCurrentWeekNumber() : null;
     let activeWeekNum = activeWeekVal ? String(activeWeekVal).replace(/\D/g, "") : "";
 
-    // Schedule is finalized ONLY if BOTH week numbers exist and match strictly
     let isWeekFinalized = Boolean(sheetWeekNum) && Boolean(activeWeekNum) && (sheetWeekNum === activeWeekNum);
 
     if (!isWeekFinalized) {
-      // Week is outdated, unassigned, or mismatched -> Show warning banner & hide court table
       html += `
         <div style="background:#fff3bf; color:#856404; border:1px solid #ffeeba; padding:12px; margin-bottom:15px; border-radius:6px; font-weight:bold; text-align:center;">
           ⏳ Schedule for this week not yet finalized
@@ -886,7 +669,6 @@ function getRankingsAndSchedData(groupName) {
     }
   }
 
-  // --- 2. PROCESS RANKINGS / SCORE TAB ---
   if (rankSheet) {
     let scData = rankSheet.getDataRange().getDisplayValues();
     if (scData && scData.length > 1) {
@@ -981,16 +763,6 @@ function getRankingsAndSchedData(groupName) {
   return { html: html };
 }
 
-
-
-
-/**
- * Returns player registry records for administrative UIs.
- * 
- * @param {string} groupName - Requested ladder group name.
- * @returns {Object} Dictionary containing players array.
- * @throws Assumes Score sheet exists for the group.
- */
 function getAdminPlayersByGroup(groupName) {
   if (!groupName) return { players: [] };
   const ss = getDb();
@@ -1026,13 +798,6 @@ function getAdminPlayersByGroup(groupName) {
   return { players: players };
 }
 
-/**
- * Generates direct Google Sheets PDF download link for a group schedule tab.
- * 
- * @param {string} groupName - Group identifier string.
- * @returns {Object} Dict containing pdfUrl download URL string.
- * @throws Assumes target schedule sheet exists.
- */
 function webExportSchedulePdf(groupName) {
   logDebug("webExportSchedulePdf", "Generating PDF export link", groupName);
   const ss = getDb();
@@ -1046,48 +811,13 @@ function webExportSchedulePdf(groupName) {
   return { success: true, pdfUrl: pdfUrl };
 }
 
-/**
- * Generates bootstrap data object required by client-side web application.
- * 
- * @param {string} [phone] - User phone number.
- * @returns {Object} Initial web application context object.
- * @throws Assumes version and group constants are accessible.
- */
 function getInitialAppData(phone) {
   return { version: getAppVersion(), groups: GROUPS, sheets: SCHEDULE_TABS };
 }
 
-/**
- * Handles HTTP GET requests to the Apps Script Web App API endpoint.
- * 
- * @param {Object} e - Apps Script event object.
- * @returns {GoogleAppsScript.Content.TextOutput} JSON ContentService response.
- * @throws Assumes handleApiRequest catches all errors internally.
- */
 function doGet(e) { return handleApiRequest(e); }
-
-/**
- * Handles HTTP POST requests to the Apps Script Web App API endpoint.
- * 
- * @param {Object} e - Apps Script event object.
- * @returns {GoogleAppsScript.Content.TextOutput} JSON ContentService response.
- * @throws Assumes handleApiRequest catches all errors internally.
- */
 function doPost(e) { return handleApiRequest(e); }
 
-/**
- * Primary API entry point and router for web requests with LockService protection.
- * 
- * @param {Object} e - Event object from doGet/doPost.
- * @returns {GoogleAppsScript.Content.TextOutput} Standardized JSON response object ({ status, data|message }).
- * @throws Catches all top-level runtime exceptions to return valid JSON error payloads.
- */
-/**
- * Primary API entry point and router for web requests with LockService protection.
- * 
- * @param {Object} e - Event object from doGet/doPost.
- * @returns {GoogleAppsScript.Content.TextOutput} Standardized JSON response object.
- */
 function handleApiRequest(e) {
   let requiresLock = false;
   let lock = null;
@@ -1109,7 +839,6 @@ function handleApiRequest(e) {
       logDebug("handleApiRequest", "Processing action: " + action);
     }
 
-    // Include ALL state-modifying actions in lock protection
     const WRITE_ACTIONS = [
       'sortActivePlayers', 'sortActivePlayersForSheet', 'generateScheduleTabs',
       'updateStandingsWithShift', 'correctScoresNoShift', 'processWeeklyScoresForSheet',
@@ -1284,13 +1013,6 @@ function handleApiRequest(e) {
   }
 }
 
-
-/**
- * Triggers authorization prompts for Drive, Spreadsheet, and UrlFetch services.
- * 
- * @returns {void}
- * @throws Requires manual execution in Google Apps Script editor.
- */
 function authorizeScript() {
   const ss = SpreadsheetApp.getActiveSpreadsheet() || getDb();
   const sheet = getValidActiveScoreSheet();
@@ -1303,20 +1025,11 @@ function authorizeScript() {
   UrlFetchApp.fetch("https://www.google.com");
 }
 
-
-/**
- * Resolves and validates a target "Score XX" sheet for a given input or active sheet.
- * Handles extra whitespace, case sensitivity, and prevents silent fallbacks to Sheet 0.
- * 
- * @param {string} [groupOrSheetName] - Group name or sheet name (e.g., "Sched Mens", "Score Mens").
- * @returns {GoogleAppsScript.Spreadsheet.Sheet} Validated Score Sheet object.
- */
 function getValidActiveScoreSheet(groupOrSheetName) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const allSheets = ss.getSheets();
   let rawInput = "";
 
-  // 1. Get raw input or active tab name
   if (groupOrSheetName && typeof groupOrSheetName === 'string' && groupOrSheetName.trim() !== "") {
     rawInput = groupOrSheetName.trim();
   } else {
@@ -1328,7 +1041,6 @@ function getValidActiveScoreSheet(groupOrSheetName) {
     throw new Error("No tab or group name provided. Please select a valid group sheet.");
   }
 
-  // 2. Strip prefixes like 'Score', 'Sched', 'Rankings'
   let cleanGroup = rawInput.replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
 
   if (!cleanGroup) {
@@ -1337,13 +1049,10 @@ function getValidActiveScoreSheet(groupOrSheetName) {
 
   const targetScoreName = ("Score " + cleanGroup).toLowerCase();
 
-  // 3. Robust Trimmed & Case-Insensitive Search
-  // (Fixes issues where tab names have trailing/hidden spaces like "Score Mens ")
   let scoreSheet = allSheets.find(s => {
     return s.getName().trim().toLowerCase() === targetScoreName;
   });
 
-  // 4. Secondary search: Find any Score tab containing cleanGroup
   if (!scoreSheet) {
     scoreSheet = allSheets.find(s => {
       const sNameClean = s.getName().trim().toLowerCase();
@@ -1351,7 +1060,6 @@ function getValidActiveScoreSheet(groupOrSheetName) {
     });
   }
 
-  // 5. Fail loudly with diagnostic info instead of defaulting to Sheet 0 (Score Women)
   if (!scoreSheet) {
     const availableScoreSheets = allSheets
       .map(s => `'${s.getName()}'`)
@@ -1368,14 +1076,6 @@ function getValidActiveScoreSheet(groupOrSheetName) {
   return scoreSheet;
 }
 
-
-/**
- * Legacy helper resolving target score sheet for group or tab strings.
- * 
- * @param {string} groupOrTabName - Group name or tab title.
- * @returns {GoogleAppsScript.Spreadsheet.Sheet} Target score sheet instance.
- * @throws Throws Error if target score sheet cannot be found.
- */
 function getTargetScoreSheet(groupOrTabName) {
   logDebug("getTargetScoreSheet", "Resolving target score sheet", groupOrTabName);
   const ss = getDb();
@@ -1397,12 +1097,6 @@ function getTargetScoreSheet(groupOrTabName) {
   throw new Error('Action Cancelled: No valid Score tab found. Please select or pass "Score Womens", "Score Mens", or "Score Mixed".');
 }
 
-/**
- * Constructs custom spreadsheet UI menu upon opening document.
- * 
- * @returns {void}
- * @throws Assumes execution in Google Sheets spreadsheet container context.
- */
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('🏆 Ladder Tools')
@@ -1427,12 +1121,6 @@ function onOpen() {
     .addToUi();
 }
 
-/**
- * Menu action generating schedule tab for active tab.
- * 
- * @returns {string} Result message.
- * @throws Assumes active UI tab resolves to valid score tab.
- */
 function menuGenerateScheduleCurrentTab() {
   try {
     let res = generateScheduleTabs(getValidActiveScoreSheet().getName());
@@ -1444,12 +1132,6 @@ function menuGenerateScheduleCurrentTab() {
   }
 }
 
-/**
- * Menu action rescheduling checked-in players for active tab.
- * 
- * @returns {string} Result message.
- * @throws Assumes active UI tab resolves to valid score tab.
- */
 function menuGenerateScheduleCheckedIn() {
   try {
     let res = rescheduleFromCheckIns(getValidActiveScoreSheet().getName().replace("Score ", "Sched "));
@@ -1461,12 +1143,6 @@ function menuGenerateScheduleCheckedIn() {
   }
 }
 
-/**
- * Displays modal HTML dialog to register a new player.
- * 
- * @returns {void}
- * @throws Assumes SpreadsheetApp UI service is available.
- */
 function showAddPlayerDialog() {
   const html = HtmlService.createHtmlOutput(`
     <style>body{font-family:sans-serif; padding:20px;} input,select,button{width:100%; padding:14px; margin-top:10px; box-sizing:border-box; min-height:54px; border-radius:6px; font-size:16px;} .btn{background:#2d6a4f;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:bold;} </style>
@@ -1494,12 +1170,6 @@ function showAddPlayerDialog() {
   SpreadsheetApp.getUi().showModalDialog(html, '➕ Add New Player');
 }
 
-/**
- * Menu handler triggering active player sorting.
- * 
- * @returns {string} Result text message.
- * @throws Assumes active tab is valid score sheet.
- */
 function menuSortActivePlayers() {
   try {
     let res = sortActivePlayersForSheet(getValidActiveScoreSheet());
@@ -1511,24 +1181,12 @@ function menuSortActivePlayers() {
   }
 }
 
-/**
- * Menu handler triggering bulk schedule tab generation across all groups.
- * 
- * @returns {string} Result text message.
- * @throws Assumes GROUPS list maps to valid sheets.
- */
 function menuGenerateScheduleTabs() {
   let res = generateScheduleTabs();
   if (SpreadsheetApp.getUi()) SpreadsheetApp.getUi().alert(res);
   return res;
 }
 
-/**
- * Menu handler processing weekly scores with week shift enabled.
- * 
- * @returns {string} Status result message.
- * @throws Assumes active tab is valid score sheet.
- */
 function menuUpdateStandingsWithShift() {
   try {
     let res = processWeeklyScoresForSheet(getValidActiveScoreSheet(), "W10", true);
@@ -1540,12 +1198,6 @@ function menuUpdateStandingsWithShift() {
   }
 }
 
-/**
- * Menu handler recalculating rankings without applying historical week shifts.
- * 
- * @returns {string} Status result message.
- * @throws Assumes active tab is valid score sheet.
- */
 function menuCorrectScoresNoShift() {
   try {
     let res = processWeeklyScoresForSheet(getValidActiveScoreSheet(), "W10", false);
@@ -1557,12 +1209,6 @@ function menuCorrectScoresNoShift() {
   }
 }
 
-/**
- * Menu wrapper launching manual Drive file backup.
- * 
- * @returns {void}
- * @throws Assumes DriveApp permissions are authorized.
- */
 function menuCreateDriveBackup() { 
   try {
     let name = executeDriveBackup("Manual");
@@ -1572,12 +1218,6 @@ function menuCreateDriveBackup() {
   }
 }
 
-/**
- * Formats full URL link targeting Admin Score Womens tab.
- * 
- * @returns {string} Target spreadsheet URL string.
- * @throws Assumes sheet "Score Womens" exists.
- */
 function getAdminSheetUrl() {
   const ss = getDb();
   let targetSheet = ss.getSheetByName("Score Womens");
@@ -1586,12 +1226,6 @@ function getAdminSheetUrl() {
   return url;
 }
 
-/**
- * Wipes weekly score values (W1-W10) across all score tabs to initialize a new season.
- * 
- * @returns {string} Operational message summarizing reset count.
- * @throws Modifies document properties for SEASON_START_DATE.
- */
 function startNewSeason() {
   const ss = getDb();
   let clearedCount = 0;
@@ -1618,12 +1252,6 @@ function startNewSeason() {
   return `✅ New season started across ${clearedCount} score tabs! All weekly scores wiped. Week 1 is configured to begin Oct 4th.`;
 }
 
-/**
- * Calculates current season week index based on elapsed days from start date.
- * 
- * @returns {number} Integer week number (1 through 10).
- * @throws Fallback default is week 10 if start date property is unset.
- */
 function calculateCurrentWeekNumber() {
   const props = PropertiesService.getDocumentProperties();
   const startStr = props.getProperty('SEASON_START_DATE');
@@ -1636,13 +1264,6 @@ function calculateCurrentWeekNumber() {
   return Math.floor(diffDays / 7) + 1;
 }
 
-/**
- * Registers new player row record in corresponding group score sheet.
- * 
- * @param {Object} info - Dict with first, last, phone, email, and group.
- * @returns {string} Status string response message.
- * @throws Assumes group matches valid score tab.
- */
 function addNewUser(info) {
   if (!info.first || !info.last || !info.phone || !info.group) {
     return "Error: First, Last, Phone, and Group are required.";
@@ -1665,25 +1286,12 @@ function addNewUser(info) {
   return `✅ Success: Added ${info.first} ${info.last} to tab '${targetSheet.getName()}'.`;
 }
 
-/**
- * Finds or creates dedicated "SCPBLadder" Drive folder.
- * 
- * @returns {GoogleAppsScript.Drive.Folder} Target Drive folder object.
- * @throws Assumes DriveApp service is authorized.
- */
 function getSCPBLadderFolder() {
   const folderName = "SCPBLadder";
   const folders = DriveApp.getFoldersByName(folderName);
   return folders.hasNext() ? folders.next() : DriveApp.createFolder(folderName);
 }
 
-/**
- * Creates timestamped copy of entire spreadsheet in backup Drive folder.
- * 
- * @param {string} label - Tag string added to backup file name.
- * @returns {string} File name of created backup document.
- * @throws Assumes DriveApp and PropertiesService permissions.
- */
 function executeDriveBackup(label) {
   const ss = getDb();
   const file = DriveApp.getFileById(ss.getId());
@@ -1695,12 +1303,6 @@ function executeDriveBackup(label) {
   return backupFile.getName();
 }
 
-/**
- * Interactive UI prompt allowing administrator to restore spreadsheet tabs from Drive backup copy.
- * 
- * @returns {void}
- * @throws Displays modal dialog prompts using SpreadsheetApp UI.
- */
 function restoreFullFileFromDrive() {
   const ui = SpreadsheetApp.getUi();
   const ss = getDb();
@@ -1745,12 +1347,6 @@ function restoreFullFileFromDrive() {
   ui.alert("Restored ⏪", "Tabs restored successfully.", ui.ButtonSet.OK);
 }
 
-/**
- * Creates temporary duplicate snapshot tab for current active score sheet.
- * 
- * @returns {void}
- * @throws Interacts with active user via UI alerts and prompts.
- */
 function createPreWorkSnapshotTab() {
   const ui = SpreadsheetApp.getUi();
   const ss = getDb();
@@ -1777,12 +1373,6 @@ function createPreWorkSnapshotTab() {
   ui.alert("Backup Tab Created! 📸", `'${backupTabName}' is ready.`, ui.ButtonSet.OK);
 }
 
-/**
- * Restores data to a score sheet from a selected pre-work backup tab.
- * 
- * @returns {void}
- * @throws Prompts user to select from available snapshot tabs.
- */
 function restoreFromSnapshotTab() {
   const ui = SpreadsheetApp.getUi();
   const ss = getDb();
@@ -1813,12 +1403,6 @@ function restoreFromSnapshotTab() {
   ui.alert("Restored Successfully ⏪", `${targetTabName} restored.`, ui.ButtonSet.OK);
 }
 
-/**
- * Checks elapsed time and triggers automated weekly drive backup if 7 days have passed.
- * 
- * @returns {void}
- * @throws Catches all backup execution errors silently.
- */
 function checkAndRunWeeklyBackup() {
   try {
     const props = PropertiesService.getDocumentProperties();
@@ -1829,13 +1413,6 @@ function checkAndRunWeeklyBackup() {
   } catch (err) {}
 }
 
-/**
- * Parses rank cell text strings (e.g., "3/24-R" or "5") into structured rank values.
- * 
- * @param {*} val - Cell value string or number.
- * @returns {Object} Dict containing rank number, numPeople, and isRestricted boolean flag.
- * @throws Handles null, empty, or non-numeric rank strings gracefully.
- */
 function parseRankVal(val) {
   if (val === null || val === undefined || val === "") return { rank: Infinity, numPeople: 0, isRestricted: false };
   let str = val.toString().trim();
@@ -1856,13 +1433,6 @@ function parseRankVal(val) {
   return { rank: isNaN(r) ? Infinity : r, numPeople: 0, isRestricted: isRestricted };
 }
 
-/**
- * Converts comma-separated court strings into sorted arrays of court identifiers.
- * 
- * @param {string|Array} cStr - Court list string or array.
- * @returns {Array<string|number>} Processed array of court identifiers.
- * @throws Returns default courts 1..8 if input is empty.
- */
 function parseAndSortCourts(cStr) {
   if (!cStr) return [1, 2, 3, 4, 5, 6, 7, 8];
   if (Array.isArray(cStr)) return cStr;
@@ -1870,15 +1440,6 @@ function parseAndSortCourts(cStr) {
   return courts.length > 0 ? courts : [1, 2, 3, 4, 5, 6, 7, 8];
 }
 
-/**
- * Scans back through historical rank columns (R0-R10) to locate the player's latest valid rank.
- * 
- * @param {Array<*>} row - Row data array.
- * @param {Object} col - Header column mapping index map.
- * @param {number} [maxWeekNum=10] - Maximum week column to evaluate backwards from.
- * @returns {Object} Latest rank info dict containing rank, numPeople, weekNum, and rawStr.
- * @throws Assumes week columns follow "r0"..."r10" keys in col map.
- */
 function getMostRecentRank(row, col, maxWeekNum = 10) {
   for (let w = maxWeekNum; w >= 0; w--) {
     let rIdx = col["r" + w];
@@ -1892,16 +1453,7 @@ function getMostRecentRank(row, col, maxWeekNum = 10) {
   return { rank: Infinity, numPeople: 0, weekNum: -1, rawStr: "" };
 }
 
-/**
- * Generates court assignment schedule tabs for active players across target groups.
- * 
- * @param {string} [genTarget] - Target group or tab name.
- * @param {Array<number|string>|string} [courts] - Custom court selection override.
- * @returns {string} Operational status message.
- * @throws Assumes active players exist in targeted group score tabs.
- */
 function generateScheduleTabs(genTarget, courts) {
-  // Normalize genTarget
   let targetGroup = genTarget;
   if (typeof genTarget === 'object' && genTarget !== null) {
     targetGroup = genTarget.group || genTarget.sheet || genTarget.schedSheetName || "";
@@ -1949,10 +1501,8 @@ function generateScheduleTabs(genTarget, courts) {
     let schedSheetName = "Sched " + groupName;
     let schedSheet = ss.getSheetByName(schedSheetName) || ss.insertSheet(schedSheetName);
 
-    // Clear contents prior to writing
     schedSheet.clear();
 
-    // Table Headers: Columns A to H (Columns 1-8)
     let headers = ["Player Name", "Court", "Check-In", "Game 1", "Game 2", "Game 3", "Total", "Entered"];
     let rows = [headers];
 
@@ -1977,11 +1527,9 @@ function generateScheduleTabs(genTarget, courts) {
       rows.push([pName, assignedCourt, "", "", "", "", "", ""]);
     }
 
-    // Write table (Columns 1 to 8 / A to H)
     schedSheet.getRange(1, 1, rows.length, headers.length).setValues(rows);
     schedSheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
 
-    // Stamp Week Metadata in Column 9 (I1 and I2)
     var i1Cell = schedSheet.getRange("I1");
     i1Cell.setValue("SCHEDULE_WEEK");
     i1Cell.setFontWeight("bold");
@@ -1990,7 +1538,6 @@ function generateScheduleTabs(genTarget, courts) {
     i2Cell.setValue(currentWeek);
     i2Cell.setHorizontalAlignment("center");
 
-    // Invalidate Cache
     const cacheKey = getCheckInCacheKey(schedSheetName);
     if (typeof CacheService !== 'undefined' && cacheKey) {
       CacheService.getScriptCache().remove(cacheKey);
@@ -2005,14 +1552,6 @@ function generateScheduleTabs(genTarget, courts) {
   return "✅ " + summary.join("\n");
 }
 
-
-/**
- * Re-sorts schedule courts based exclusively on players marked as checked-in.
- * 
- * @param {string} [reschedTarget] - Target schedule sheet or group name.
- * @param {Array<number|string>|string} [courts] - Optional custom court mapping.
- * @returns {string} Operational status report string.
- */
 function rescheduleFromCheckIns(reschedTarget, courts) {
   logDebug("rescheduleFromCheckIns", "Rescheduling checked-in players", { reschedTarget, courts });
   const ss = getDb();
@@ -2034,7 +1573,6 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
   let numChecked = checkedInPlayers.length;
   let foursomesCount = Math.floor(numChecked / 4);
 
-  // Flag error if required courts exceed available courts
   let courtWarning = "";
   if (foursomesCount > availableCourts.length) {
     courtWarning = ` ⚠️ Error: Insufficient courts! Needed: ${foursomesCount}, Available: ${availableCourts.length}. Oversubscribed players assigned BYE.`;
@@ -2045,7 +1583,6 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
     let currentFoursome = Math.floor(idx / 4);
     let assignedCourt = "BYE";
 
-    // Strict unique court assignment: do not reuse courts via modulo
     if (currentFoursome < availableCourts.length) {
       assignedCourt = "Court " + availableCourts[currentFoursome];
     }
@@ -2070,14 +1607,6 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
   return `✅ Rescheduled '${targetName}' based on ${numChecked} checked-in players (${assignedCourtsCount} courts assigned, ${totalByes} BYEs).${courtWarning}`;
 }
 
-/**
- * Calculates total points earned and win percentage for a player across week columns (W1-W10).
- * 
- * @param {Array<*>} row - Player row values array.
- * @param {Object} col - Header column mapping index map.
- * @returns {Object} Object containing total numeric score and computed winPct percentage decimal.
- * @throws Assumes MAX_POINTS_PER_WEEK defines maximum possible points per week.
- */
 function calculateStats(row, col) {
   let total = 0;
   let played = 0;
@@ -2090,17 +1619,6 @@ function calculateStats(row, col) {
   return { total: total, winPct: played > 0 ? total / (played * MAX_POINTS_PER_WEEK) : 0 };
 }
 
-/**
- * Harvests game total scores recorded on schedule tabs and writes them into score sheet arrays.
- * 
- * @param {GoogleAppsScript.Spreadsheet.Spreadsheet} ss - Active spreadsheet instance.
- * @param {Array<Array<*>>} scoreData - 2D data array of the target score sheet.
- * @param {Object} col - Header index map of the score sheet.
- * @param {number} targetWeekIdx - Column index for the target week score column.
- * @param {string} groupName - Ladder group identifier.
- * @returns {void}
- * @throws Mutates scoreData array in place.
- */
 function harvestScoresFromSchedules(ss, scoreData, col, targetWeekIdx, groupName) {
   const schedSheet = ss.getSheetByName("Sched " + groupName) || ss.getSheetByName("Schedule " + groupName);
   if (!schedSheet) return;
@@ -2155,15 +1673,6 @@ function harvestScoresFromSchedules(ss, scoreData, col, targetWeekIdx, groupName
   }
 }
 
-/**
- * Core engine computing weekly ladder standings, applying 4-spot movement bounds, and writing outputs.
- * 
- * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet - Target score sheet instance.
- * @param {string|number} [forcedWeek] - Target week string (e.g. "W10" or 10).
- * @param {boolean} [shouldShift=true] - Whether historical week rank calculations shift active position boundaries.
- * @returns {string} Summary message of processed week standings.
- * @throws Rewrites target score sheet contents and updates corresponding Rankings sheet.
- */
 function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
   const ss = getDb();
   const RESTRICT_BY_RAW_RANK = true;
@@ -2317,7 +1826,13 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
     if (col.rNum !== undefined) p.rowRaw[col.rNum] = p.finalRank;
   });
 
-  inactivePlayers.sort((a, b) => a.prevRank - b.prevRank);
+  inactivePlayers.sort((a, b) => {
+    if (a.prevRank === b.prevRank) return 0;
+    if (a.prevRank === Infinity) return 1;
+    if (b.prevRank === Infinity) return -1;
+    return a.prevRank - b.prevRank;
+  });
+
   inactivePlayers.forEach(p => {
     if (col.group !== undefined) p.rowRaw[col.group] = cleanGroupName;
     if (col.total !== undefined) p.rowRaw[col.total] = p.total;
@@ -2338,12 +1853,6 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
   return `✅ Standings and Week ${weekNum} Rankings (R${weekNum}) processed for '${sheet.getName()}'! (${activePlayers.length} Active, ${inactivePlayers.length} Inactive)`;
 }
 
-/**
- * Diagnostic test harness executing weekly rankings calculation across weeks 1 through 10.
- * 
- * @returns {string} Summary string output.
- * @throws Creates a backup copy tab and exports output into a "RankTest" sheet.
- */
 function testWomensRankingsWeeks1To10() {
   const ss = getDb();
   let sheet = ss.getSheetByName("Score Womens");
@@ -2402,17 +1911,6 @@ function testWomensRankingsWeeks1To10() {
   return `✅ Test complete! Weeks 1–10 rankings processed and exported to 'RankTest' sheet. Backup saved to '${backupName}'.`;
 }
 
-/**
- * Generates formatted public standings table on the "Rankings <GroupName>" tab.
- * 
- * @param {GoogleAppsScript.Spreadsheet.Spreadsheet} ss - Active spreadsheet instance.
- * @param {string} groupName - Target ladder group name.
- * @param {Array<Object>} activePlayers - Active player dictionaries array.
- * @param {Array<Object>} inactivePlayers - Inactive player dictionaries array.
- * @param {number} weekNum - Integer week number.
- * @returns {void}
- * @throws Clears and rewrites target "Rankings <GroupName>" tab.
- */
 function updateRankingsSheetForGroup(ss, groupName, activePlayers, inactivePlayers, weekNum) {
   let rankSheetName = "Rankings " + groupName;
   let rankSheet = ss.getSheetByName(rankSheetName) || ss.insertSheet(rankSheetName);
@@ -2433,13 +1931,6 @@ function updateRankingsSheetForGroup(ss, groupName, activePlayers, inactivePlaye
   rankSheet.getRange(1, 1, 1, 4).setFontWeight("bold");
 }
 
-/**
- * Sorts active players on a score sheet by most recent rank and updates the sheet rows.
- * 
- * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet - Target score sheet object.
- * @returns {string} Status result message.
- * @throws Re-orders data rows on the provided sheet tab.
- */
 function sortActivePlayersForSheet(sheet) {
   logDebug("sortActivePlayersForSheet", "Sorting active players for sheet", sheet.getName());
   const data = sheet.getDataRange().getValues();
@@ -2482,24 +1973,6 @@ function sortActivePlayersForSheet(sheet) {
   return `✅ Active players sorted successfully on tab '${sheet.getName()}'!`;
 }
 
-/**
- * Resolves target group name from web API payload or Google Sheets active tab.
- */
-/**
- * Extracts and normalizes the target group name from an active sheet or provided string.
- * Recognizes prefixes: 'Score', 'Sched', and 'Rankings'.
- * STRICT MODE: Throws an error and pops up a UI alert if the sheet cannot determine a valid group.
- *
- * @param {string|GoogleAppsScript.Spreadsheet.Sheet} [sheetOrName] Optional sheet object or name string
- * @returns {string} Cleaned group name (e.g. "Mens", "Womens")
- */
-/**
- * Extracts and normalizes the target group name from an active sheet or string.
- * Strictly checks space-separated tab prefixes: 'Score ', 'Sched ', 'Rankings ', etc.
- *
- * @param {string|GoogleAppsScript.Spreadsheet.Sheet} [sheetOrName] Optional sheet object or name string
- * @returns {string} Cleaned group name (e.g. "Mens", "Womens")
- */
 function getTargetGroup(sheetOrName) {
   let sheetName = "";
 
@@ -2517,20 +1990,17 @@ function getTargetGroup(sheetOrName) {
   if (sheetName) {
     sheetName = sheetName.trim();
 
-    // 1. Match prefixes with space separator (e.g. 'Sched Mens', 'Rankings Mens', 'Score Mens')
     let match = sheetName.match(/^(Score|Sched|Schedule|Ranking|Rankings|Standings)\s+(.+)$/i);
     if (match && match[2] && match[2].trim()) {
       return match[2].trim();
     }
 
-    // 2. Direct match if the sheet name is already just the group name (e.g. "Mens")
     if (typeof GROUPS !== 'undefined' && Array.isArray(GROUPS)) {
       let foundGroup = GROUPS.find(g => g.toLowerCase() === sheetName.toLowerCase());
       if (foundGroup) return foundGroup;
     }
   }
 
-  // NO FALLBACK: Prompt UI alert if in Google Sheets, throw error if in Web App
   let errorMessage = `Invalid Active Sheet ('${sheetName || "Unknown"}'). Please select a valid Group tab (e.g., 'Score Mens', 'Sched Mens', or 'Rankings Mens') before running this action.`;
 
   try {
@@ -2538,36 +2008,32 @@ function getTargetGroup(sheetOrName) {
     if (ui) {
       ui.alert("⚠️ Action Stopped: Invalid Sheet", errorMessage, ui.ButtonSet.OK);
     }
-  } catch (e) {
-    // UI alert ignored if executing via Web App API
-  }
+  } catch (e) {}
 
   throw new Error(errorMessage);
 }
 
-/**
- * Normalizes payload inputs or string sheet names to extract pure group name.
- */
 function cleanGroupName(input) {
   let str = "";
 
   if (typeof input === 'object' && input !== null) {
-    // Extract group from object properties with fallback to sheet name
     str = input.group || input.groupName || (input.sheet && input.sheet !== "N/A" ? input.sheet : "") || input.schedSheetName || "";
   } else if (input) {
     str = String(input);
   }
 
   str = str.trim();
-  if (!str || str.toLowerCase() === "n/a") return getTargetGroup();
+  if (!str || str.toLowerCase() === "n/a") {
+    try {
+      return getTargetGroup();
+    } catch (e) {
+      return (typeof GROUPS !== 'undefined' && GROUPS.length > 0) ? GROUPS[0] : "Womens";
+    }
+  }
 
-  // Strip prefixes separated by space
   return str.replace(/^(Score|Sched|Schedule|Ranking|Rankings|Standings)\s*/i, "").trim();
 }
 
-/**
- * Safely fetches the Score/Rankings sheet for a group using space-separated tab conventions.
- */
 function getScoreSheetByGroup(groupName) {
   const ss = getDb();
   const group = cleanGroupName(groupName);
@@ -2578,77 +2044,41 @@ function getScoreSheetByGroup(groupName) {
          ss.getSheetByName(group);
 }
 
-/**
- * Gets the current week number from cell I2.
- * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
- * @returns {number|string}
- */
-/**
- * Gets the current week number from cell I2.
- * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
- * @returns {number|string}
- */
 function getWeekNumber(sheet) {
   if (!sheet) return 1;
   var weekVal = sheet.getRange("I2").getValue();
   return weekVal !== "" ? weekVal : 1;
 }
 
-/**
- * Sets the week number header in I1 and value in I2.
- * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
- * @param {number|string} weekNum
- */
 function setWeekNumber(sheet, weekNum) {
   if (!sheet) return;
   
-  // Set header label
   var titleCell = sheet.getRange("I1");
   titleCell.setValue("SCHEDULE_WEEK");
   titleCell.setFontWeight("bold");
   titleCell.setHorizontalAlignment("center");
 
-  // Set week value
   var valueCell = sheet.getRange("I2");
   valueCell.setValue(weekNum);
   valueCell.setHorizontalAlignment("center");
 }
-/**
- * Returns the week identifier (e.g. "W10" for Week 10) for any group.
- * @param {string} group - Group name ("Womens", "Mens", etc.)
- * @returns {string} Formatted week identifier (e.g., "W10")
- */
+
 function getCurrentWeekIdentifier(group) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var targetGroup = group ? String(group).replace(/^(Sched|Score)\s*/i, '').trim() : '';
   var sheet = ss.getSheetByName("Sched " + targetGroup) || ss.getSheetByName(targetGroup) || ss.getActiveSheet();
-  
-  // Read value from I2
   var rawWeek = getWeekNumber(sheet);
-  
-  // Extract digits (e.g., "10" from "10" or "W10")
   var weekNum = String(rawWeek).replace(/[^0-9]/g, '');
-  
-  // Return "W10" for Week 10 across all groups
   return weekNum ? "W" + weekNum : "W1";
 }
 
-// Alias to ensure compatibility
 function getActiveWeekForGroup(group) {
   return getCurrentWeekIdentifier(group);
 }
 
-
-
-
-
-/**
- * Action Handler for 'checkInPlayer'
- */
 function handleCheckInPlayer(payload) {
   try {
     const groupName = payload.group || payload.sheet || payload.schedSheetName || "";
-    // Extracts identifier regardless of key name used by client
     const playerTarget = payload.phone || payload.playerId || payload.playerName || payload.name || "";
 
     if (!playerTarget) {
@@ -2669,10 +2099,6 @@ function handleCheckInPlayer(payload) {
   }
 }
 
-/**
- * Guarantees check-in state is set to 'X'.
- * Matches target by Name OR Phone Number. Never toggles off.
- */
 function ensurePlayerCheckedIn(sheetName, targetPlayer) {
   if (!sheetName || !targetPlayer) {
     return { success: false, status: "failed", message: "Missing required group or player parameters." };
@@ -2697,63 +2123,39 @@ function ensurePlayerCheckedIn(sheetName, targetPlayer) {
   let nameIdx = headers.findIndex(h => h.includes("name") || h.includes("player"));
   if (nameIdx === -1) nameIdx = 0;
 
-  let phoneIdx = headers.findIndex(h => h.includes("phone") || h.includes("mobile") || h.includes("tel"));
-
   let checkInIdx = headers.findIndex(h => h.includes("checkin") || h.includes("checkedin") || h === "x");
-  if (checkInIdx === -1 && data[0].length >= 7) checkInIdx = 6;
+  if (checkInIdx === -1 && data[0].length >= 7) checkInIdx = 2;
 
-  // Fallback: If targetPlayer is purely numeric (a phone number), attempt to find player name via findFoursomeByPhone logic
-  let targetStr = String(targetPlayer).trim().toLowerCase();
-  let targetDigits = String(targetPlayer).replace(/\D/g, "");
+  let phoneIdx = headers.findIndex(h => h.includes("phone") || h.includes("cell") || h.includes("mobile"));
 
-  // If target is only digits, try looking up player name in group sheet
-  if (targetDigits.length >= 7 && phoneIdx === -1 && typeof findFoursomeByPhone === 'function') {
-    try {
-      var lookup = findFoursomeByPhone({ phone: targetDigits, group: cleanGroupName });
-      if (lookup && lookup.player && lookup.player.name) {
-        targetStr = lookup.player.name.trim().toLowerCase();
-      }
-    } catch(e) {}
-  }
+  const targetNorm = String(targetPlayer).trim().toLowerCase();
+  const normPhone = String(targetPlayer).replace(/\D/g, "");
+  let found = false;
 
   for (let r = 1; r < data.length; r++) {
-    let pName = String(data[r][nameIdx] || "").trim().toLowerCase();
+    let pName = (data[r][nameIdx] || "").toString().trim().toLowerCase();
     let pPhone = phoneIdx !== -1 ? String(data[r][phoneIdx] || "").replace(/\D/g, "") : "";
 
-    // Match by Name OR Phone Number
-    const isMatch = (pName && pName === targetStr) || 
-                    (targetDigits.length >= 7 && pPhone && pPhone === targetDigits);
+    let isMatch = (pName && pName === targetNorm) || 
+                  (normPhone.length >= 7 && pPhone.endsWith(normPhone.slice(-7)));
 
     if (isMatch) {
-      const matchedName = data[r][nameIdx] || targetPlayer;
-      const currentVal = String(data[r][checkInIdx] || "").trim().toUpperCase();
-
-      if (currentVal === "X" || currentVal === "YES" || currentVal === "TRUE") {
-        return {
-          success: true,
-          status: "already_checked_in",
-          message: `${matchedName} is already checked in.`
-        };
-      }
-
       sheet.getRange(r + 1, checkInIdx + 1).setValue("X");
+      found = true;
+      break;
+    }
+  }
 
-      try {
-        const cacheKey = typeof getCheckInCacheKey === 'function' ? getCheckInCacheKey(sheetName) : null;
-        if (cacheKey) CacheService.getScriptCache().remove(cacheKey);
-      } catch(e) {}
-
-      return {
-        success: true,
-        status: "success",
-        message: `${matchedName} checked in successfully!`
-      };
+  if (found) {
+    const cacheKey = getCheckInCacheKey("Sched " + cleanGroupName);
+    if (typeof CacheService !== 'undefined') {
+      try { CacheService.getScriptCache().remove(cacheKey); } catch(e) {}
     }
   }
 
   return { 
-    success: false, 
-    status: "failed", 
-    message: `Player '${targetPlayer}' was not found on the '${sheet.getName()}' sheet.` 
+    success: found, 
+    status: found ? "success" : "failed", 
+    message: found ? "Player checked in successfully." : "Player not found on sheet." 
   };
 }
