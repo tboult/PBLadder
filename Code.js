@@ -2530,15 +2530,14 @@ function togglePlayerActive(payload) {
 
     const headers = data[0].map(h => h.toString().toLowerCase().trim());
     
-    // Find Status Column (Looks for StatusatusSt, Status, or Active)
     let activeIdx = headers.findIndex(h => h.includes("status") || h.includes("active"));
-    if (activeIdx === -1) activeIdx = 0; // Fallback to Column A
+    if (activeIdx === -1) activeIdx = 0;
 
     let nameIdx = headers.findIndex(h => h.includes("name") || h.includes("player"));
-    if (nameIdx === -1) nameIdx = 1; // Fallback Column B
+    if (nameIdx === -1) nameIdx = 1;
 
     let phoneIdx = headers.findIndex(h => h.includes("phone") || h.includes("mobile"));
-    if (phoneIdx === -1) phoneIdx = 5; // Fallback Column F
+    if (phoneIdx === -1) phoneIdx = 5;
 
     let updated = false;
     for (let r = 1; r < data.length; r++) {
@@ -2549,8 +2548,14 @@ function togglePlayerActive(payload) {
       const phoneMatch = targetPhone && rowPhone && rowPhone.includes(targetPhone);
 
       if (nameMatch || phoneMatch) {
-        // Write back to the exact column index we found (or Column A)
-        scoreSheet.getRange(r + 1, activeIdx + 1).setValue(newActiveState ? "Active" : "Inactive");
+        const cell = scoreSheet.getRange(r + 1, activeIdx + 1);
+        
+        // Write value
+        cell.setValue(newActiveState ? "Active" : "Inactive");
+        
+        // Fill Google Sheet Cell background: Green (#d4edda) vs Yellow (#fff3cd)
+        cell.setBackground(newActiveState ? "#d4edda" : "#fff3cd");
+        
         updated = true;
         break;
       }
