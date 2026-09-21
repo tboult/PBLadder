@@ -1204,6 +1204,7 @@ function renderCheckInPlayers(players) {
 }
 
 
+
 async function handlePlayerRowClick(rowEl, identifier) {
   if (rowEl.style.pointerEvents === 'none') return;
 
@@ -1256,7 +1257,6 @@ async function handlePlayerRowClick(rowEl, identifier) {
 
 
 async function lookupPhone() {
-  // 1. Get input element and value safely
   const phoneEl = document.getElementById('phoneInput');
   const input = phoneEl ? phoneEl.value.trim() : '';
 
@@ -1265,11 +1265,9 @@ async function lookupPhone() {
     return;
   }
 
-  // Save phone number to localStorage immediately
   localStorage.setItem('scpb_saved_phone', input);
   localStorage.setItem('saved_phone', input);
 
-  // 2. Retrieve cached group saved during check-in / group selection
   const savedGroup = localStorage.getItem('scpb_saved_group') || 
                      localStorage.getItem('scpb_selected_group') || 
                      (typeof getSavedGroup === 'function' ? getSavedGroup() : '');
@@ -1283,23 +1281,22 @@ async function lookupPhone() {
   const lookupResultEl = document.getElementById('lookupResult');
   const regSectionEl = document.getElementById('registrationSection');
 
-  // ⚡ 3. CACHE CHECK: Skip API call if input phone & group match existing active player
+  // Cache Check: skip network call if input phone & group match existing active player
   const normInput = input.replace(/\D/g, '');
-  const cachedPhone = (activeLookupPlayer && activeLookupPlayer.phone) 
+  const cachedPhone = (typeof activeLookupPlayer !== 'undefined' && activeLookupPlayer?.phone) 
     ? String(activeLookupPlayer.phone).replace(/\D/g, '') 
     : '';
-  const cachedGroup = activeLookupPlayer ? activeLookupPlayer.group : '';
+  const cachedGroup = (typeof activeLookupPlayer !== 'undefined' && activeLookupPlayer) ? activeLookupPlayer.group : '';
 
-  if (activeLookupPlayer && normInput.length >= 7 && cachedPhone.endsWith(normInput.slice(-7)) && cachedGroup === savedGroup) {
+  if (typeof activeLookupPlayer !== 'undefined' && activeLookupPlayer && normInput.length >= 7 && cachedPhone.endsWith(normInput.slice(-7)) && cachedGroup === savedGroup) {
     if (statusEl) statusEl.innerText = '';
     if (regSectionEl) regSectionEl.style.display = 'none';
     if (lookupResultEl) lookupResultEl.style.display = 'block';
     
-    // Re-render UI from memory cache without making a network request
     if (typeof renderLookupResult === 'function' && activeLookupFoursome) {
       renderLookupResult(activeLookupPlayer, activeLookupFoursome);
     }
-    return; // Exit early!
+    return;
   }
 
   if (statusEl) statusEl.innerText = 'Searching for player...';
@@ -1310,22 +1307,24 @@ async function lookupPhone() {
       group: savedGroup 
     });
 
-      if (res && res.found) {
-      // Save details to cache
+    if (res && res.found) {
       activeLookupPlayer = res.player;
-      activeLookupFoursome = res.courtFoursome;
+      activeLookupFoursome = res.courtFoursome || [];
 
-      if (res.player.first) {
-      localStorage.setItem('scpb_saved_first_name', res.player.first);
-      }
+      // Save user values to localStorage for check-in and UI persistence
+      if (res.player.first) localStorage.setItem('scpb_saved_first_name', res.player.first);
       if (res.player.name) {
-      localStorage.setItem('scpb_saved_player_name', res.player.name);
+        localStorage.setItem('scpb_saved_player_name', res.player.name);
+        localStorage.setItem('scpb_saved_name', res.player.name);
       }
+      if (res.player.group) localStorage.setItem('scpb_saved_group', res.player.group);
 
-      // Update Welcome Banner
-      updateWelcomeBanner();
+      // Safe banner update (errors inside won't break phone lookup)
+      if (typeof updateWelcomeBanner === 'function') {
+        try { updateWelcomeBanner(); } catch (bErr) { console.warn('Banner update error:', bErr); }
+      }
       
-      // 4. Check if schedule is generated for current week
+      // Schedule is not published yet
       if (res.scheduleReady === false) {
         if (statusEl) {
           statusEl.innerHTML = `<div class="card" style="background:#fff3cd; color:#856404; font-weight:bold; text-align:center; padding: 0.75rem;">
@@ -1337,17 +1336,16 @@ async function lookupPhone() {
         return;
       }
 
-      // 5. Schedule is ready and player was found -> Store in memory cache
-      activeLookupPlayer = res.player;
-      activeLookupFoursome = res.courtFoursome;
-
+      // Schedule ready
       if (statusEl) statusEl.innerText = '';
       if (regSectionEl) regSectionEl.style.display = 'none';
       if (lookupResultEl) lookupResultEl.style.display = 'block';
 
-      renderLookupResult(res.player, res.courtFoursome);
+      if (typeof renderLookupResult === 'function') {
+        renderLookupResult(res.player, res.courtFoursome);
+      }
     } else {
-      // 6. Player not found -> Clear cache & prompt registration
+      // Player phone not found in roster
       activeLookupPlayer = null;
       activeLookupFoursome = null;
 
@@ -1359,12 +1357,12 @@ async function lookupPhone() {
       if (regPhoneEl) regPhoneEl.value = input;
     }
   } catch (err) {
-    if (statusEl) statusEl.innerText = '❌ Error looking up phone number.';
+    console.error('lookupPhone failed:', err);
+    if (statusEl) statusEl.innerText = '❌ Error looking up phone number: ' + (err.message || 'Server error');
   }
 }
 
-
-function renderLookupResult(player, foursome) {
+function renderLookupResult(player, foursome) { 
   activeLookupPlayer = player;
   activeFoursome = foursome || [];
 

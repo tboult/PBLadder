@@ -354,6 +354,7 @@ function fetchPlayersFromSheet(inputName) {
   return players;
 }
 
+
 function findFoursomeByPhone(phoneOrPayload, groupArg) {
   let phone, group;
   if (typeof phoneOrPayload === "object" && phoneOrPayload !== null) {
@@ -364,7 +365,10 @@ function findFoursomeByPhone(phoneOrPayload, groupArg) {
     group = groupArg;
   }
 
-  logDebug("findFoursomeByPhone", "Searching phone/group", { phone: phone, group: group });
+  if (typeof logDebug === "function") {
+    logDebug("findFoursomeByPhone", "Searching phone/group", { phone: phone, group: group });
+  }
+
   if (!phone) return { found: false, scheduleReady: false, message: "No phone number provided" };
 
   const ss = getDb();
@@ -372,7 +376,7 @@ function findFoursomeByPhone(phoneOrPayload, groupArg) {
   if (normPhone.length < 7) return { found: false, scheduleReady: false, message: "Phone number must be at least 7 digits" };
 
   let cleanGroup = group ? String(group).replace(/^(Score|Sched)\s*/i, "").trim() : null;
-  let targetGroups = cleanGroup ? [cleanGroup] : GROUPS;
+  let targetGroups = cleanGroup ? [cleanGroup] : (typeof GROUPS !== "undefined" ? GROUPS : []);
 
   for (let g of targetGroups) {
     let scoreSheet = ss.getSheetByName("Score " + g);
@@ -381,16 +385,17 @@ function findFoursomeByPhone(phoneOrPayload, groupArg) {
     let data = scoreSheet.getDataRange().getValues();
     if (!data || data.length <= 1) continue;
 
-    let col = buildColMap(data[0]);
+    let col = (typeof buildColMap === "function") ? buildColMap(data[0]) : {};
     if (col.phone === undefined) continue;
 
     for (let r = 1; r < data.length; r++) {
       let rowPhone = String(data[r][col.phone] || "").replace(/\D/g, "");
       if (rowPhone && rowPhone.endsWith(normPhone.slice(-7))) {
-        let first = col.first !== undefined ? data[r][col.first] : "";
-        let last = col.last !== undefined ? data[r][col.last] : "";
-        let name = col.name !== undefined ? data[r][col.name] : `${first} ${last}`.trim();
-        let status = col.status !== undefined ? data[r][col.status] : "Active";
+        let first = col.first !== undefined ? String(data[r][col.first] || "").trim() : "";
+        let last = col.last !== undefined ? String(data[r][col.last] || "").trim() : "";
+        let name = col.name !== undefined ? String(data[r][col.name] || "").trim() : `${first} ${last}`.trim();
+        let status = col.status !== undefined ? String(data[r][col.status] || "").trim() : "Active";
+        
         let court = "BYE";
         let foursome = [];
         let scheduleReady = false;
@@ -418,7 +423,7 @@ function findFoursomeByPhone(phoneOrPayload, groupArg) {
           }
 
           if (scheduleReady) {
-            let lowerName = name.toLowerCase();
+            let lowerName = name.trim().toLowerCase(); // FIX: Trimmed to prevent spaces mismatch
 
             for (let sr = 1; sr < sData.length; sr++) {
               let sName = String(sData[sr][0] || "").trim().toLowerCase();
@@ -437,6 +442,7 @@ function findFoursomeByPhone(phoneOrPayload, groupArg) {
                   let parts = pName.split(" ");
                   foursome.push({
                     name: pName,
+                    playerName: pName,
                     first: parts[0] || "",
                     last: parts.slice(1).join(" ") || ""
                   });
@@ -446,14 +452,18 @@ function findFoursomeByPhone(phoneOrPayload, groupArg) {
           }
         }
 
+        const calculatedFirst = first || name.split(" ")[0] || "";
+        const calculatedLast = last || name.split(" ").slice(1).join(" ") || "";
+
         return {
           found: true,
           scheduleReady: scheduleReady,
           message: scheduleReady ? "Player found" : "Schedule not yet ready for this week",
           player: {
-            first: first || name.split(" ")[0],
-            last: last || name.split(" ").slice(1).join(" "),
+            first: calculatedFirst,
+            last: calculatedLast,
             name: name,
+            playerName: name, // FIX: Added key expected by check-in routines
             phone: phone,
             group: g,
             court: scheduleReady ? court : "Pending",
