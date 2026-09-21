@@ -1031,7 +1031,7 @@ function handleApiRequest(e) {
         break;
 
       case 'getAppVersion':
-        result = typeof getAppVersion === 'function' ? getAppVersion() : "1.1.4";
+        result = typeof getAppVersion === 'function' ? getAppVersion() : "0.9.5";
         break;
 
       case 'generatePdfSchedule':
