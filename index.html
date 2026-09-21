@@ -543,7 +543,7 @@
 
   window.API_URL = "https://script.google.com/macros/s/AKfycbweTOjVcY0R1sxXrYfbN2S9jqMz4yr5b1alVoz0gjVy3P3ty42rtHlfgfpdjtFnF4nFaQ/exec";
   const API_URL = window.API_URL;
-  const CURRENT_APP_VERSION = "1.1.5";
+  const CURRENT_APP_VERSION = "1.1.4";
 
   const GROUP_COURT_MAP = {
       "Womens": [3,4,5,6,7,8,15,16,17,18,19,20],
@@ -2041,12 +2041,10 @@ async function setupEventListeners() {
       }
 
       // Check version matching
-      if (initData.version && initData.version !== CURRENT_APP_VERSION) {
-        console.log(`New version detected: ${initData.version}. Resetting app...`);
-        forceResetApp();
+        handleVersionCheck(serverVersion)
+        console.log(`New version detected: ${initData.version}. Aborting app...`);
         return;
       }
-    }
   } catch (err) {
     console.warn("Initial metadata sync failed, running on cached data:", err);
   } finally {
@@ -2058,6 +2056,40 @@ async function setupEventListeners() {
 
     startCheckInAutoRefresh();
   }
+}  
+
+// Locate where you process the version response from Code_2.js
+function handleVersionCheck(serverVersion) {
+  if (serverVersion !== CURRENT_APP_VERSION) {
+    const errorMsg = `Version Mismatch Detected!\n` +
+                     `Client Version: ${CURRENT_APP_VERSION}\n` +
+                     `Server Version: ${serverVersion}\n\n` +
+                     `Please perform a hard refresh or redeploy the script.`;
+
+    console.error(errorMsg);
+
+    // 1. Hide global loader/spinner if present
+    const loader = document.getElementById("loader") || document.getElementById("loading-spinner");
+    if (loader) loader.style.display = "none";
+
+    // 2. Render a clear error message to the UI
+    const appContainer = document.getElementById("app") || document.body;
+    appContainer.innerHTML = `
+      <div style="padding: 20px; margin: 40px auto; max-width: 500px; border: 2px solid #d9534f; background-color: #fdf7f7; border-radius: 8px; font-family: sans-serif; text-align: center;">
+        <h3 style="color: #d9534f; margin-top: 0;">App Version Mismatch</h3>
+        <p style="color: #333;">The client code (<strong>v${CURRENT_APP_VERSION}</strong>) does not match the server code (<strong>v${serverVersion}</strong>).</p>
+        <p style="font-size: 0.9em; color: #666;">Automatic app initialization has been stopped to prevent infinite reloads.</p>
+        <button onclick="window.location.reload(true)" style="padding: 8px 16px; background-color: #d9534f; color: white; border: none; border-radius: 4px; cursor: pointer;">
+          Force Reload Page
+        </button>
+      </div>
+    `;
+
+    // 3. Throw an error or return to prevent the rest of setupEventListeners() from running
+    throw new Error(`Execution halted due to version mismatch: Client (${CURRENT_APP_VERSION}) vs Server (${serverVersion})`);
+  }
+
+  // Version matches — continue normal app initialization...
 }  
 
 async function loadRankingsAndSched() {

@@ -22,6 +22,12 @@ const GROUP_COURT_MAP = {
 
 let _dbInstance = null;
 
+
+function testgetRankingsAndSchedData() {
+    getRankingsAndSchedData("Mens")
+}
+
+
 function testCheckInDirectly() {
   try {
     const result = toggleSingleCheckIn({
@@ -644,9 +650,9 @@ function getRankingsAndSchedData(groupName) {
     if (!isWeekFinalized) {
       html += `
         <div style="background:#fff3bf; color:#856404; border:1px solid #ffeeba; padding:12px; margin-bottom:15px; border-radius:6px; font-weight:bold; text-align:center;">
-          ⏳ Schedule for this week not yet finalized
+          ⏳ Schedule for this week not yet finalized. 
         </div>`;
-      hasData = true;
+        hasData = true;
     } else {
       let sData = schedSheet.getDataRange().getDisplayValues();
       if (sData && sData.length > 1) {
@@ -2047,7 +2053,7 @@ function getScoreSheetByGroup(groupName) {
 function getWeekNumber(sheet) {
   if (!sheet) return 1;
   var weekVal = sheet.getRange("I2").getValue();
-  return weekVal !== "" ? weekVal : 1;
+  return weekVal !== "";
 }
 
 function setWeekNumber(sheet, weekNum) {
