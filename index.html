@@ -373,13 +373,11 @@
 <!-- 2. PHONE NUMBER INPUT -->
 <div class="card" style="margin-top: 1rem;">
   <h3 style="margin-top:0;">📱 2. Phone Number</h3>
-  <div id="phoneEntrySection">
+  <div id="phoneEntrySection" display: block !important;  visibility: visible !important;  opacity: 1 !important>
     <label style="font-size: 1.1rem;"><b>Enter Phone Number:</b></label>
-    <input type="tel" id="phoneInput" placeholder="e.g. 555-123-4567" style="width: 100%; font-size: 1.25rem; padding: 0.75rem; margin-top: 0.5rem; margin-bottom: 0.75rem; border: 2px solid var(--input-border); border-radius: 0.5rem; box-sizing: border-box; text-align: center;">
-    <button class="btn-main" style="width: 100%; padding: 0.75rem; font-size: 1.1rem;" onclick="lookupPhone(); switchTab('score');">Find My Foursome</button>
-  </div>
+    <input type="tel" id="phoneInput" placeholder="e.g. 555-123-4567" style="width: 100%; font-size: 1.25rem; padding: 0.75rem; margin-top: 0.5rem; margin-bottom: 0.75rem; border: 2px solid var(--input-border); border-radius: 0.5rem; box-sizing: border-box; text-align: center; display: block !important;  visibility: visible !important;  opacity: 1 !important;">
 </div>      
-
+</div>
       <!-- REFRESH & ACCESSIBILITY -->
       <button id="forceRefreshBtn" onclick="forceRefresh()" title="Clear browser cache and reload fresh data" style="padding: 8px 12px; cursor: pointer; margin-top: 1rem; width:100%;">
          <h3> 🔄 Clean Cache & Refresh Data </h3>
@@ -429,6 +427,7 @@
     <!-- TAB 3: ENTER SCORES (SCORE ENTRY PAGE) -->
     <div id="scoreTab" class="tab-content">
       <h3 style="margin-top:0;">📝 Enter Court Scores</h3>
+    <button class="btn-main" style="width: 100%; padding: 0.75rem; font-size: 1.1rem;" onclick="lookupPhone();">Find My Foursome</button>
       <div id="lookupResult">
         <div class="card" style="background: var(--bg-color);">
           <h4 style="margin:0 0 0.25rem 0;" id="pNameDisplay"></h4>
@@ -1300,12 +1299,13 @@ async function lookupPhone() {
   }
 
   if (statusEl) statusEl.innerText = 'Searching for player...';
-
   try {
-    const res = await apiCall('findFoursomeByPhone', { 
-      phone: input, 
-      group: savedGroup 
-    });
+      const res = await apiCall('findFoursomeByPhone', { 
+          phone: input, 
+          group: savedGroup,
+          groupName: savedGroup,
+          sheet: "Sched " + cachedGroup
+      });      
 
     if (res && res.found) {
       activeLookupPlayer = res.player;
@@ -1366,7 +1366,6 @@ function renderLookupResult(player, foursome) {
   activeLookupPlayer = player;
   activeFoursome = foursome || [];
 
-  document.getElementById('phoneEntrySection').style.display = 'none';
   document.getElementById('registrationSection').style.display = 'none';
   document.getElementById('lookupResult').style.display = 'block';
 
@@ -1566,7 +1565,6 @@ async function submitRegistration() {
 
 function cancelRegistration() {
   document.getElementById('registrationSection').style.display = 'none';
-  document.getElementById('phoneEntrySection').style.display = 'block';
 }
 
 

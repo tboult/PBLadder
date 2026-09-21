@@ -520,120 +520,146 @@ function togglePlayerStatus(phone, groupName) {
 }
 
 function submitCourtScores(payload) {
-  logDebug("submitCourtScores", "Submitting scores payload", payload);
-  if (!payload || (!payload.group && !payload.groupName) || !Array.isArray(payload.scores)) {
-    return { success: false, message: "Invalid payload: Missing group or scores array." };
-  }
-
-  const ss = getDb();
-  let cleanGroup = String(payload.group || payload.groupName).replace(/^(Score|Sched)\s*/i, "").trim();
-  let schedSheet = ss.getSheetByName("Sched " + cleanGroup);
-
-  if (!schedSheet) {
-    return { success: false, message: `Schedule sheet 'Sched ${cleanGroup}' not found.` };
-  }
-
-  const data = schedSheet.getDataRange().getValues();
-  if (data.length <= 1) return { success: false, message: "Schedule sheet has no player rows." };
-
-  let headers = data[0].map(h => h.toString().toLowerCase().trim());
-  let nameIdx = headers.indexOf("player name") !== -1 ? headers.indexOf("player name") : headers.indexOf("name");
-  if (nameIdx === -1) nameIdx = 0;
-
-  let g1Idx = headers.indexOf("game 1");
-  let g2Idx = headers.indexOf("game 2");
-  let g3Idx = headers.indexOf("game 3");
-  let totIdx = headers.indexOf("total");
-
-  let submitterIdx = headers.findIndex(h => 
-    h === "entered" || h === "entered by" || h === "submitted by" || h.includes("entered")
-  );
-  if (submitterIdx === -1 && data[0].length >= 8) {
-    submitterIdx = 7; 
-  }
-
-  let submitterName = payload.submittedByName || payload.userName || payload.enteredBy || payload.user || "";
-
-  if (!submitterName) {
-    let rawPhone = payload.submittedBy || payload.phone || payload.userPhone || "";
-    let phoneDigits = String(rawPhone).replace(/\D/g, "");
-
-    if (phoneDigits.length >= 7 && typeof findFoursomeByPhone === 'function') {
-      try {
-        let lookup = findFoursomeByPhone({ phone: phoneDigits, group: cleanGroup });
-        if (lookup && lookup.player && lookup.player.name) {
-          submitterName = lookup.player.name;
-        }
-      } catch (e) {}
+  try {
+    logDebug("submitCourtScores", "Submitting scores payload", payload);
+    if (!payload || (!payload.group && !payload.groupName) || !Array.isArray(payload.scores)) {
+      return { success: false, message: "Invalid payload: Missing group or scores array." };
     }
 
-    if (!submitterName && rawPhone) {
-      submitterName = String(rawPhone).trim();
+    const ss = getDb();
+    let cleanGroup = String(payload.group || payload.groupName).replace(/^(Score|Sched)\s*/i, "").trim();
+    let schedSheet = ss.getSheetByName("Sched " + cleanGroup);
+
+    if (!schedSheet) {
+      return { success: false, message: `Schedule sheet 'Sched ${cleanGroup}' not found.` };
     }
-  }
 
-  let scoresMap = {};
-  payload.scores.forEach(item => {
-    let key = String(item.name || "").trim().toLowerCase();
-    if (key) scoresMap[key] = item;
-  });
+    const data = schedSheet.getDataRange().getValues();
+    if (data.length <= 1) return { success: false, message: "Schedule sheet has no player rows." };
 
-  let updatedCount = 0;
+    let headers = data[0].map(h => h.toString().toLowerCase().trim());
+    let nameIdx = headers.indexOf("player name") !== -1 ? headers.indexOf("player name") : headers.indexOf("name");
+    if (nameIdx === -1) nameIdx = 0;
 
-  for (let r = 1; r < data.length; r++) {
-    let rowName = String(data[r][nameIdx] || "").trim().toLowerCase();
-    if (scoresMap[rowName]) {
-      let pScore = scoresMap[rowName];
+    let g1Idx = headers.indexOf("game 1");
+    let g2Idx = headers.indexOf("game 2");
+    let g3Idx = headers.indexOf("game 3");
+    let totIdx = headers.indexOf("total");
 
-      let curG1 = g1Idx !== -1 ? data[r][g1Idx] : "";
-      let curG2 = g2Idx !== -1 ? data[r][g2Idx] : "";
-      let curG3 = g3Idx !== -1 ? data[r][g3Idx] : "";
+    let submitterIdx = headers.findIndex(h => 
+      h === "entered" || h === "entered by" || h === "submitted by" || h.includes("entered")
+    );
+    if (submitterIdx === -1 && data[0].length >= 8) {
+      submitterIdx = 7; 
+    }
 
-      if (g1Idx !== -1 && pScore.g1 !== undefined && pScore.g1 !== null && pScore.g1 !== "") {
-        curG1 = pScore.g1;
-        schedSheet.getRange(r + 1, g1Idx + 1).setValue(pScore.g1);
-      }
-      if (g2Idx !== -1 && pScore.g2 !== undefined && pScore.g2 !== null && pScore.g2 !== "") {
-        curG2 = pScore.g2;
-        schedSheet.getRange(r + 1, g2Idx + 1).setValue(pScore.g2);
-      }
-      if (g3Idx !== -1 && pScore.g3 !== undefined && pScore.g3 !== null && pScore.g3 !== "") {
-        curG3 = pScore.g3;
-        schedSheet.getRange(r + 1, g3Idx + 1).setValue(pScore.g3);
-      }
+    let submitterName = payload.submittedByName || payload.userName || payload.enteredBy || payload.user || "";
 
-      if (totIdx !== -1) {
-        let sum = 0;
-        let hasAnyScore = false;
-        [curG1, curG2, curG3].forEach(v => {
-          let num = parseInt(v, 10);
-          if (!isNaN(num)) {
-            sum += num;
-            hasAnyScore = true;
+    if (!submitterName) {
+      let rawPhone = payload.submittedBy || payload.phone || payload.userPhone || "";
+      let phoneDigits = String(rawPhone).replace(/\D/g, "");
+
+      if (phoneDigits.length >= 7 && typeof findFoursomeByPhone === 'function') {
+        try {
+          // Pass sheet explicitly to prevent findFoursomeByPhone from failing
+          let lookup = findFoursomeByPhone({ 
+            phone: phoneDigits, 
+            group: cleanGroup, 
+            sheet: "Sched " + cleanGroup 
+          });
+          if (lookup && lookup.player && lookup.player.name) {
+            submitterName = lookup.player.name;
           }
-        });
-        if (hasAnyScore) {
-          schedSheet.getRange(r + 1, totIdx + 1).setValue(sum);
+        } catch (e) {
+          logDebug("submitCourtScores", "Lookup fallback failed", e.message);
         }
       }
 
-      if (submitterIdx !== -1 && submitterName) {
-        schedSheet.getRange(r + 1, submitterIdx + 1).setValue(submitterName);
+      if (!submitterName && rawPhone) {
+        submitterName = String(rawPhone).trim();
       }
-
-      updatedCount++;
     }
-  }
 
-  const cacheKey = getCheckInCacheKey("Sched " + cleanGroup);
-  if (typeof CacheService !== 'undefined' && cacheKey) {
-    CacheService.getScriptCache().remove(cacheKey);
-  }
+    let scoresMap = {};
+    payload.scores.forEach(item => {
+      let key = String(item.name || "").trim().toLowerCase();
+      if (key) scoresMap[key] = item;
+    });
 
-  return { 
-    success: true, 
-    message: `Successfully updated scores for ${updatedCount} player(s) on Sched ${cleanGroup}.` 
-  };
+    let updatedCount = 0;
+
+    for (let r = 1; r < data.length; r++) {
+      let rowName = String(data[r][nameIdx] || "").trim().toLowerCase();
+      if (scoresMap[rowName]) {
+        let pScore = scoresMap[rowName];
+
+        let curG1 = g1Idx !== -1 ? data[r][g1Idx] : "";
+        let curG2 = g2Idx !== -1 ? data[r][g2Idx] : "";
+        let curG3 = g3Idx !== -1 ? data[r][g3Idx] : "";
+
+        if (g1Idx !== -1 && pScore.g1 !== undefined && pScore.g1 !== null && pScore.g1 !== "") {
+          curG1 = pScore.g1;
+          schedSheet.getRange(r + 1, g1Idx + 1).setValue(pScore.g1);
+        }
+        if (g2Idx !== -1 && pScore.g2 !== undefined && pScore.g2 !== null && pScore.g2 !== "") {
+          curG2 = pScore.g2;
+          schedSheet.getRange(r + 1, g2Idx + 1).setValue(pScore.g2);
+        }
+        if (g3Idx !== -1 && pScore.g3 !== undefined && pScore.g3 !== null && pScore.g3 !== "") {
+          curG3 = pScore.g3;
+          schedSheet.getRange(r + 1, g3Idx + 1).setValue(pScore.g3);
+        }
+
+        if (totIdx !== -1) {
+          let sum = 0;
+          let hasAnyScore = false;
+          [curG1, curG2, curG3].forEach(v => {
+            let num = parseInt(v, 10);
+            if (!isNaN(num)) {
+              sum += num;
+              hasAnyScore = true;
+            }
+          });
+          if (hasAnyScore) {
+            schedSheet.getRange(r + 1, totIdx + 1).setValue(sum);
+          }
+        }
+
+        if (submitterIdx !== -1 && submitterName) {
+          schedSheet.getRange(r + 1, submitterIdx + 1).setValue(submitterName);
+        }
+
+        updatedCount++;
+      }
+    }
+
+    // Safely clear script cache if key helper exists
+    if (typeof CacheService !== 'undefined') {
+      try {
+        let cacheKey = (typeof getCheckInCacheKey === 'function') 
+          ? getCheckInCacheKey("Sched " + cleanGroup) 
+          : "checkin_cache_Sched_" + cleanGroup;
+        
+        if (cacheKey) {
+          CacheService.getScriptCache().remove(cacheKey);
+        }
+      } catch (cacheErr) {
+        logDebug("submitCourtScores", "Cache clear warning", cacheErr.message);
+      }
+    }
+
+    return { 
+      success: true, 
+      message: `Successfully updated scores for ${updatedCount} player(s) on Sched ${cleanGroup}.` 
+    };
+
+  } catch (err) {
+    logDebug("submitCourtScores Error", err.toString(), err.stack);
+    return {
+      success: false,
+      message: "Server Error submitting scores: " + err.message
+    };
+  }
 }
 
 function getRankingsAndSchedData(groupName) {
