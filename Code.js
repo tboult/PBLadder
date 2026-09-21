@@ -422,6 +422,9 @@ function findFoursomeByPhone(phoneOrPayload, groupArg) {
             }
           }
 
+            //tb hack for now
+            scheduleReady    =true;
+
           if (scheduleReady) {
             let lowerName = name.trim().toLowerCase(); // FIX: Trimmed to prevent spaces mismatch
 
