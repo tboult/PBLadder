@@ -1098,16 +1098,50 @@ async function loadCheckInPlayers() {
   }
 
   try {
+    // Ensure clean action name without hidden spaces
     const res = await apiCall('getPlayersForCheckIn', { 
-      groupName: groupName,
-      group: groupName,
-      sheet: "Sched " + groupName
+      groupName: groupName.trim(),
+      group: groupName.trim(),
+      sheet: "Sched " + groupName.trim()
     });
 
     const rawList = Array.isArray(res) ? res : (res && res.players ? res.players : []);
 
     if (rawList && rawList.length > 0) {
-      checkInPlayersCache = processAndSortPlayers(rawList);
+      // 1. Standard sort
+      let sortedList = processAndSortPlayers(rawList);
+
+      // 2. Retrieve active player criteria
+      const currentPhone = String(
+        (typeof activeLookupPlayer !== 'undefined' && activeLookupPlayer?.phone) || 
+        localStorage.getItem('scpb_saved_phone') || ''
+      ).trim();
+
+      const currentName = String(
+        (typeof activeLookupPlayer !== 'undefined' && (activeLookupPlayer?.name || activeLookupPlayer?.playerName)) || 
+        localStorage.getItem('scpb_saved_name') || ''
+      ).trim().toLowerCase();
+
+      // 3. Move current player to index 0 if found
+      if (currentPhone || currentName) {
+        const userIndex = sortedList.findIndex(p => {
+          const pPhone = String(p.phone || p.id || p.playerId || '').trim();
+          const pName = String(p.name || p.playerName || '').trim().toLowerCase();
+
+          const phoneMatch = currentPhone && pPhone && pPhone === currentPhone;
+          const nameMatch = currentName && pName && pName === currentName;
+
+          return phoneMatch || nameMatch;
+        });
+
+        if (userIndex > -1) {
+          const [currentUser] = sortedList.splice(userIndex, 1);
+          currentUser.isCurrentPlayer = true; // Helpful flag for UI styling if needed
+          sortedList.unshift(currentUser);
+        }
+      }
+
+      checkInPlayersCache = sortedList;
       renderCheckInPlayers(checkInPlayersCache);
       if (statusEl) statusEl.innerText = '';
     } else {
@@ -1117,6 +1151,7 @@ async function loadCheckInPlayers() {
     if (statusEl) statusEl.innerText = '❌ ' + err.message;
   }
 }
+
 
 function renderCheckInPlayers(players) {
   const listEl = document.getElementById('playerList');
@@ -2041,7 +2076,7 @@ async function setupEventListeners() {
       }
 
       // Check version matching
-        handleVersionCheck(serverVersion)
+        handleVersionCheck(initData.version)
         console.log(`New version detected: ${initData.version}. Aborting app...`);
         return;
       }
@@ -2250,17 +2285,12 @@ if (typeof refreshActiveTabData === 'function') {
 
 
 async function triggerAutoCheckIn() {
-  const savedGroup = (activeLookupPlayer && activeLookupPlayer.group) || 
-                     localStorage.getItem('scpb_saved_group') || '';
-  const savedPhone = (activeLookupPlayer && activeLookupPlayer.phone) || 
-                     localStorage.getItem('scpb_saved_phone') || '';
-  // Extract saved player name
-  const savedName = (activeLookupPlayer && (activeLookupPlayer.name || activeLookupPlayer.playerName)) || 
-                    localStorage.getItem('scpb_saved_name') || '';
+  const savedGroup = (activeLookupPlayer && activeLookupPlayer.group) || localStorage.getItem('scpb_saved_group') || '';
+  const savedPhone = (activeLookupPlayer && activeLookupPlayer.phone) || localStorage.getItem('scpb_saved_phone') || '';
+  const savedName  = (activeLookupPlayer && (activeLookupPlayer.name || activeLookupPlayer.playerName)) || localStorage.getItem('scpb_saved_name') || '';
 
-  if (!savedGroup || !savedPhone) return;
+  if (!savedGroup || (!savedPhone && !savedName)) return;
 
-  // 1. Set dropdown if needed
   const sheetSelect = document.getElementById('sheetSelect');
   if (sheetSelect && sheetSelect.value !== savedGroup) {
     sheetSelect.value = savedGroup;
@@ -2269,7 +2299,6 @@ async function triggerAutoCheckIn() {
 
   const checkInStatus = document.getElementById('checkInStatus');
 
-  // 2. Geofence check
   if (checkInStatus) checkInStatus.innerText = '📍 Verifying court location...';
   const isAtCourts = typeof checkGeofence === 'function' ? await checkGeofence(true) : true;
 
@@ -2284,16 +2313,17 @@ async function triggerAutoCheckIn() {
     return;
   }
 
-  // 3. API Call with Name + Phone
   if (checkInStatus) checkInStatus.innerText = '⚡ Auto-checking in...';
 
   try {
     const res = await apiCall('checkInPlayer', { 
-      phone: savedPhone, 
-      playerId: savedPhone,
-      playerName: savedName, // <-- Sends actual player name so backend can match schedule sheet
-      group: savedGroup
+      group: savedGroup,
+      sheet: "Sched " + savedGroup,
+      playerName: savedName,
+      phone: savedPhone
     });
+
+    const isSuccess = res && (res.success || res.status === 'already_checked_in');
 
     if (checkInStatus) {
       if (res && res.status === 'already_checked_in') {
@@ -2301,68 +2331,31 @@ async function triggerAutoCheckIn() {
       } else if (res && res.success) {
         checkInStatus.innerHTML = `<span style="color: #2e7d32; font-weight: bold;">✅ ${res.message || 'Successfully checked in!'}</span>`;
       } else {
-        checkInStatus.innerHTML = `<span style="color: #721c24; font-weight: bold;">⚠️ ${res?.message || 'Check-in update complete.'}</span>`;
+        checkInStatus.innerHTML = `<span style="color: #721c24; font-weight: bold;">⚠️ ${res?.message || 'Check-in failed.'}</span>`;
+      }
+    }
+
+    if (isSuccess && Array.isArray(checkInPlayersCache)) {
+      const matchName = savedName.trim().toLowerCase();
+      const cleanPhone = savedPhone.replace(/\D/g, '');
+
+      const playerObj = checkInPlayersCache.find(p => {
+        const pPhone = String(p.phone || p.id || p.playerId || '').replace(/\D/g, '');
+        const pName = String(p.name || p.playerName || '').trim().toLowerCase();
+        return (cleanPhone && pPhone === cleanPhone) || (matchName && pName === matchName);
+      });
+
+      if (playerObj) {
+        playerObj.checkedIn = true;
+        playerObj.status = 'Checked In';
+      }
+
+      if (typeof renderCheckInPlayers === 'function') {
+        renderCheckInPlayers(checkInPlayersCache);
       }
     }
   } catch (err) {
     if (checkInStatus) checkInStatus.innerHTML = '<span style="color: #721c24; font-weight: bold;">⚠️ Auto check-in failed. Please try again.</span>';
-  }
-}
-
-
-
-function setSelectedGroup(groupName) {
-  if (!groupName) return;
-  const cleanGroup = String(groupName).replace(/^(Sched|Score)\s*/i, '').trim();
-  
-  // Save group choice to local storage
-  setSavedGroup(cleanGroup);
-  localStorage.setItem('scpb_saved_group', cleanGroup);
-  
-  // Synchronize all dropdowns and context UI elements across all tabs
-  syncAllGroupDropdowns(cleanGroup);
-  if (typeof onGroupContextUpdated === 'function') {
-    onGroupContextUpdated(cleanGroup);
-  }
-}
-
-const originalSwitchTab = window.switchTab;
-window.switchTab = function(tabId) {
-  if (typeof originalSwitchTab === 'function') {
-    originalSwitchTab(tabId);
-  }
-
-  // Keep banner fresh on tab switches
-  updateWelcomeBanner();
-
-  // Auto check-in when clicking the Check-In tab
-  if (tabId === 'checkin') {
-    triggerAutoCheckIn();
-  }
-};
-
-// Initialize welcome banner on page load
-document.addEventListener('DOMContentLoaded', function() {
-  updateWelcomeBanner();
-  });
-
-// FIND AND REPLACE THIS FUNCTION:
-function updateWelcomeBanner() {
-  const bannerEl = document.getElementById('welcomeBanner');
-  const nameEl = document.getElementById('welcomeName');
-  if (!bannerEl || !nameEl) return;
-
-  const firstName = (activeLookupPlayer && activeLookupPlayer.first) || 
-                    localStorage.getItem('scpb_saved_first_name') || 
-                    localStorage.getItem('scpb_saved_player_name') || '';
-  
-  const group = getSavedGroup(); // Reads current active group selection
-
-  if (firstName) {
-    nameEl.innerHTML = `${firstName}${group ? ` <span style="font-size:0.85em; opacity:0.8;">(${group})</span>` : ''}`;
-    bannerEl.style.display = 'block';
-  } else {
-    bannerEl.style.display = 'none';
   }
 }
 

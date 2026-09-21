@@ -2085,7 +2085,8 @@ function getActiveWeekForGroup(group) {
 function handleCheckInPlayer(payload) {
   try {
     const groupName = payload.group || payload.sheet || payload.schedSheetName || "";
-    const playerTarget = payload.phone || payload.playerId || payload.playerName || payload.name || "";
+    // Prioritize name over phone so it matches schedule sheet cells
+    const playerTarget = payload.playerName || payload.name || payload.phone || payload.playerId || "";
 
     if (!playerTarget) {
       return {
@@ -2104,6 +2105,7 @@ function handleCheckInPlayer(payload) {
     };
   }
 }
+
 
 function ensurePlayerCheckedIn(sheetName, targetPlayer) {
   if (!sheetName || !targetPlayer) {
