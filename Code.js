@@ -2379,7 +2379,7 @@ function setWeekNumber(sheet, weekNum) {
 
   // Set week value
   var valueCell = sheet.getRange("H2");
-  valueCell.setValue(weekNum);
+  valueCell.setValue("W"+weekNum);
   valueCell.setHorizontalAlignment("center");
 }
 
