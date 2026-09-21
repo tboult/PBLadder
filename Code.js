@@ -2413,8 +2413,7 @@ function ensurePlayerCheckedIn(sheetName, targetPlayer) {
 }
 
 
-// 1. GET ADMIN PLAYER STATUS (Flexible parsing for 'x' and 'Active')
-// 1. GET ADMIN PLAYER STATUS (Reads Active from Score Col A & Check-In from Sched)
+// 1. GET ADMIN PLAYER STATUS (Reads Active from Col A & Phone from Col F of Score Sheet)
 function getAdminPlayerStatus(payload) {
   try {
     const group = payload.group || payload.groupName || "";
@@ -2428,22 +2427,25 @@ function getAdminPlayerStatus(payload) {
       return { success: false, message: "Sheets not found for group: " + cleanGroup, players: [] };
     }
 
-    // A. Read Active/Inactive Status from Column A of "Score [Group]"
-    const activeMap = {}; // Maps lowercased name/phone -> active boolean
+    // A. Read Active Status (Col A) & Phone (Col F) from "Score [Group]"
+    const activeMap = {}; 
     if (scoreSheet) {
       const scoreData = scoreSheet.getDataRange().getValues();
       if (scoreData.length > 0) {
         const scoreHeaders = scoreData[0].map(h => h.toString().toLowerCase().trim());
+        
         let nameIdx = scoreHeaders.findIndex(h => h.includes("name") || h.includes("player"));
+        if (nameIdx === -1) nameIdx = 1; // Column B
+
         let phoneIdx = scoreHeaders.findIndex(h => h.includes("phone") || h.includes("mobile"));
-        if (nameIdx === -1) nameIdx = 1; // Default to Column B if no header
+        if (phoneIdx === -1) phoneIdx = 5; // Explicit fallback to Column F
 
         for (let r = 1; r < scoreData.length; r++) {
           const row = scoreData[r];
           const pName = String(row[nameIdx] || "").trim().toLowerCase();
-          const pPhone = phoneIdx !== -1 ? String(row[phoneIdx] || "").replace(/\D/g, "") : "";
-          
-          // Column A (Index 0) holds Active status
+          const pPhone = String(row[phoneIdx] || "").replace(/\D/g, "");
+
+          // Column A (Index 0) holds Active Status
           const colAVal = String(row[0] || "").trim().toLowerCase();
           const isActive = colAVal === "" || ["active", "y", "yes", "true", "x"].includes(colAVal);
 
@@ -2453,28 +2455,33 @@ function getAdminPlayerStatus(payload) {
       }
     }
 
-    // B. Read Check-In & Court Data from "Sched [Group]"
+    // B. Build Player List from "Sched [Group]"
     let players = [];
     const mainSheet = schedSheet || scoreSheet;
     const data = mainSheet.getDataRange().getValues();
 
     if (data.length > 1) {
       const headers = data[0].map(h => h.toString().toLowerCase().trim());
-      const nameIdx = headers.findIndex(h => h.includes("name") || h.includes("player"));
-      const phoneIdx = headers.findIndex(h => h.includes("phone") || h.includes("mobile"));
+      
+      let nameIdx = headers.findIndex(h => h.includes("name") || h.includes("player"));
+      if (nameIdx === -1) nameIdx = 1;
+
+      let phoneIdx = headers.findIndex(h => h.includes("phone") || h.includes("mobile"));
+      if (phoneIdx === -1 && mainSheet === scoreSheet) phoneIdx = 5;
+
       const checkIdx = headers.findIndex(h => h.includes("check") || h === "checked in" || h === "checkedin");
       const courtIdx = headers.findIndex(h => h.includes("court"));
 
       for (let r = 1; r < data.length; r++) {
         const row = data[r];
-        const pName = String(row[nameIdx !== -1 ? nameIdx : 0] || "").trim();
+        const pName = String(row[nameIdx] || "").trim();
         if (!pName) continue;
 
         const cleanName = pName.toLowerCase();
         const phoneStr = phoneIdx !== -1 ? String(row[phoneIdx] || "").trim() : "";
         const cleanPhone = phoneStr.replace(/\D/g, "");
 
-        // Determine Active state from Score sheet map (defaults to true)
+        // Cross-reference Active state from Score map
         let isActive = true;
         if (activeMap.hasOwnProperty(cleanName)) {
           isActive = activeMap[cleanName];
@@ -2501,6 +2508,61 @@ function getAdminPlayerStatus(payload) {
     return { success: false, error: err.toString(), players: [] };
   }
 }
+
+// 2. TOGGLE PLAYER ACTIVE (Matches Name in Col B or Phone in Col F -> Writes to Col A)
+function togglePlayerActive(payload) {
+  try {
+    const group = payload.group || payload.groupName || "";
+    const cleanGroup = String(group).replace(/^(Score|Sched)\s*/i, "").trim();
+    
+    const targetName = String(payload.name || payload.playerName || payload.identifier || "").trim().toLowerCase();
+    const targetPhone = String(payload.phone || payload.identifier || "").replace(/\D/g, "");
+    const newActiveState = payload.active === true || String(payload.active).toLowerCase() === "true";
+
+    const ss = getDb();
+    const scoreSheet = ss.getSheetByName("Score " + cleanGroup) || ss.getSheetByName("Sched " + cleanGroup);
+
+    if (!scoreSheet) return { success: false, message: "Score sheet not found: Score " + cleanGroup };
+
+    const data = scoreSheet.getDataRange().getValues();
+    if (data.length <= 1) return { success: false, message: "No data found on Score sheet" };
+
+    const headers = data[0].map(h => h.toString().toLowerCase().trim());
+    
+    // Name Column: Search header or fallback to Column B (Index 1)
+    let nameIdx = headers.findIndex(h => h.includes("name") || h.includes("player"));
+    if (nameIdx === -1) nameIdx = 1;
+
+    // Phone Column: Search header or fallback to Column F (Index 5)
+    let phoneIdx = headers.findIndex(h => h.includes("phone") || h.includes("mobile"));
+    if (phoneIdx === -1) phoneIdx = 5;
+
+    let updated = false;
+    for (let r = 1; r < data.length; r++) {
+      const rowName = String(data[r][nameIdx] || "").trim().toLowerCase();
+      const rowPhone = String(data[r][phoneIdx] || "").replace(/\D/g, "");
+
+      const nameMatch = targetName && rowName && (rowName === targetName || rowName.includes(targetName) || targetName.includes(rowName));
+      const phoneMatch = targetPhone && rowPhone && rowPhone.includes(targetPhone);
+
+      if (nameMatch || phoneMatch) {
+        // Writes "Active" or "Inactive" to Column A (Column 1)
+        scoreSheet.getRange(r + 1, 1).setValue(newActiveState ? "Active" : "Inactive");
+        updated = true;
+        break;
+      }
+    }
+
+    clearBackendAdminCache(cleanGroup);
+    return { 
+      success: updated, 
+      message: updated ? "Status updated" : `Player '${targetName || targetPhone}' not found on Score sheet.` 
+    };
+  } catch (err) {
+    return { success: false, message: err.message };
+  }
+}
+
 
 // 2. TOGGLE PLAYER ACTIVE (Writes "Active" or "Inactive" into Column A of Score sheet)
 function togglePlayerActive(payload) {
