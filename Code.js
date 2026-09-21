@@ -238,36 +238,68 @@ function getAvailableGroups() {
  * @param {string|Object} sheetNameOrData - Target tab/group name string OR payload object.
  * @returns {Array<Object>} List of player check-in objects.
  */
+/**
+ * Fetches players and check-in states from CacheService or Google Sheet.
+ * Normalizes tab names to "Sched <Group>" and safely defaults to an empty array.
+ * 
+ * @param {string|Object} sheetNameOrData - Sheet name string OR payload object.
+ * @returns {Array<Object>} List of player check-in objects.
+ */
 function getPlayersForCheckIn(sheetNameOrData) {
-  if (!sheetNameOrData) return [];
-  
-  // Extract sheet name if passed as object
-  let sheetName = sheetNameOrData;
-  if (typeof sheetNameOrData === 'object' && sheetNameOrData !== null) {
-    sheetName = sheetNameOrData.sheet || sheetNameOrData.schedSheetName || sheetNameOrData.tab || sheetNameOrData.groupName || sheetNameOrData.group || "";
-  }
-  if (!sheetName) return [];
-
-  const cacheKey = getCheckInCacheKey(sheetName);
-  const cache = CacheService.getScriptCache();
-
   try {
-    const cached = cache.get(cacheKey);
-    if (cached) return JSON.parse(cached);
-  } catch (err) {}
+    if (!sheetNameOrData) return [];
+    
+    // 1. Extract raw sheet name from string or payload object
+    let rawSheet = sheetNameOrData;
+    if (typeof sheetNameOrData === 'object' && sheetNameOrData !== null) {
+      rawSheet = sheetNameOrData.sheet || sheetNameOrData.schedSheetName || sheetNameOrData.tab || sheetNameOrData.groupName || sheetNameOrData.group || "";
+    }
+    if (!rawSheet || typeof rawSheet !== 'string') return [];
 
-  const players = fetchPlayersFromSheet(sheetName);
+    // 2. Normalize to "Sched <Group>" (e.g., "Mens", "Score Mens" -> "Sched Mens")
+    const cleanGroup = rawSheet.replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
+    if (!cleanGroup) return [];
+    
+    const schedSheetName = "Sched " + cleanGroup;
 
-  if (Array.isArray(players) && players.length > 0) {
+    // 3. Check Cache
+    const cacheKey = getCheckInCacheKey(schedSheetName);
+    const cache = CacheService.getScriptCache();
+
     try {
-      const payloadString = JSON.stringify(players);
-      if (payloadString.length < 100000) {
-        cache.put(cacheKey, payloadString, 600); 
+      const cached = cache.get(cacheKey);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed)) return parsed;
       }
-    } catch (err) {}
+    } catch (err) {
+      console.warn("Cache read error in getPlayersForCheckIn:", err);
+    }
+
+    // 4. Fetch from Sheet
+    const players = fetchPlayersFromSheet(schedSheetName);
+
+    // 5. Cache & Return Valid Array
+    if (Array.isArray(players) && players.length > 0) {
+      try {
+        const payloadString = JSON.stringify(players);
+        if (payloadString.length < 100000) {
+          cache.put(cacheKey, payloadString, 600); // 10 minute cache
+        }
+      } catch (err) {
+        console.warn("Cache write error in getPlayersForCheckIn:", err);
+      }
+      return players;
+    }
+
+    return Array.isArray(players) ? players : [];
+
+  } catch (err) {
+    console.error("Safely handled error in getPlayersForCheckIn:", err);
+    return [];
   }
-  return players;
 }
+
 
 
 /**
@@ -1050,6 +1082,12 @@ function doPost(e) { return handleApiRequest(e); }
  * @returns {GoogleAppsScript.Content.TextOutput} Standardized JSON response object ({ status, data|message }).
  * @throws Catches all top-level runtime exceptions to return valid JSON error payloads.
  */
+/**
+ * Primary API entry point and router for web requests with LockService protection.
+ * 
+ * @param {Object} e - Event object from doGet/doPost.
+ * @returns {GoogleAppsScript.Content.TextOutput} Standardized JSON response object.
+ */
 function handleApiRequest(e) {
   let requiresLock = false;
   let lock = null;
@@ -1071,12 +1109,14 @@ function handleApiRequest(e) {
       logDebug("handleApiRequest", "Processing action: " + action);
     }
 
+    // Include ALL state-modifying actions in lock protection
     const WRITE_ACTIONS = [
       'sortActivePlayers', 'sortActivePlayersForSheet', 'generateScheduleTabs',
       'updateStandingsWithShift', 'correctScoresNoShift', 'processWeeklyScoresForSheet',
-      'toggleSingleCheckIn', 'saveCheckIns', 'togglePlayerStatus', 'submitCourtScores',
-      'submitScores', 'addNewUser', 'registerPlayer', 'rescheduleFromCheckIns',
-      'menuSortActivePlayers', 'menuGenerateScheduleTabs', 'menuUpdateStandingsWithShift',
+      'toggleSingleCheckIn', 'checkInPlayer', 'CheckInPlayer', 'saveCheckIns', 
+      'togglePlayerStatus', 'submitCourtScores', 'submitScores', 'addNewUser', 
+      'registerPlayer', 'rescheduleFromCheckIns', 'menuSortActivePlayers', 
+      'menuGenerateScheduleTabs', 'menuUpdateStandingsWithShift',
       'menuCorrectScoresNoShift', 'startNewSeason'
     ];
 
@@ -1093,111 +1133,137 @@ function handleApiRequest(e) {
     }
 
     let result;
-      switch(action) {
+    switch(action) {
 
       case 'getInitialAppData':
-        var initData = getInitialAppData((payload && payload.phone) ? payload.phone : null);
+        var initData = getInitialAppData((payload && payload.phone) ? payload.phone : null) || {};
         var groupName = payload.groupName || payload.group || '';
+        initData.checkInPlayers = initData.checkInPlayers || [];
         if (groupName) {
           try {
             var targetSheet = "Sched " + String(groupName).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
-            initData.checkInPlayers = getPlayersForCheckIn(targetSheet);
+            var players = getPlayersForCheckIn(targetSheet);
+            if (Array.isArray(players) && players.length > 0) {
+              initData.checkInPlayers = players;
+            }
           } catch (err) {
-            console.warn("Failed fetching initial players:", err);
+            console.warn("Failed fetching initial players safely:", err);
           }
         }
         result = initData;
-          break;
-          
+        break;
+
       case 'checkInPlayer':
       case 'CheckInPlayer':          
-          result =  handleCheckInPlayer(payload);
-          break;
-          
+        result = handleCheckInPlayer(payload);
+        break;
+
       case 'sortActivePlayers':
       case 'sortActivePlayersForSheet':
         result = sortActivePlayersForSheet(getValidActiveScoreSheet(payload.arg || payload.group || payload.groupName));
         break;
+
       case 'generateScheduleTabs':
         result = generateScheduleTabs(payload.arg || payload.tab || payload.sheet || payload.groupName || (payload.group ? "Score " + payload.group : null), payload.courts || null);
         break;
+
       case 'processWeeklyScoresForSheet':
         result = processWeeklyScoresForSheet(getValidActiveScoreSheet(payload.group || payload.groupName || payload.arg), payload.weekCol || "W10", payload.shift !== undefined ? payload.shift : true);
         break;
+
       case 'updateStandingsWithShift':
         result = processWeeklyScoresForSheet(getValidActiveScoreSheet(payload.arg || payload.group || payload.groupName), "W10", true);
         break;
+
       case 'correctScoresNoShift':
         result = processWeeklyScoresForSheet(getValidActiveScoreSheet(payload.arg || payload.group || payload.groupName), "W10", false);
         break;
-      case 'getInitialAppData':
-        result = getInitialAppData((payload && payload.phone) ? payload.phone : null);
-        break;
+
       case 'getSchedTabNames':
         result = getSchedTabNames();
         break;
+
       case 'getAvailableGroups':
         result = getAvailableGroups();
         break;
+
       case 'getPlayersForCheckIn':
         result = getPlayersForCheckIn(payload.sheet || payload.schedSheetName || payload.tab || payload.groupName || payload.group || "");
         break;
+
       case 'toggleSingleCheckIn':
         result = toggleSingleCheckIn(payload.sheet || payload.schedSheetName || payload.tab || payload.group, payload.playerName || payload.name || payload.phone, payload.isCheckedIn !== undefined ? payload.isCheckedIn : payload.checkedIn);
         break;
+
       case 'saveCheckIns':
         result = saveCheckIns(payload.sheet || payload.schedSheetName || payload.tab, payload.checkedNames);
         break;
+
       case 'findFoursomeByPhone': 
-        result = findFoursomeByPhone(payload.phone,payload.groupName || payload.group);
+        result = findFoursomeByPhone(payload.phone, payload.groupName || payload.group);
         break;
+
       case 'togglePlayerStatus':
         result = togglePlayerStatus(payload.phone, payload.groupName || payload.group);
         break;
+
       case 'submitScores':
       case 'submitCourtScores':
         result = submitCourtScores(payload);
         break;
+
       case 'getRankingsAndSchedule':
       case 'getRankingsAndSchedData':
       case 'getRankingsAndScheduleData':
         result = getRankingsAndSchedData(payload.group || payload.groupName);
         break;
+
       case 'getAdminPlayersByGroup':
         result = getAdminPlayersByGroup(payload.group || payload.groupName);
         break;
+
       case 'registerPlayer':
       case 'addNewUser':
         result = addNewUser(payload);
         break;
+
       case 'rescheduleFromCheckIns':
         result = rescheduleFromCheckIns(payload.arg || payload.tab || payload.sheet || payload.groupName || (payload.group ? "Sched " + payload.group : null), payload.courts || null);
         break;
+
       case 'menuSortActivePlayers':
         result = menuSortActivePlayers();
         break;
+
       case 'menuGenerateScheduleTabs':
         result = menuGenerateScheduleTabs();
         break;
+
       case 'menuUpdateStandingsWithShift':
         result = menuUpdateStandingsWithShift();
         break;
+
       case 'menuCorrectScoresNoShift':
         result = menuCorrectScoresNoShift();
         break;
+
       case 'startNewSeason':
         result = startNewSeason();
         break;
+
       case 'getAdminSheetUrl':
         result = getAdminSheetUrl();
         break;
+
       case 'getAppVersion':
         result = typeof getAppVersion === 'function' ? getAppVersion() : "1.1.4";
         break;
+
       case 'generatePdfSchedule':
       case 'webExportSchedulePdf':
         result = webExportSchedulePdf(payload.group || payload.groupName);
         break;
+
       default:
         throw new Error("Invalid or missing API action: " + action);
     }
@@ -1217,6 +1283,7 @@ function handleApiRequest(e) {
     }
   }
 }
+
 
 /**
  * Triggers authorization prompts for Drive, Spreadsheet, and UrlFetch services.
