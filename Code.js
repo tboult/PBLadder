@@ -1226,7 +1226,7 @@ function handleApiRequest(e) {
  */
 function authorizeScript() {
   const ss = SpreadsheetApp.getActiveSpreadsheet() || getDb();
-  const sheet = ss.getSheets()[0];
+  const sheet = getValidActiveScoreSheet(sheetName);
   sheet.getRange(1, 1).setValue(sheet.getRange(1, 1).getValue());
   const folderName = "SCPBLadder";
   const folders = DriveApp.getFoldersByName(folderName);
@@ -1236,31 +1236,69 @@ function authorizeScript() {
   UrlFetchApp.fetch("https://www.google.com");
 }
 
+
 /**
- * Resolves a valid Score tab sheet object using parameters, UI context, or fallbacks.
+ * Resolves and validates a target "Score XX" sheet for a given input or active sheet.
+ * Handles extra whitespace, case sensitivity, and prevents silent fallbacks to Sheet 0.
  * 
- * @param {string} [overrideTabName] - Hardcoded tab or group name to resolve.
- * @returns {GoogleAppsScript.Spreadsheet.Sheet} Target score Sheet instance.
- * @throws Throws Error if no score tab can be resolved.
+ * @param {string} [groupOrSheetName] - Group name or sheet name (e.g., "Sched Mens", "Score Mens").
+ * @returns {GoogleAppsScript.Spreadsheet.Sheet} Validated Score Sheet object.
  */
-function getValidActiveScoreSheet(overrideTabName) {
-  const ss = getDb();
-  let sheet = null;
-  if (overrideTabName) {
-    let target = overrideTabName.toString().trim();
-    if (!target.startsWith("Score ")) target = "Score " + target;
-    sheet = ss.getSheetByName(target);
-    if (sheet) return sheet;
+function getValidActiveScoreSheet(groupOrSheetName) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const allSheets = ss.getSheets();
+  let rawInput = "";
+
+  // 1. Get raw input or active tab name
+  if (groupOrSheetName && typeof groupOrSheetName === 'string' && groupOrSheetName.trim() !== "") {
+    rawInput = groupOrSheetName.trim();
+  } else {
+    const activeSheet = ss.getActiveSheet();
+    if (activeSheet) rawInput = activeSheet.getName().trim();
   }
-  try {
-    let activeSheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-    if (activeSheet && SCORE_TABS.includes(activeSheet.getName())) return activeSheet;
-  } catch(e) {}
-  for (let name of SCORE_TABS) {
-    sheet = ss.getSheetByName(name);
-    if (sheet) return sheet;
+
+  if (!rawInput) {
+    throw new Error("No tab or group name provided. Please select a valid group sheet.");
   }
-  throw new Error("⚠️ Action Cancelled: Could not resolve a valid Score tab. Please specify 'Score Womens', 'Score Mens', or 'Score Mixed'.");
+
+  // 2. Strip prefixes like 'Score', 'Sched', 'Rankings'
+  let cleanGroup = rawInput.replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
+
+  if (!cleanGroup) {
+    throw new Error(`Could not extract group name from tab '${rawInput}'.`);
+  }
+
+  const targetScoreName = ("Score " + cleanGroup).toLowerCase();
+
+  // 3. Robust Trimmed & Case-Insensitive Search
+  // (Fixes issues where tab names have trailing/hidden spaces like "Score Mens ")
+  let scoreSheet = allSheets.find(s => {
+    return s.getName().trim().toLowerCase() === targetScoreName;
+  });
+
+  // 4. Secondary search: Find any Score tab containing cleanGroup
+  if (!scoreSheet) {
+    scoreSheet = allSheets.find(s => {
+      const sNameClean = s.getName().trim().toLowerCase();
+      return sNameClean.startsWith("score ") && sNameClean.includes(cleanGroup.toLowerCase());
+    });
+  }
+
+  // 5. Fail loudly with diagnostic info instead of defaulting to Sheet 0 (Score Women)
+  if (!scoreSheet) {
+    const availableScoreSheets = allSheets
+      .map(s => `'${s.getName()}'`)
+      .filter(name => name.toLowerCase().includes("score"))
+      .join(", ");
+      
+    throw new Error(
+      `Could not match sheet 'Score ${cleanGroup}' from input '${rawInput}'. ` +
+      `Existing score tabs in spreadsheet: [${availableScoreSheets || 'None found'}]. ` +
+      `Please check tab names for typos or unexpected characters.`
+    );
+  }
+
+  return scoreSheet;
 }
 
 
