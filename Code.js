@@ -1768,13 +1768,13 @@ function generateScheduleTabs(genTarget, courts) {
   const ss = getDb();
   let groupsToProcess = [];
   const group = getTargetGroup();
-  const currentWeek = getCurrentWeekIdentifier(); // e.g., "W10" or "Week 10"
+  const currentWeek =   calculateCurrentWeekNumber()
   const sheet =   ss.getSheetByName("Sched " + group) || ss.getSheetByName("Schedule " + group);
 
   
     // Stamp week metadata in H1 and H2
     var h1Cell = sheet.getRange("H1");
-    h1Cell.setValue("SCHEDULE_WEEK:" + currentWeek);
+    h1Cell.setValue("SCHEDULE_WEEK");
     h1Cell.setFontWeight("bold");
 
     var h2Cell = sheet.getRange("H2");
