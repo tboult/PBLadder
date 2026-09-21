@@ -657,6 +657,8 @@ function getRankingsAndSchedData(groupName) {
 
     let isWeekFinalized = Boolean(sheetWeekNum) && Boolean(activeWeekNum) && (sheetWeekNum === activeWeekNum);
 
+    //TB hack for now
+    isWeekFinalized      =true;
     if (!isWeekFinalized) {
       html += `
         <div style="background:#fff3bf; color:#856404; border:1px solid #ffeeba; padding:12px; margin-bottom:15px; border-radius:6px; font-weight:bold; text-align:center;">
@@ -2117,6 +2119,9 @@ function handleCheckInPlayer(payload) {
     let activeWeekNum = activeWeekVal ? String(activeWeekVal).replace(/\D/g, "") : "";
 
     let isWeekFinalized = Boolean(sheetWeekNum) && Boolean(activeWeekNum) && (sheetWeekNum === activeWeekNum);
+
+      //TB HACK
+      isWeekFinalized=true;      
 
     if (!isWeekFinalized) {
       return {

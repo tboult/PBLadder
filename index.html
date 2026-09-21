@@ -1467,7 +1467,7 @@ async function saveScores() {
   const p3 = activeFoursome[2].name;
   const p4 = activeFoursome[3].name;
 
-  // Frontend maps game rotation to individual player objects (leaving empty games as undefined)
+   // Frontend maps game rotation to individual player objects (leaving empty games as undefined)
   const scoresPayload = [
     { name: p1, g1: v1_1, g2: v2_1, g3: v3_1 },
     { name: p2, g1: v1_2, g2: v2_2, g3: v3_1 },
@@ -1761,7 +1761,7 @@ function onGroupChange(sourceId) {
   }
 }
 
-function setSavedGroup(groupName) {
+function setSelectedGroup(groupName) {
   const cleanGroup = String(groupName).replace(/^(Sched|Score)\s*/i, '').trim();
   localStorage.setItem('scpb_selected_group', cleanGroup);
 }
