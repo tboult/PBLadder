@@ -2085,18 +2085,50 @@ function getActiveWeekForGroup(group) {
 function handleCheckInPlayer(payload) {
   try {
     const groupName = payload.group || payload.sheet || payload.schedSheetName || "";
-    // Prioritize name over phone so it matches schedule sheet cells
+    const cleanGroup = String(groupName).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
+    
+    const ss = getDb();
+    const schedSheet = ss.getSheetByName("Sched " + cleanGroup);
+
+    // 1. First check if schedule sheet exists
+    if (!schedSheet) {
+      return {
+        status: "failed",
+        success: false,
+        message: "Schedule sheet not found for " + cleanGroup
+      };
+    }
+
+    // 2. CHECK IF WEEK IS FINALIZED BEFORE SEARCHING FOR PLAYER
+    let sheetWeekVal = (typeof getWeekNumber === "function") ? getWeekNumber(schedSheet) : schedSheet.getRange("I2").getValue();
+    let sheetWeekNum = sheetWeekVal ? String(sheetWeekVal).replace(/\D/g, "") : "";
+
+    let activeWeekVal = (typeof calculateCurrentWeekNumber === "function") ? calculateCurrentWeekNumber() : null;
+    let activeWeekNum = activeWeekVal ? String(activeWeekVal).replace(/\D/g, "") : "";
+
+    let isWeekFinalized = Boolean(sheetWeekNum) && Boolean(activeWeekNum) && (sheetWeekNum === activeWeekNum);
+
+    if (!isWeekFinalized) {
+      return {
+        status: "not_finalized",
+        success: false,
+        message: "⏳ Schedule for this week is not yet finalized. Check-in will open once the schedule is published."
+      };
+    }
+
+    // 3. Week is finalized -> Proceed with player search
     const playerTarget = payload.playerName || payload.name || payload.phone || payload.playerId || "";
 
     if (!playerTarget) {
       return {
         status: "failed",
         success: false,
-        message: "Missing required parameter: phone number or player name"
+        message: "Missing required parameter: player name or phone number."
       };
     }
 
-    return ensurePlayerCheckedIn(groupName, playerTarget);
+    return ensurePlayerCheckedIn(cleanGroup, playerTarget);
+
   } catch (err) {
     return {
       status: "failed",
