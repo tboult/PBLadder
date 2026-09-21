@@ -561,7 +561,7 @@ function findFoursomeByPhone(phoneOrPayload, groupArg) {
             if (sData && sData.length > 0) {
                 // Check cell I1 (row 0, col 8) and I2 (row 1, col 8) for week header validity
                 let headerI1 = (sData[0] && sData[0][8] !== undefined) ? String(sData[0][8] || "").trim() : "";
-                let valueI2  = (sData.length > 1 && sData[1] && sData[1][8] !== undefined) ? String(sData[1][7] || "").trim() : "";
+                let valueI2  = (sData.length > 1 && sData[1] && sData[1][8] !== undefined) ? String(sData[1][8] || "").trim() : "";
                 let currentActiveWeek = typeof getActiveWeekForGroup === "function" ? getActiveWeekForGroup(g) : null;
 
                 // Combine I1 and I2 to handle stamps like "SCHEDULE_WEEK:W10" or "Week" in I1 with "10" in I2
@@ -1293,7 +1293,7 @@ function handleApiRequest(e) {
  */
 function authorizeScript() {
   const ss = SpreadsheetApp.getActiveSpreadsheet() || getDb();
-  const sheet = getValidActiveScoreSheet(sheetName);
+  const sheet = getValidActiveScoreSheet();
   sheet.getRange(1, 1).setValue(sheet.getRange(1, 1).getValue());
   const folderName = "SCPBLadder";
   const folders = DriveApp.getFoldersByName(folderName);
