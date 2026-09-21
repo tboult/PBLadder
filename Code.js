@@ -519,24 +519,24 @@ function findFoursomeByPhone(phoneOrPayload, groupArg) {
           let sData = schedSheet.getDataRange().getValues();
 
             if (sData && sData.length > 0) {
-                // Check cell H1 (row 0, col 7) and H2 (row 1, col 7) for week header validity
-                let headerH1 = (sData[0] && sData[0][7] !== undefined) ? String(sData[0][7] || "").trim() : "";
-                let valueH2  = (sData.length > 1 && sData[1] && sData[1][7] !== undefined) ? String(sData[1][7] || "").trim() : "";
+                // Check cell I1 (row 0, col 8) and I2 (row 1, col 8) for week header validity
+                let headerI1 = (sData[0] && sData[0][8] !== undefined) ? String(sData[0][8] || "").trim() : "";
+                let valueI2  = (sData.length > 1 && sData[1] && sData[1][8] !== undefined) ? String(sData[1][7] || "").trim() : "";
                 let currentActiveWeek = typeof getActiveWeekForGroup === "function" ? getActiveWeekForGroup(g) : null;
 
-                // Combine H1 and H2 to handle stamps like "SCHEDULE_WEEK:W10" or "Week" in H1 with "10" in H2
-                let fullWeekStamp = headerH1.indexOf("SCHEDULE_WEEK:") === 0 ? headerH1 : `${headerH1}:${valueH2}`;
+                // Combine I1 and I2 to handle stamps like "SCHEDULE_WEEK:W10" or "Week" in I1 with "10" in I2
+                let fullWeekStamp = headerI1.indexOf("SCHEDULE_WEEK:") === 0 ? headerI1 : `${headerI1}:${valueI2}`;
 
-                if (headerH1.indexOf("SCHEDULE_WEEK:") === 0) {
-                    if (!currentActiveWeek || headerH1.includes(currentActiveWeek)) {
+                if (headerI1.indexOf("SCHEDULE_WEEK") === 0) {
+                    if (!currentActiveWeek || headerI1.includes(currentActiveWeek)) {
                         scheduleReady = true;
                     }
-                } else if (headerH1.toLowerCase().includes("week") && valueH2 !== "") {
-                    // Matches "Week" in H1 and week value in H2
-                    if (!currentActiveWeek || valueH2.includes(currentActiveWeek) || String(currentActiveWeek).includes(valueH2)) {
+                } else if (headerI1.toLowerCase().includes("week") && valueI2 !== "") {
+                    // Matches "Week" in I1 and week value in I2
+                    if (!currentActiveWeek || valueI2.includes(currentActiveWeek) || String(currentActiveWeek).includes(valueI2)) {
                         scheduleReady = true;
                     }
-                } else if (headerH1 !== "" || valueH2 !== "") {
+                } else if (headerI1 !== "" || valueI2 !== "") {
                     // Fallback for legacy sheets without exact header stamp
                     scheduleReady = true;
                 }
@@ -679,11 +679,36 @@ function submitCourtScores(payload) {
   let g3Idx = headers.indexOf("game 3");
   let totIdx = headers.indexOf("total");
 
+  // Locate "Entered" column (Column 8 / Index 7 fallback)
   let submitterIdx = headers.findIndex(h => 
-    h === "entered by" || h === "submitted by" || h === "score entry phone" || h === "entered phone" || h.includes("entered")
+    h === "entered" || h === "entered by" || h === "submitted by" || h.includes("entered")
   );
+  if (submitterIdx === -1 && data[0].length >= 8) {
+    submitterIdx = 7; // Column H (8th column)
+  }
 
-  let submitterPhone = payload.submittedBy || payload.phone || "";
+  // 1. Extract submitter name from payload properties
+  let submitterName = payload.submittedByName || payload.userName || payload.enteredBy || payload.user || "";
+
+  // 2. Fallback: If only phone was provided, look up player name via helper
+  if (!submitterName) {
+    let rawPhone = payload.submittedBy || payload.phone || payload.userPhone || "";
+    let phoneDigits = String(rawPhone).replace(/\D/g, "");
+
+    if (phoneDigits.length >= 7 && typeof findFoursomeByPhone === 'function') {
+      try {
+        let lookup = findFoursomeByPhone({ phone: phoneDigits, group: cleanGroup });
+        if (lookup && lookup.player && lookup.player.name) {
+          submitterName = lookup.player.name;
+        }
+      } catch (e) {}
+    }
+
+    // Final fallback if name lookup fails
+    if (!submitterName && rawPhone) {
+      submitterName = String(rawPhone).trim();
+    }
+  }
 
   // Create hash map for O(1) lookup by lowercased player name
   let scoresMap = {};
@@ -704,7 +729,7 @@ function submitCourtScores(payload) {
       let curG2 = g2Idx !== -1 ? data[r][g2Idx] : "";
       let curG3 = g3Idx !== -1 ? data[r][g3Idx] : "";
 
-      // Only update cells if new value is provided (not undefined, null, or empty string)
+      // Only update cells if new value is provided
       if (g1Idx !== -1 && pScore.g1 !== undefined && pScore.g1 !== null && pScore.g1 !== "") {
         curG1 = pScore.g1;
         schedSheet.getRange(r + 1, g1Idx + 1).setValue(pScore.g1);
@@ -718,7 +743,7 @@ function submitCourtScores(payload) {
         schedSheet.getRange(r + 1, g3Idx + 1).setValue(pScore.g3);
       }
 
-      // Dynamically calculate Total from all entered game scores (existing + newly submitted)
+      // Calculate Total score
       if (totIdx !== -1) {
         let sum = 0;
         let hasAnyScore = false;
@@ -734,17 +759,27 @@ function submitCourtScores(payload) {
         }
       }
 
-      // Record submitter phone if column exists
-      if (submitterIdx !== -1 && submitterPhone) {
-        schedSheet.getRange(r + 1, submitterIdx + 1).setValue("'" + submitterPhone);
+      // Record submitter Name in "Entered" column
+      if (submitterIdx !== -1 && submitterName) {
+        schedSheet.getRange(r + 1, submitterIdx + 1).setValue(submitterName);
       }
 
       updatedCount++;
     }
   }
 
-  return { success: true, message: `Successfully updated scores for ${updatedCount} player(s) on Sched ${cleanGroup}.` };
+  // Invalidate Cache for fresh reads
+  const cacheKey = getCheckInCacheKey("Sched " + cleanGroup);
+  if (typeof CacheService !== 'undefined' && cacheKey) {
+    CacheService.getScriptCache().remove(cacheKey);
+  }
+
+  return { 
+    success: true, 
+    message: `Successfully updated scores for ${updatedCount} player(s) on Sched ${cleanGroup}.` 
+  };
 }
+
 
 
 /**
@@ -769,7 +804,7 @@ function getRankingsAndSchedData(groupName) {
 
   // --- 1. PROCESS SCHEDULE TAB ---
   if (schedSheet) {
-    // Read week number from cell H2
+    // Read week number from cell I2
     let sheetWeekVal = getWeekNumber(schedSheet); 
     let sheetWeekNum = String(sheetWeekVal || "").replace(/\D/g, "");
 
@@ -778,7 +813,7 @@ function getRankingsAndSchedData(groupName) {
                         (typeof getActiveWeekForGroup === "function") ? getActiveWeekForGroup(cleanGroup) : null;
     let activeWeekNum = activeWeekVal ? String(activeWeekVal).replace(/\D/g, "") : "";
 
-    // Schedule is finalized ONLY if H2 has a valid week matching current active week
+    // Schedule is finalized ONLY if I2 has a valid week matching current active week
     let isWeekFinalized = sheetWeekNum !== "" && (activeWeekNum !== "" ? sheetWeekNum === activeWeekNum : true);
 
     if (!isWeekFinalized) {
@@ -1762,32 +1797,24 @@ function getMostRecentRank(row, col, maxWeekNum = 10) {
  * @returns {string} Operational status message.
  * @throws Assumes active players exist in targeted group score tabs.
  */
-
 function generateScheduleTabs(genTarget, courts) {
-  logDebug("generateScheduleTabs", "Generating schedule tabs", { genTarget, courts });
+  // Normalize genTarget
+  let targetGroup = genTarget;
+  if (typeof genTarget === 'object' && genTarget !== null) {
+    targetGroup = genTarget.group || genTarget.sheet || genTarget.schedSheetName || "";
+  }
+
+  logDebug("generateScheduleTabs", "Generating schedule tabs", { genTarget: targetGroup, courts });
+
   const ss = getDb();
   let groupsToProcess = [];
-  const group = getTargetGroup();
-  const currentWeek =   calculateCurrentWeekNumber()
-  const sheet =   ss.getSheetByName("Sched " + group) || ss.getSheetByName("Schedule " + group);
+  const currentWeek = calculateCurrentWeekNumber();
 
-  
-    // Stamp week metadata in H1 and H2
-    var h1Cell = sheet.getRange("H1");
-    h1Cell.setValue("SCHEDULE_WEEK");
-    h1Cell.setFontWeight("bold");
-
-    var h2Cell = sheet.getRange("H2");
-    h2Cell.setValue(currentWeek);
-    h2Cell.setHorizontalAlignment("center");
-
-
-
-  if (genTarget) {
-    let cleanGroup = String(genTarget).replace(/^(Score|Sched)\s*/i, "").trim();
+  if (targetGroup) {
+    let cleanGroup = String(targetGroup).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
     groupsToProcess = [cleanGroup];
   } else {
-    groupsToProcess = GROUPS;
+    groupsToProcess = (typeof GROUPS !== 'undefined' && GROUPS.length > 0) ? GROUPS : [getTargetGroup()];
   }
 
   let summary = [];
@@ -1818,15 +1845,17 @@ function generateScheduleTabs(genTarget, courts) {
     let availableCourts = courts ? parseAndSortCourts(courts) : getCourtsForGroup(groupName);
     let schedSheetName = "Sched " + groupName;
     let schedSheet = ss.getSheetByName(schedSheetName) || ss.insertSheet(schedSheetName);
+
+    // Clear contents prior to writing
     schedSheet.clear();
 
-    let headers = ["Player Name", "Court", "Check-In", "Game 1", "Game 2", "Game 3", "Total"];
+    // Table Headers: Columns A to H (Columns 1-8)
+    let headers = ["Player Name", "Court", "Check-In", "Game 1", "Game 2", "Game 3", "Total", "Entered"];
     let rows = [headers];
 
     let numPlayers = activePlayers.length;
     let foursomesCount = Math.floor(numPlayers / 4);
 
-    // Flag error if required courts exceed available courts
     let courtWarning = "";
     if (foursomesCount > availableCourts.length) {
       courtWarning = ` ⚠️ Error: Insufficient courts! Needed: ${foursomesCount}, Available: ${availableCourts.length}. Oversubscribed players assigned BYE.`;
@@ -1838,19 +1867,31 @@ function generateScheduleTabs(genTarget, courts) {
       let currentFoursome = Math.floor(i / 4);
       let assignedCourt = "BYE";
 
-      // Strict unique court assignment: do not reuse courts via modulo
       if (currentFoursome < availableCourts.length) {
         assignedCourt = "Court " + availableCourts[currentFoursome];
       }
 
-      rows.push([pName, assignedCourt, "", "", "", "", ""]);
+      rows.push([pName, assignedCourt, "", "", "", "", "", ""]);
     }
 
+    // Write table (Columns 1 to 8 / A to H)
     schedSheet.getRange(1, 1, rows.length, headers.length).setValues(rows);
     schedSheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
 
+    // Stamp Week Metadata in Column 9 (I1 and I2)
+    var i1Cell = schedSheet.getRange("I1");
+    i1Cell.setValue("SCHEDULE_WEEK");
+    i1Cell.setFontWeight("bold");
+
+    var i2Cell = schedSheet.getRange("I2");
+    i2Cell.setValue(currentWeek);
+    i2Cell.setHorizontalAlignment("center");
+
+    // Invalidate Cache
     const cacheKey = getCheckInCacheKey(schedSheetName);
-    CacheService.getScriptCache().remove(cacheKey);
+    if (typeof CacheService !== 'undefined' && cacheKey) {
+      CacheService.getScriptCache().remove(cacheKey);
+    }
 
     let assignedCourtsCount = Math.min(foursomesCount, availableCourts.length);
     let byeCount = numPlayers - (assignedCourtsCount * 4);
@@ -1860,6 +1901,7 @@ function generateScheduleTabs(genTarget, courts) {
 
   return "✅ " + summary.join("\n");
 }
+
 
 /**
  * Re-sorts schedule courts based exclusively on players marked as checked-in.
@@ -2353,18 +2395,23 @@ function getTargetGroup(e) {
 }
 
 /**
- * Gets the current week number from cell H2.
+ * Gets the current week number from cell I2.
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+ * @returns {number|string}
+ */
+/**
+ * Gets the current week number from cell I2.
  * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
  * @returns {number|string}
  */
 function getWeekNumber(sheet) {
   if (!sheet) return 1;
-  var weekVal = sheet.getRange("H2").getValue();
+  var weekVal = sheet.getRange("I2").getValue();
   return weekVal !== "" ? weekVal : 1;
 }
 
 /**
- * Sets the week number header in H1 and value in H2.
+ * Sets the week number header in I1 and value in I2.
  * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
  * @param {number|string} weekNum
  */
@@ -2372,17 +2419,16 @@ function setWeekNumber(sheet, weekNum) {
   if (!sheet) return;
   
   // Set header label
-  var titleCell = sheet.getRange("H1");
-  titleCell.setValue("Week");
+  var titleCell = sheet.getRange("I1");
+  titleCell.setValue("SCHEDULE_WEEK");
   titleCell.setFontWeight("bold");
   titleCell.setHorizontalAlignment("center");
 
   // Set week value
-  var valueCell = sheet.getRange("H2");
-  valueCell.setValue("W"+weekNum);
+  var valueCell = sheet.getRange("I2");
+  valueCell.setValue(weekNum);
   valueCell.setHorizontalAlignment("center");
 }
-
 /**
  * Returns the week identifier (e.g. "W10" for Week 10) for any group.
  * @param {string} group - Group name ("Womens", "Mens", etc.)
@@ -2393,7 +2439,7 @@ function getCurrentWeekIdentifier(group) {
   var targetGroup = group ? String(group).replace(/^(Sched|Score)\s*/i, '').trim() : '';
   var sheet = ss.getSheetByName("Sched " + targetGroup) || ss.getSheetByName(targetGroup) || ss.getActiveSheet();
   
-  // Read value from H2
+  // Read value from I2
   var rawWeek = getWeekNumber(sheet);
   
   // Extract digits (e.g., "10" from "10" or "W10")
