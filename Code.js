@@ -2377,6 +2377,13 @@ function sortActivePlayersForSheet(sheet) {
  * @param {string|GoogleAppsScript.Spreadsheet.Sheet} [sheetOrName] Optional sheet object or name string
  * @returns {string} Cleaned group name (e.g. "Mens", "Womens")
  */
+/**
+ * Extracts and normalizes the target group name from an active sheet or string.
+ * Strictly checks space-separated tab prefixes: 'Score ', 'Sched ', 'Rankings ', etc.
+ *
+ * @param {string|GoogleAppsScript.Spreadsheet.Sheet} [sheetOrName] Optional sheet object or name string
+ * @returns {string} Cleaned group name (e.g. "Mens", "Womens")
+ */
 function getTargetGroup(sheetOrName) {
   let sheetName = "";
 
@@ -2392,20 +2399,22 @@ function getTargetGroup(sheetOrName) {
   }
 
   if (sheetName) {
-    // 1. Match 'Score', 'Sched', or 'Rankings' followed by group name (e.g., "Sched Mens")
-    let match = sheetName.match(/^(Score|Sched|Rankings)\s+(.+)$/i);
+    sheetName = sheetName.trim();
+
+    // 1. Match prefixes with space separator (e.g. 'Sched Mens', 'Rankings Mens', 'Score Mens')
+    let match = sheetName.match(/^(Score|Sched|Schedule|Ranking|Rankings|Standings)\s+(.+)$/i);
     if (match && match[2] && match[2].trim()) {
       return match[2].trim();
     }
 
-    // 2. Check if the sheet name directly matches an item in GROUPS array (e.g., "Mens")
-    let rawClean = sheetName.trim();
-    if (typeof GROUPS !== 'undefined' && Array.isArray(GROUPS) && GROUPS.includes(rawClean)) {
-      return rawClean;
+    // 2. Direct match if the sheet name is already just the group name (e.g. "Mens")
+    if (typeof GROUPS !== 'undefined' && Array.isArray(GROUPS)) {
+      let foundGroup = GROUPS.find(g => g.toLowerCase() === sheetName.toLowerCase());
+      if (foundGroup) return foundGroup;
     }
   }
 
-  // NO FALLBACK PERMITTED: Pop up error alert in Google Sheets and throw Exception
+  // NO FALLBACK: Prompt UI alert if in Google Sheets, throw error if in Web App
   let errorMessage = `Invalid Active Sheet ('${sheetName || "Unknown"}'). Please select a valid Group tab (e.g., 'Score Mens', 'Sched Mens', or 'Rankings Mens') before running this action.`;
 
   try {
@@ -2414,34 +2423,44 @@ function getTargetGroup(sheetOrName) {
       ui.alert("⚠️ Action Stopped: Invalid Sheet", errorMessage, ui.ButtonSet.OK);
     }
   } catch (e) {
-    // UI alert ignored if executing via headless Web API/doPost
+    // UI alert ignored if executing via Web App API
   }
 
   throw new Error(errorMessage);
 }
 
 /**
- * Utility to strip tab prefixes and clean up group names anywhere in the backend.
+ * Normalizes payload inputs or string sheet names to extract pure group name.
  */
 function cleanGroupName(input) {
-  if (!input) return getTargetGroup();
-  let str = (typeof input === 'object' && input !== null) ? (input.group || input.sheet || input.groupName || "") : String(input);
-  if (!str.trim()) return getTargetGroup();
-  return str.replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
+  let str = "";
+
+  if (typeof input === 'object' && input !== null) {
+    // Extract group from object properties with fallback to sheet name
+    str = input.group || input.groupName || (input.sheet && input.sheet !== "N/A" ? input.sheet : "") || input.schedSheetName || "";
+  } else if (input) {
+    str = String(input);
+  }
+
+  str = str.trim();
+  if (!str || str.toLowerCase() === "n/a") return getTargetGroup();
+
+  // Strip prefixes separated by space
+  return str.replace(/^(Score|Sched|Schedule|Ranking|Rankings|Standings)\s*/i, "").trim();
 }
 
 /**
- * Safely fetches the Score sheet for a group using the unified group parser.
+ * Safely fetches the Score/Rankings sheet for a group using space-separated tab conventions.
  */
 function getScoreSheetByGroup(groupName) {
   const ss = getDb();
   const group = cleanGroupName(groupName);
-  
+
   return ss.getSheetByName("Score " + group) || 
          ss.getSheetByName("Rankings " + group) || 
+         ss.getSheetByName("Ranking " + group) || 
          ss.getSheetByName(group);
 }
-
 
 /**
  * Gets the current week number from cell I2.
