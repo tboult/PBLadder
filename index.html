@@ -324,6 +324,8 @@
   </head>
   <body>
 
+
+
     <h2 class="header-title" id="mainHeader" onpointerdown="handleSecretTap(event)">🥒 SCPB Ladder 🥒</h2>
 
 <div id="globalLoader" class="global-loader" style="display: flex;">
@@ -591,8 +593,18 @@
       "Default": [5,6,9,10,13,14,15,16]
   };
 
+  let apiQueue = [];
+  let isProcessingQueue = false;
+  let isInitialLoading = true;
+  
+
   let activeLookupPlayer =  null;
   let activeLookupFoursome = null;
+  // --- ADMIN ROSTER CACHE SYSTEM ---
+  let adminPlayersCache = null;
+  let adminCacheTimestamp = 0;
+  const ADMIN_CACHE_TTL_MS = 60 * 60 * 1000; // 60-minute cache TTL
+
 
 
   function getCourtsForGroup(groupName) {
@@ -632,7 +644,6 @@
     return selected;
   }
   
-  let adminPlayersCache = []; 
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
@@ -642,9 +653,6 @@
     });
   }
 
-let apiQueue = [];
-let isProcessingQueue = false;
-let isInitialLoading = true;
 
 function updateGlobalLoaderStatus() {
   const loader = document.getElementById('globalLoader');
@@ -996,76 +1004,7 @@ function handleSecretTap(e) {
 
 
 
-function filterAdminPlayers() {
-  const query = (document.getElementById('adminPlayerSearch')?.value || '').toLowerCase().trim();
-  const container = document.getElementById('adminPlayerStatusList');
-  if (!container) return;
 
-  if (!adminPlayersCache || adminPlayersCache.length === 0) {
-    container.innerHTML = '<i style="color:#666;">No player data loaded for this group. Select a group above.</i>';
-    return;
-  }
-
-  const filtered = adminPlayersCache.filter(p => {
-    const pName = String(p.name || `${p.first || ''} ${p.last || ''}`).toLowerCase();
-    const pPhone = String(p.phone || '').replace(/\D/g, '');
-    return pName.includes(query) || pPhone.includes(query);
-  });
-
-  if (filtered.length === 0) {
-    container.innerHTML = '<i style="color:#666;">No matching players found.</i>';
-    return;
-  }
-
-  container.innerHTML = filtered.map(player => {
-    const pName = player.name || `${player.first || ''} ${player.last || ''}`.trim();
-    const safeIdentifier = String(player.phone || player.name).replace(/'/g, "\\'");
-    
-    // Check status flags safely
-    const isActive = player.active === true || String(player.active).toLowerCase() === 'active' || player.status === 'Active';
-    const isCheckedIn = player.checkedIn === true || player.checkedIn === 'true' || player.checked === true;
-
-    return `
-      <div style="display:flex; justify-content:space-between; align-items:center; padding:0.6rem; border-bottom:1px solid #eee; gap:0.5rem;">
-        
-        <!-- Player Info -->
-        <div style="flex:1; min-width:0;">
-          <div style="font-weight:bold; font-size:0.95rem; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">
-            ${pName}
-          </div>
-          <div style="font-size:0.8rem; color:#666;">
-            ${player.court ? `Court: <b>${player.court}</b> | ` : ''}${player.phone || 'No phone'}
-          </div>
-        </div>
-
-        <!-- Action Buttons -->
-        <div style="display:flex; gap:0.4rem; align-items:center;">
-          
-          <!-- Direct Check-In Button -->
-          <button 
-            type="button"
-            class="btn-main" 
-            style="padding:0.35rem 0.6rem; font-size:0.8rem; background-color:${isCheckedIn ? '#2e7d32' : '#757575'}; color:white;"
-            onclick="toggleAdminCheckIn(this, '${safeIdentifier}', ${isCheckedIn})"
-          >
-            ${isCheckedIn ? '✅ Checked In' : '⬜ Check In'}
-          </button>
-
-          <!-- Active/Inactive Toggle Button -->
-          <button 
-            type="button"
-            class="btn-sub" 
-            style="padding:0.35rem 0.6rem; font-size:0.8rem; background-color:${isActive ? '#1976d2' : '#d32f2f'}; color:white;"
-            onclick="toggleAdminPlayerActive('${safeIdentifier}', ${!isActive})"
-          >
-            ${isActive ? 'Active' : 'Inactive'}
-          </button>
-
-        </div>
-      </div>
-    `;
-  }).join('');
-}
 
 // Dedicated Check-In handler for Admin Button
 async function toggleAdminCheckIn(btnEl, identifier, currentCheckedState) {
@@ -1886,6 +1825,7 @@ function setSelectedGroup(groupName) {
 }
 
 
+
 function loadAdminTabData(groupName) {
   loadAdminPlayerStatusCache(groupName);
 }
@@ -2508,10 +2448,6 @@ navigator.serviceWorker.addEventListener('controllerchange', () => {
 });  
 
 
-// --- ADMIN ROSTER CACHE SYSTEM ---
-let adminPlayersCache = null;
-let adminCacheTimestamp = 0;
-const ADMIN_CACHE_TTL_MS = 60 * 60 * 1000; // 60-minute cache TTL
 
 async function loadAdminPlayerStatusCache(overrideGroup = null, forceRefresh = false) {
   const groupName = overrideGroup || 
@@ -2524,73 +2460,100 @@ async function loadAdminPlayerStatusCache(overrideGroup = null, forceRefresh = f
     return;
   }
 
-  const cleanGroup = groupName.replace(/^(Score|Sched)\s*/i, "").trim();
-  const storageKey = `admin_cache_${cleanGroup}`;
-  const now = Date.now();
-
-  // 1. Check In-Memory Cache
-  if (!forceRefresh && adminPlayersCache && (now - adminCacheTimestamp < ADMIN_CACHE_TTL_MS)) {
-    filterAdminPlayers();
-    return;
-  }
-
-  // 2. Check LocalStorage Cache
-  if (!forceRefresh) {
-    try {
-      const cachedStr = localStorage.getItem(storageKey);
-      const cachedTimeStr = localStorage.getItem(`${storageKey}_time`);
-
-      if (cachedStr && cachedTimeStr) {
-        const cachedTime = parseInt(cachedTimeStr, 10);
-        if (now - cachedTime < ADMIN_CACHE_TTL_MS) {
-          adminPlayersCache = JSON.parse(cachedStr);
-          adminCacheTimestamp = cachedTime;
-          filterAdminPlayers();
-          return; // Loaded instantly from LocalStorage
-        }
-      }
-    } catch (e) {
-      console.warn("LocalStorage read error:", e);
-    }
-  }
-
-  // 3. Cache Miss / Force Refresh: Fetch from Google Apps Script API
   if (container) {
     container.innerHTML = '<span class="loading-spinner"></span> Loading player roster...';
   }
 
   try {
     const res = await apiCall('getAdminPlayerStatus', { 
-      groupName: cleanGroup,
-      group: cleanGroup,
-      sheet: "Sched " + cleanGroup,
+      groupName: groupName,
+      group: groupName,
+      sheet: "Sched " + groupName,
       forceRefresh: forceRefresh
     });
 
-    const rawList = res?.players || (Array.isArray(res) ? res : []);
-
-    if (rawList && rawList.length > 0) {
-      adminPlayersCache = rawList;
-      adminCacheTimestamp = Date.now();
-
-      // Persist to LocalStorage
-      try {
-        localStorage.setItem(storageKey, JSON.stringify(adminPlayersCache));
-        localStorage.setItem(`${storageKey}_time`, adminCacheTimestamp.toString());
-      } catch (e) {
-        console.warn("LocalStorage write error:", e);
-      }
-
+    if (res && res.success && Array.isArray(res.players)) {
+      adminPlayersCache = res.players;
       filterAdminPlayers();
     } else {
       adminPlayersCache = [];
-      if (container) container.innerHTML = '<i>No player data found for group.</i>';
+      if (container) container.innerHTML = `<i>${res?.message || 'No player data found for group.'}</i>`;
     }
   } catch (err) {
     console.error('loadAdminPlayerStatusCache error:', err);
-    if (container) container.innerHTML = '<i>Error loading player roster.</i>';
+    adminPlayersCache = [];
+    if (container) container.innerHTML = '<i>Error loading player roster. Check console logs.</i>';
   }
 }
+
+function filterAdminPlayers() {
+  const query = (document.getElementById('adminPlayerSearch')?.value || '').toLowerCase().trim();
+  const container = document.getElementById('adminPlayerStatusList');
+  if (!container) return;
+
+  // Defensive array check to prevent console errors
+  if (!Array.isArray(adminPlayersCache) || adminPlayersCache.length === 0) {
+    container.innerHTML = '<i style="color:#666;">No player data loaded for this group. Select a group above.</i>';
+    return;
+  }
+
+  const filtered = adminPlayersCache.filter(p => {
+    const pName = String(p.name || `${p.first || ''} ${p.last || ''}`).toLowerCase();
+    const pPhone = String(p.phone || '').replace(/\D/g, '');
+    return pName.includes(query) || pPhone.includes(query);
+  });
+
+  if (filtered.length === 0) {
+    container.innerHTML = '<i style="color:#666;">No matching players found.</i>';
+    return;
+  }
+
+  container.innerHTML = filtered.map(player => {
+    const pName = player.name || `${player.first || ''} ${player.last || ''}`.trim();
+    const safeIdentifier = String(player.phone || player.name).replace(/'/g, "\\'");
+    
+    const isActive = player.active === true;
+    const isCheckedIn = player.checkedIn === true;
+
+    return `
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:0.6rem; border-bottom:1px solid #eee; gap:0.5rem;">
+        
+        <div style="flex:1; min-width:0;">
+          <div style="font-weight:bold; font-size:0.95rem; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">
+            ${pName}
+          </div>
+          <div style="font-size:0.8rem; color:#666;">
+            ${player.court ? `Court: <b>${player.court}</b> | ` : ''}${player.phone || 'No phone'}
+          </div>
+        </div>
+
+        <div style="display:flex; gap:0.4rem; align-items:center;">
+          <!-- Check-In Button -->
+          <button 
+            type="button"
+            class="btn-main" 
+            style="padding:0.35rem 0.6rem; font-size:0.8rem; background-color:${isCheckedIn ? '#2e7d32' : '#757575'}; color:white;"
+            onclick="toggleAdminCheckIn(this, '${safeIdentifier}', ${isCheckedIn})"
+          >
+            ${isCheckedIn ? '✅ Checked In' : '⬜ Check In'}
+          </button>
+
+          <!-- Active/Inactive Button -->
+          <button 
+            type="button"
+            class="btn-sub" 
+            style="padding:0.35rem 0.6rem; font-size:0.8rem; background-color:${isActive ? '#1976d2' : '#d32f2f'}; color:white;"
+            onclick="toggleAdminPlayerActive(this, '${safeIdentifier}', ${isActive})"
+          >
+            ${isActive ? 'Active' : 'Inactive'}
+          </button>
+        </div>
+
+      </div>
+    `;
+  }).join('');
+}
+
 
 // Invalidate Cache Helper (Call after toggling status or adding a player)
 function invalidateAdminCache(groupName = null) {
