@@ -469,71 +469,111 @@
       <div id="viewerStatus" class="status-msg"></div>
     </div>
 
-    <!-- TAB 5: ADMIN -->
+<!-- TAB 5: ADMIN -->
     <div id="adminTab" class="tab-content">
       <div class="card">
         <h3 style="margin-top:0; color:var(--btn-danger-bg);">⚙️ Admin Controls</h3>
 
+        <!-- Admin Target Group Selection (Always Visible at Top) -->
+        <div id="adminStatus" class="status-msg"></div>
         <div class="card" style="margin-bottom:1rem; background: var(--bg-color);">
           <label><b>Select Admin Target Group:</b></label>
           <select id="adminGlobalGroupSelect" onchange="onAdminGlobalGroupChange()" style="width: 100%; padding: 0.5rem; margin-top: 0.25rem; font-weight: bold;">
             <option value="">-- Select Group --</option>
           </select>
         </div>
-     
-        <a id="adminSheetLink" href="#" target="_blank" class="btn-main" style="display:block; padding:0.75rem; margin-bottom:1rem; border-radius:0.5rem; text-align:center;">📝 Edit Score Data Sheet for Group</a>
 
-        <div class="card" style="margin-bottom:1rem; background: var(--bg-color);">
-          <h4 style="margin:0 0 0.5rem 0;">👥 Quick Active / Inactive Manager</h4>
-          <input type="text" id="adminPlayerSearch" oninput="filterAdminPlayers()" placeholder="🔍 Type name to search..." style="width: 100%; padding: 0.5rem; margin-bottom: 0.75rem; border-radius: 0.25rem; border: 1px solid #ccc; box-sizing: border-box;">
-          
-          <div id="adminPlayerStatusList" style="margin-top:0.25rem; max-height:60vh; overflow-y:auto; border-radius:0.5rem; border:2px solid var(--row-border); padding:0.5rem;">
-            <i>Type in the search box above to display players...</i>
-          </div>
-        </div>
-
-        <div class="card" style="margin-bottom:1rem; background: var(--bg-color);">
-          <h4 style="margin:0 0 0.5rem 0;">🗓️ Schedule Controls</h4>
-
-          <div style="margin-bottom: 1.5rem;">
+        <!-- 1. Court Selection -->
+        <details open class="card" style="margin-bottom:1rem; background: var(--bg-color); cursor: pointer;">
+          <summary style="font-weight:bold; font-size:1.05rem; outline:none;">🏟️ 1. Court Selection</summary>
+          <div style="margin-top: 0.75rem;">
             <label style="font-size:0.95rem; font-weight:bold;">Select Courts to Use:</label>
-            <div id="admin-court-list" class="court-list">
+            <div id="admin-court-list" class="court-list" style="margin-top: 0.5rem;">
               <i style="grid-column: 1 / -1; text-align: center; color: #666;">Select a group above to load courts...</i>
             </div>
           </div>
-          
-          <label style="font-size:0.95rem; font-weight:bold;">1. Checked-In Players Only:</label>
-          <button id="reschedCheckedInBtn" class="btn-main" style="margin-top:0.25rem; margin-bottom:0.75rem;" onclick="runRescheduleCheckedIn()">
-            🔄 Reschedule Checked-In Only
-          </button>
-          
-          <label style="font-size:0.95rem; font-weight:bold;">2. All Active Players in Group:</label>
-          <button id="reschedActiveBtn" class="btn-sub" style="margin-top:0.25rem; margin-bottom:0.75rem; background-color: #2d6a4f; color: white;" onclick="runRescheduleActive()">
-            ⚡ Reschedule All Active
-          </button>
-          
-          <hr>
-          <button onclick="runAdmin('sortActivePlayersForSheet')">Sort Active Players</button>
-          <button onclick="runAdmin('generateScheduleTabs')">Generate Schedule</button>
-          <button onclick="runAdmin('processWeeklyScoresForSheet', { weekCol: 'W10', shift: true })">Process Weekly Standings (Shift)</button>
-          <button onclick="runAdmin('processWeeklyScoresForSheet', { weekCol: 'W10', shift: false })">Correct Scores (No Shift)</button>
-          <button onclick="runAdmin('rescheduleFromCheckIns')">Reschedule Checked-In Players</button>
-          <button onclick="runAdmin('startNewSeason')">Start New Season</button>
-          <button onclick="runAdmin('webExportSchedulePdf')">Export Schedule PDF</button>
-        </div>
+        </details>
 
-        <div class="card" style="margin-top:1.5rem; margin-bottom:1rem; background: var(--bg-color);">
-          <h4 style="margin:0 0 0.5rem 0;">➕ Add New Player</h4>
-          <input type="text" id="adminRegFirst" placeholder="First Name">
-          <input type="text" id="adminRegLast" placeholder="Last Name">
-          <input type="tel" id="adminRegPhone" placeholder="Phone Number">
-          <input type="email" id="adminRegEmail" placeholder="Email">
-          <button class="btn-main" style="margin-top:0.75rem;" onclick="submitAdminRegistration()">Add Pending Player</button>
-        </div>
+        <!-- 2. Reschedule with Checked-In Players -->
+        <details class="card" style="margin-bottom:1rem; background: var(--bg-color); cursor: pointer;">
+          <summary style="font-weight:bold; font-size:1.05rem; outline:none;">🔄 2. Reschedule Checked-In Players</summary>
+          <div style="margin-top: 0.75rem;">
+            <label style="font-size:0.95rem; font-weight:bold;">Checked-In Players Only:</label>
+            <button id="reschedCheckedInBtn" class="btn-main" style="margin-top:0.5rem; margin-bottom:0.5rem; width:100%;" onclick="runRescheduleCheckedIn()">
+              🔄 Reschedule Checked-In Only
+            </button>
+            <button class="btn-sub" style="margin-top:0.25rem; width:100%;" onclick="runAdmin('rescheduleFromCheckIns')">
+              Force Reschedule From Check-Ins
+            </button>
+          </div>
+        </details>
 
-        <button class="btn-danger desktop-only" style="margin-top:2rem;" onclick="if(confirm('🚨 WARNING: Are you sure you want to start a new season? This will permanently wipe all current scores across ALL groups.')) runAdmin('startNewSeason')">🚨 Start New Season</button>
+        <!-- 3. Reschedule All Active Players -->
+        <details class="card" style="margin-bottom:1rem; background: var(--bg-color); cursor: pointer;">
+          <summary style="font-weight:bold; font-size:1.05rem; outline:none;">⚡ 3. Reschedule All Active Players</summary>
+          <div style="margin-top: 0.75rem;">
+            <label style="font-size:0.95rem; font-weight:bold;">All Active Players in Group:</label>
+            <button id="reschedActiveBtn" class="btn-sub" style="margin-top:0.5rem; margin-bottom:0.5rem; background-color: #2d6a4f; color: white; width:100%;" onclick="runRescheduleActive()">
+              ⚡ Reschedule All Active
+            </button>
+            <button class="btn-sub" style="margin-top:0.25rem; width:100%;" onclick="runAdmin('generateScheduleTabs')">
+              Generate Schedule
+            </button>
+          </div>
+        </details>
 
-        <div id="adminStatus" class="status-msg"></div>
+        
+
+ <!-- 4. Combined Roster Manager (Active / Inactive & Check-In) -->
+        <details class="card" style="margin-bottom:1rem; background: var(--bg-color); cursor: pointer;">
+          <summary style="font-weight:bold; font-size:1.05rem; outline:none;">
+            👥 4. Player Roster & Check-In Manager
+          </summary>
+          <div style="margin-top:0.75rem;" onclick="event.stopPropagation();">
+            <input 
+              type="text" 
+              id="adminPlayerSearch" 
+              oninput="filterAdminPlayers()" 
+              placeholder="🔍 Search name or phone..." 
+              style="width: 100%; padding: 0.5rem; margin-bottom: 0.75rem; border-radius: 0.25rem; border: 1px solid #ccc; box-sizing: border-box;"
+            >
+            
+            <div 
+              id="adminPlayerStatusList" 
+              style="margin-top:0.25rem; max-height:60vh; overflow-y:auto; border-radius:0.5rem; border:2px solid var(--row-border); padding:0.5rem; background:#fff;"
+            >
+              <i>Type in the search box above to display players...</i>
+            </div>
+          </div>
+    </details>
+        <!-- 5. Additional Tools & Scoring -->
+        <details class="card" style="margin-bottom:1rem; background: var(--bg-color); cursor: pointer;">
+          <summary style="font-weight:bold; font-size:1.05rem; outline:none;">🛠️ 5. Additional Admin Actions & Standings</summary>
+          <div style="margin-top:0.75rem; display:flex; flex-direction:column; gap:0.5rem;">
+            <button onclick="runAdmin('sortActivePlayersForSheet')">Sort Active Players</button>
+            <button onclick="runAdmin('processWeeklyScoresForSheet', { weekCol: 'W10', shift: true })">Process Weekly Standings (Shift)</button>
+            <button onclick="runAdmin('processWeeklyScoresForSheet', { weekCol: 'W10', shift: false })">Correct Scores (No Shift)</button>
+            <button onclick="runAdmin('webExportSchedulePdf')">Export Schedule PDF</button>
+          </div>
+        </details>
+
+        <!-- 6. Add New Player -->
+        <details class="card" style="margin-bottom:1rem; background: var(--bg-color); cursor: pointer;">
+          <summary style="font-weight:bold; font-size:1.05rem; outline:none;">➕ 6. Add New Player</summary>
+          <div style="margin-top:0.75rem;">
+            <input type="text" id="adminRegFirst" placeholder="First Name" style="width:100%; margin-bottom:0.5rem; padding:0.5rem; box-sizing:border-box;">
+            <input type="text" id="adminRegLast" placeholder="Last Name" style="width:100%; margin-bottom:0.5rem; padding:0.5rem; box-sizing:border-box;">
+            <input type="tel" id="adminRegPhone" placeholder="Phone Number" style="width:100%; margin-bottom:0.5rem; padding:0.5rem; box-sizing:border-box;">
+            <input type="email" id="adminRegEmail" placeholder="Email" style="width:100%; margin-bottom:0.5rem; padding:0.5rem; box-sizing:border-box;">
+            <button class="btn-main" style="margin-top:0.5rem; width:100%;" onclick="submitAdminRegistration()">Add Pending Player</button>
+          </div>
+        </details>
+
+        <!-- 7. Edit Sheet Link (Positioned at the very end) -->
+        <a id="adminSheetLink" href="#" target="_blank" class="btn-main" style="display:block; padding:0.75rem; margin-top:1.5rem; border-radius:0.5rem; text-align:center;">📝 Edit Score Data Sheet for Group</a>
+
+      </div>
+    </div>
       </div>
     </div>
 
@@ -957,52 +997,133 @@ function handleSecretTap(e) {
 
 
 function filterAdminPlayers() {
-  const listEl = document.getElementById('adminPlayerStatusList');
-  const searchInput = document.getElementById('adminPlayerSearch');
-  if (!listEl || !searchInput) return;
+  const query = (document.getElementById('adminPlayerSearch')?.value || '').toLowerCase().trim();
+  const container = document.getElementById('adminPlayerStatusList');
+  if (!container) return;
 
-  const query = searchInput.value.toLowerCase().trim();
-  
   if (!adminPlayersCache || adminPlayersCache.length === 0) {
-    listEl.innerHTML = '<i>No players found for this group.</i>';
+    container.innerHTML = '<i style="color:#666;">No player data loaded for this group. Select a group above.</i>';
     return;
   }
 
   const filtered = adminPlayersCache.filter(p => {
-    const fullName = `${p.first || ''} ${p.last || ''}`.toLowerCase();
-    return fullName.includes(query);
+    const pName = String(p.name || `${p.first || ''} ${p.last || ''}`).toLowerCase();
+    const pPhone = String(p.phone || '').replace(/\D/g, '');
+    return pName.includes(query) || pPhone.includes(query);
   });
 
   if (filtered.length === 0) {
-    listEl.innerHTML = '<i>No matching players found.</i>';
+    container.innerHTML = '<i style="color:#666;">No matching players found.</i>';
     return;
   }
 
-  let html = '';
-  filtered.forEach(p => {
-    const isActive = (p.status || '').toLowerCase() === 'active';
-    const statusClass = isActive ? 'status-active' : 'status-inactive';
-    const btnText = isActive ? 'Set Inactive' : 'Set Active';
-    const btnClass = isActive ? 'btn-danger' : 'btn-main';
+  container.innerHTML = filtered.map(player => {
+    const pName = player.name || `${player.first || ''} ${player.last || ''}`.trim();
+    const safeIdentifier = String(player.phone || player.name).replace(/'/g, "\\'");
     
-    const safePhone = String(p.phone || '').replace(/'/g, "\\'");
+    // Check status flags safely
+    const isActive = player.active === true || String(player.active).toLowerCase() === 'active' || player.status === 'Active';
+    const isCheckedIn = player.checkedIn === true || player.checkedIn === 'true' || player.checked === true;
 
-    html += `
-      <div style="display:flex; align-items:center; justify-space-between; padding:0.5rem; border-bottom:1px solid var(--row-border); gap:0.5rem;">
-        <div style="flex:1;">
-          <b>${p.first || ''} ${p.last || ''}</b>
-          <div style="font-size:0.85rem; color:#666;">${p.phone || ''}</div>
+    return `
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:0.6rem; border-bottom:1px solid #eee; gap:0.5rem;">
+        
+        <!-- Player Info -->
+        <div style="flex:1; min-width:0;">
+          <div style="font-weight:bold; font-size:0.95rem; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">
+            ${pName}
+          </div>
+          <div style="font-size:0.8rem; color:#666;">
+            ${player.court ? `Court: <b>${player.court}</b> | ` : ''}${player.phone || 'No phone'}
+          </div>
         </div>
-        <div>
-          <span class="status-badge ${statusClass}" style="margin-right:0.5rem;">${p.status || 'Inactive'}</span>
-          <button class="${btnClass}" style="min-height:36px; padding:0.25rem 0.5rem; font-size:0.85rem; width:auto;" onclick="toggleAdminStatus('${safePhone}', this)">${btnText}</button>
+
+        <!-- Action Buttons -->
+        <div style="display:flex; gap:0.4rem; align-items:center;">
+          
+          <!-- Direct Check-In Button -->
+          <button 
+            type="button"
+            class="btn-main" 
+            style="padding:0.35rem 0.6rem; font-size:0.8rem; background-color:${isCheckedIn ? '#2e7d32' : '#757575'}; color:white;"
+            onclick="toggleAdminCheckIn(this, '${safeIdentifier}', ${isCheckedIn})"
+          >
+            ${isCheckedIn ? '✅ Checked In' : '⬜ Check In'}
+          </button>
+
+          <!-- Active/Inactive Toggle Button -->
+          <button 
+            type="button"
+            class="btn-sub" 
+            style="padding:0.35rem 0.6rem; font-size:0.8rem; background-color:${isActive ? '#1976d2' : '#d32f2f'}; color:white;"
+            onclick="toggleAdminPlayerActive('${safeIdentifier}', ${!isActive})"
+          >
+            ${isActive ? 'Active' : 'Inactive'}
+          </button>
+
         </div>
       </div>
     `;
-  });
-
-  listEl.innerHTML = html;
+  }).join('');
 }
+
+// Dedicated Check-In handler for Admin Button
+async function toggleAdminCheckIn(btnEl, identifier, currentCheckedState) {
+  if (btnEl.disabled) return;
+  
+  const newState = !currentCheckedState;
+  const originalText = btnEl.innerText;
+  const originalBg = btnEl.style.backgroundColor;
+
+  btnEl.disabled = true;
+  btnEl.innerText = "⏳ ...";
+  btnEl.style.opacity = "0.7";
+
+  const groupName = document.getElementById('adminGlobalGroupSelect')?.value || getSavedGroup();
+
+  try {
+    const res = await apiCall('toggleSingleCheckIn', { 
+      sheet: "Sched " + groupName,
+      groupName: groupName,
+      group: groupName,
+      playerName: identifier, 
+      phone: identifier, 
+      isCheckedIn: newState,
+      adminOverride: true
+    });
+
+    if (res && (res.success || !res.error)) {
+      // Update button directly without crashing
+      btnEl.innerText = newState ? '✅ Checked In' : '⬜ Check In';
+      btnEl.style.backgroundColor = newState ? '#2e7d32' : '#757575';
+      
+      // Update cache so state stays updated when searching
+      if (typeof adminPlayersCache !== 'undefined' && Array.isArray(adminPlayersCache)) {
+        const player = adminPlayersCache.find(p => (p.phone === identifier || p.name === identifier));
+        if (player) {
+          player.checkedIn = newState;
+          player.checked = newState;
+        }
+      }
+      
+      // Re-bind click event with new state
+      btnEl.setAttribute('onclick', `toggleAdminCheckIn(this, '${identifier}', ${newState})`);
+    } else {
+      alert('Failed to update check-in: ' + (res.message || 'Error'));
+      btnEl.innerText = originalText;
+      btnEl.style.backgroundColor = originalBg;
+    }
+  } catch (err) {
+    console.error('toggleAdminCheckIn error:', err);
+    alert('Network error updating check-in.');
+    btnEl.innerText = originalText;
+    btnEl.style.backgroundColor = originalBg;
+  } finally {
+    btnEl.disabled = false;
+    btnEl.style.opacity = "1";
+  }
+}
+
 
 async function toggleAdminStatus(phone, btnEl) {
   if (!phone) return;
@@ -1399,7 +1520,7 @@ function renderLookupResult(player, foursome) {
       </div>
 
       <!-- Game 1: P1 & P4 vs P2 & P3 -->
-      <div style="margin-top:0.5rem; font-weight:bold; font-size:0.95rem;">Game 1: p1 ${p1} &  p4 ${p4}  <br>  &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;vs &nbsp;&nbsp;  p2  ${p2} & p3 ${p3}</div>
+      <div style="margin-top:0.5rem; font-weight:bold; font-size:0.95rem;">Game 1: <br> p1 ${p1} &  p4 ${p4}  <br>   &nbsp;&nbsp; &nbsp;&nbsp;&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;vs &nbsp;&nbsp;  p2  ${p2} & p3 ${p3}</div>
       <div class="score-grid">
         <input type="number" min="0" max="15" id="sc1_p1" placeholder="P1&P4">
         vs 
@@ -1407,7 +1528,7 @@ function renderLookupResult(player, foursome) {
       </div>
 
       <!-- Game 2: P1 & P3 vs P2 & P4 -->
-      <div style="margin-top:0.75rem; font-weight:bold; font-size:0.95rem;">Game 2:  p1 ${p1} & p3 ${p3} <br>   &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;vs &nbsp;&nbsp;  p2 ${p2} & p4 ${p4}</div>
+      <div style="margin-top:0.75rem; font-weight:bold; font-size:0.95rem;">Game 2:  <br> p1 ${p1} & p3 ${p3} <br>    &nbsp;&nbsp; &nbsp;&nbsp;&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;vs &nbsp;&nbsp;  p2 ${p2} & p4 ${p4}</div>
       <div class="score-grid">
         <input type="number" min="0" max="15" id="sc2_p1" placeholder="P1&P3">
          vs 
@@ -1415,7 +1536,7 @@ function renderLookupResult(player, foursome) {
       </div>
 
       <!-- Game 3: P1 & P2 vs P3 & P4 -->
-      <div style="margin-top:0.75rem; font-weight:bold; font-size:0.95rem;">Game 3:p1 ${p1} & p2 ${p2} <br>  &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;vs &nbsp;&nbsp; p3 ${p3} & p4 ${p4}</div>
+      <div style="margin-top:0.75rem; font-weight:bold; font-size:0.95rem;">Game 3:<br> p1 ${p1} & p2 ${p2} <br>   &nbsp;&nbsp; &nbsp;&nbsp;&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;vs &nbsp;&nbsp; p3 ${p3} & p4 ${p4}</div>
       <div class="score-grid">
         <input type="number" min="0" max="15" id="sc3_p1" placeholder="P1 & P2">
         vs
@@ -2385,7 +2506,222 @@ navigator.serviceWorker.addEventListener('controllerchange', () => {
   refreshing = true;
   window.location.reload();
 });  
+
+
+// --- ADMIN ROSTER CACHE SYSTEM ---
+let adminPlayersCache = null;
+let adminCacheTimestamp = 0;
+const ADMIN_CACHE_TTL_MS = 60 * 60 * 1000; // 60-minute cache TTL
+
+async function loadAdminPlayerStatusCache(overrideGroup = null, forceRefresh = false) {
+  const groupName = overrideGroup || 
+                    document.getElementById('adminGlobalGroupSelect')?.value || 
+                    getSavedGroup();
+
+  const container = document.getElementById('adminPlayerStatusList');
+  if (!groupName) {
+    if (container) container.innerHTML = '<i>Select a group above to load roster...</i>';
+    return;
+  }
+
+  const cleanGroup = groupName.replace(/^(Score|Sched)\s*/i, "").trim();
+  const storageKey = `admin_cache_${cleanGroup}`;
+  const now = Date.now();
+
+  // 1. Check In-Memory Cache
+  if (!forceRefresh && adminPlayersCache && (now - adminCacheTimestamp < ADMIN_CACHE_TTL_MS)) {
+    filterAdminPlayers();
+    return;
+  }
+
+  // 2. Check LocalStorage Cache
+  if (!forceRefresh) {
+    try {
+      const cachedStr = localStorage.getItem(storageKey);
+      const cachedTimeStr = localStorage.getItem(`${storageKey}_time`);
+
+      if (cachedStr && cachedTimeStr) {
+        const cachedTime = parseInt(cachedTimeStr, 10);
+        if (now - cachedTime < ADMIN_CACHE_TTL_MS) {
+          adminPlayersCache = JSON.parse(cachedStr);
+          adminCacheTimestamp = cachedTime;
+          filterAdminPlayers();
+          return; // Loaded instantly from LocalStorage
+        }
+      }
+    } catch (e) {
+      console.warn("LocalStorage read error:", e);
+    }
+  }
+
+  // 3. Cache Miss / Force Refresh: Fetch from Google Apps Script API
+  if (container) {
+    container.innerHTML = '<span class="loading-spinner"></span> Loading player roster...';
+  }
+
+  try {
+    const res = await apiCall('getAdminPlayerStatus', { 
+      groupName: cleanGroup,
+      group: cleanGroup,
+      sheet: "Sched " + cleanGroup,
+      forceRefresh: forceRefresh
+    });
+
+    const rawList = res?.players || (Array.isArray(res) ? res : []);
+
+    if (rawList && rawList.length > 0) {
+      adminPlayersCache = rawList;
+      adminCacheTimestamp = Date.now();
+
+      // Persist to LocalStorage
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(adminPlayersCache));
+        localStorage.setItem(`${storageKey}_time`, adminCacheTimestamp.toString());
+      } catch (e) {
+        console.warn("LocalStorage write error:", e);
+      }
+
+      filterAdminPlayers();
+    } else {
+      adminPlayersCache = [];
+      if (container) container.innerHTML = '<i>No player data found for group.</i>';
+    }
+  } catch (err) {
+    console.error('loadAdminPlayerStatusCache error:', err);
+    if (container) container.innerHTML = '<i>Error loading player roster.</i>';
+  }
+}
+
+// Invalidate Cache Helper (Call after toggling status or adding a player)
+function invalidateAdminCache(groupName = null) {
+  const group = groupName || document.getElementById('adminGlobalGroupSelect')?.value || getSavedGroup();
+  const cleanGroup = String(group || "").replace(/^(Score|Sched)\s*/i, "").trim();
   
+  adminPlayersCache = null;
+  adminCacheTimestamp = 0;
+
+  if (cleanGroup) {
+    const storageKey = `admin_cache_${cleanGroup}`;
+    localStorage.removeItem(storageKey);
+    localStorage.removeItem(`${storageKey}_time`);
+  }
+}
+      
+function filterAdminPlayers() {
+  const query = (document.getElementById('adminPlayerSearch')?.value || '').toLowerCase().trim();
+  const container = document.getElementById('adminPlayerStatusList');
+  if (!container) return;
+
+  if (!adminPlayersCache || adminPlayersCache.length === 0) {
+    container.innerHTML = '<i style="color:#666;">No player data loaded for this group. Select a group above.</i>';
+    return;
+  }
+
+  const filtered = adminPlayersCache.filter(p => {
+    const pName = String(p.name || `${p.first || ''} ${p.last || ''}`).toLowerCase();
+    const pPhone = String(p.phone || '').replace(/\D/g, '');
+    return pName.includes(query) || pPhone.includes(query);
+  });
+
+  if (filtered.length === 0) {
+    container.innerHTML = '<i style="color:#666;">No matching players found.</i>';
+    return;
+  }
+
+  container.innerHTML = filtered.map(player => {
+    const pName = player.name || `${player.first || ''} ${player.last || ''}`.trim();
+    const safeIdentifier = String(player.phone || player.name).replace(/'/g, "\\'");
+    
+    const isActive = player.active === true;
+    const isCheckedIn = player.checkedIn === true;
+
+    return `
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:0.6rem; border-bottom:1px solid #eee; gap:0.5rem;">
+        
+        <div style="flex:1; min-width:0;">
+          <div style="font-weight:bold; font-size:0.95rem; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">
+            ${pName}
+          </div>
+          <div style="font-size:0.8rem; color:#666;">
+            ${player.court ? `Court: <b>${player.court}</b> | ` : ''}${player.phone || 'No phone'}
+          </div>
+        </div>
+
+        <div style="display:flex; gap:0.4rem; align-items:center;">
+          <button 
+            type="button"
+            class="btn-main" 
+            style="padding:0.35rem 0.6rem; font-size:0.8rem; background-color:${isCheckedIn ? '#2e7d32' : '#757575'}; color:white;"
+            onclick="toggleAdminCheckIn(this, '${safeIdentifier}', ${isCheckedIn})"
+          >
+            ${isCheckedIn ? '✅ Checked In' : '⬜ Check In'}
+          </button>
+
+          <button 
+            type="button"
+            class="btn-sub" 
+            style="padding:0.35rem 0.6rem; font-size:0.8rem; background-color:${isActive ? '#1976d2' : '#d32f2f'}; color:white;"
+            onclick="toggleAdminPlayerActive(this, '${safeIdentifier}', ${isActive})"
+          >
+            ${isActive ? 'Active' : 'Inactive'}
+          </button>
+        </div>
+
+      </div>
+    `;
+  }).join('');
+}
+
+async function toggleAdminPlayerActive(btnEl, identifier, currentActiveState) {
+  if (btnEl.disabled) return;
+
+  const newActiveState = !currentActiveState;
+  const originalText = btnEl.innerText;
+  const originalBg = btnEl.style.backgroundColor;
+
+  btnEl.disabled = true;
+  btnEl.innerText = "⏳ ...";
+  btnEl.style.opacity = "0.7";
+
+  const groupName = document.getElementById('adminGlobalGroupSelect')?.value || getSavedGroup();
+
+  try {
+    const res = await apiCall('togglePlayerActive', {
+      groupName: groupName,
+      group: groupName,
+      sheet: "Sched " + groupName,
+      identifier: identifier,
+      active: newActiveState
+    });
+
+    if (res && res.success) {
+      btnEl.innerText = newActiveState ? 'Active' : 'Inactive';
+      btnEl.style.backgroundColor = newActiveState ? '#1976d2' : '#d32f2f';
+
+      // Update local memory cache
+      if (typeof adminPlayersCache !== 'undefined' && Array.isArray(adminPlayersCache)) {
+        const player = adminPlayersCache.find(p => (p.phone === identifier || p.name === identifier));
+        if (player) {
+          player.active = newActiveState;
+        }
+      }
+
+      btnEl.setAttribute('onclick', `toggleAdminPlayerActive(this, '${identifier}', ${newActiveState})`);
+    } else {
+      alert('Failed to update active status: ' + (res.message || 'Error'));
+      btnEl.innerText = originalText;
+      btnEl.style.backgroundColor = originalBg;
+    }
+  } catch (err) {
+    console.error('toggleAdminPlayerActive error:', err);
+    alert('Network error updating active status.');
+    btnEl.innerText = originalText;
+    btnEl.style.backgroundColor = originalBg;
+  } finally {
+    btnEl.disabled = false;
+    btnEl.style.opacity = "1";
+  }
+}  
 </script>
   </body>
 </html>

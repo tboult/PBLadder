@@ -954,6 +954,18 @@ function handleApiRequest(e) {
         result = initData;
         break;
 
+      case 'getAdminPlayerStatus':
+        result = getAdminPlayerStatus(payload);
+        break;
+
+      case 'togglePlayerActive':
+        result = togglePlayerActive(payload);
+        break;
+
+      case 'toggleSingleCheckIn':
+        result = toggleSingleCheckIn(payload);
+        break;
+        
       case 'checkInPlayer':
       case 'CheckInPlayer':         
         result = handleCheckInPlayer(payload);
@@ -2398,4 +2410,249 @@ function ensurePlayerCheckedIn(sheetName, targetPlayer) {
     status: found ? "success" : "failed", 
     message: found ? "Player checked in successfully." : "Player not found on sheet." 
   };
+}
+
+function filterAdminPlayers() {
+  const query = (document.getElementById('adminPlayerSearch')?.value || '').toLowerCase().trim();
+  const container = document.getElementById('adminPlayerStatusList');
+  if (!container) return;
+
+  if (!adminPlayersCache || adminPlayersCache.length === 0) {
+    container.innerHTML = '<i style="color:#666;">No player data loaded for this group. Select a group above.</i>';
+    return;
+  }
+
+  const filtered = adminPlayersCache.filter(p => {
+    const pName = String(p.name || `${p.first || ''} ${p.last || ''}`).toLowerCase();
+    const pPhone = String(p.phone || '').replace(/\D/g, '');
+    return pName.includes(query) || pPhone.includes(query);
+  });
+
+  if (filtered.length === 0) {
+    container.innerHTML = '<i style="color:#666;">No matching players found.</i>';
+    return;
+  }
+
+  const groupName = document.getElementById('adminGlobalGroupSelect')?.value || getSavedGroup();
+
+  container.innerHTML = filtered.map(player => {
+    const pName = player.name || `${player.first || ''} ${player.last || ''}`.trim();
+    const safeIdentifier = String(player.phone || player.name).replace(/'/g, "\\'");
+    
+    // Status states
+    const isActive = player.active === true || String(player.active).toLowerCase() === 'active' || player.status === 'Active';
+    const isCheckedIn = player.checkedIn === true || player.checkedIn === 'true' || player.checked === true;
+
+    return `
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:0.6rem; border-bottom:1px solid #eee; gap:0.5rem;">
+        
+        <!-- Player Info -->
+        <div style="flex:1; min-width:0;">
+          <div style="font-weight:bold; font-size:0.95rem; text-overflow:ellipsis; overflow:hidden; whitespace:nowrap;">
+            ${pName}
+          </div>
+          <div style="font-size:0.8rem; color:#666;">
+            ${player.court ? `Court: <b>${player.court}</b> | ` : ''}${player.phone || 'No phone'}
+          </div>
+        </div>
+
+        <!-- Action Controls -->
+        <div style="display:flex; gap:0.4rem; align-items:center;">
+          
+          <!-- Check-In Toggle Button -->
+          <button 
+            type="button"
+            class="btn-main" 
+            style="padding:0.35rem 0.6rem; font-size:0.8rem; background-color:${isCheckedIn ? '#2e7d32' : '#757575'}; color:white;"
+            onclick="handlePlayerRowClick(this.parentElement.parentElement, '${safeIdentifier}', true, '${groupName}')"
+          >
+            ${isCheckedIn ? '✅ Checked In' : '⬜ Check In'}
+          </button>
+
+          <!-- Active/Inactive Toggle Button -->
+          <button 
+            type="button"
+            class="btn-sub" 
+            style="padding:0.35rem 0.6rem; font-size:0.8rem; background-color:${isActive ? '#1976d2' : '#d32f2f'}; color:white;"
+            onclick="toggleAdminPlayerActive('${safeIdentifier}', ${!isActive})"
+          >
+            ${isActive ? 'Active' : 'Inactive'}
+          </button>
+
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// Toggle active status wrapper function
+async function toggleAdminPlayerActive(identifier, newActiveState) {
+  const groupName = document.getElementById('adminGlobalGroupSelect')?.value || getSavedGroup();
+  try {
+    const res = await apiCall('togglePlayerActive', {
+      groupName: groupName,
+      group: groupName,
+      sheet: "Sched " + groupName,
+      identifier: identifier,
+      active: newActiveState
+    });
+
+    if (res && res.success) {
+        // Refresh local cache and UI
+        invalidateAdminCache(); // Clears frontend localStorage & memory
+        loadAdminPlayerStatusCache(null, true); // Force refresh from server
+      if (typeof loadAdminPlayerStatusCache === 'function') {
+        loadAdminPlayerStatusCache(groupName);
+      } else {
+        filterAdminPlayers();
+      }
+    } else {
+      alert('Failed to update player status: ' + (res.message || 'Unknown error'));
+    }
+  } catch (err) {
+    alert('Error updating player status: ' + err.message);
+  }
+}
+
+// 1. GET ADMIN PLAYER STATUS (Flexible parsing for 'x' and 'Active')
+function getAdminPlayerStatus(payload) {
+  try {
+    const group = payload.group || payload.groupName || "";
+    const cleanGroup = String(group).replace(/^(Score|Sched)\s*/i, "").trim();
+    const ss = getDb();
+    const sheet = ss.getSheetByName("Sched " + cleanGroup) || ss.getSheetByName("Score " + cleanGroup);
+
+    if (!sheet) return { success: false, message: "Sheet not found: Sched " + cleanGroup, players: [] };
+
+    const data = sheet.getDataRange().getValues();
+    if (data.length <= 1) return { success: true, players: [] };
+
+    const headers = data[0].map(h => h.toString().toLowerCase().trim());
+    const nameIdx = headers.findIndex(h => h.includes("name") || h.includes("player"));
+    const phoneIdx = headers.findIndex(h => h.includes("phone") || h.includes("mobile"));
+    const activeIdx = headers.findIndex(h => h === "active" || h.includes("status") || h.includes("active?"));
+    const checkIdx = headers.findIndex(h => h.includes("check") || h === "checked in" || h === "checkedin");
+
+    let players = [];
+    for (let r = 1; r < data.length; r++) {
+      const row = data[r];
+      const pName = row[nameIdx !== -1 ? nameIdx : 0];
+      if (!pName || String(pName).trim() === "") continue;
+
+      const rawActive = activeIdx !== -1 ? String(row[activeIdx]).trim() : "Active";
+      const rawCheck = checkIdx !== -1 ? String(row[checkIdx]).trim() : "";
+
+      // Parses 'Active', 'Y', 'YES', 'TRUE', true, or blank (default active) as true
+      const isActive = activeIdx === -1 || rawActive === "" || 
+                        ["active", "y", "yes", "true", "x"].includes(rawActive.toLowerCase()) || 
+                        row[activeIdx] === true;
+
+      // Parses 'x', 'X', 'TRUE', 'yes', 'checked' as checked in
+      const isCheckedIn = checkIdx !== -1 && (
+        ["x", "true", "yes", "checked"].includes(rawCheck.toLowerCase()) || 
+        row[checkIdx] === true
+      );
+
+      players.push({
+        name: String(pName).trim(),
+        phone: phoneIdx !== -1 ? String(row[phoneIdx]).trim() : "",
+        active: isActive,
+        checkedIn: isCheckedIn,
+        court: headers.indexOf("court") !== -1 ? String(row[headers.indexOf("court")]).trim() : ""
+      });
+    }
+
+    return { success: true, players: players };
+  } catch (err) {
+    return { success: false, error: err.toString(), players: [] };
+  }
+}
+
+// 2. TOGGLE CHECK-IN (Writes 'x' or empty string to match standard check-in page)
+function toggleSingleCheckIn(payload) {
+  try {
+    const group = payload.group || payload.groupName || "";
+    const cleanGroup = String(group).replace(/^(Score|Sched)\s*/i, "").trim();
+    const identifier = String(payload.playerName || payload.phone || "").trim().toLowerCase();
+    const isCheckedIn = payload.isCheckedIn === true || String(payload.isCheckedIn).toLowerCase() === "true";
+
+    const ss = getDb();
+    const sheet = ss.getSheetByName("Sched " + cleanGroup) || ss.getSheetByName("Score " + cleanGroup);
+
+    if (!sheet) return { success: false, message: "Sheet not found" };
+
+    const data = sheet.getDataRange().getValues();
+    const headers = data[0].map(h => h.toString().toLowerCase().trim());
+    
+    const nameIdx = headers.findIndex(h => h.includes("name"));
+    const phoneIdx = headers.findIndex(h => h.includes("phone"));
+    let checkIdx = headers.findIndex(h => h.includes("check") || h === "checked in" || h === "checkedin");
+
+    if (checkIdx === -1) {
+      return { success: false, message: "Could not find 'Checked In' column." };
+    }
+
+    let updated = false;
+    for (let r = 1; r < data.length; r++) {
+      const rowName = String(data[r][nameIdx !== -1 ? nameIdx : 0] || "").trim().toLowerCase();
+      const rowPhone = phoneIdx !== -1 ? String(data[r][phoneIdx] || "").replace(/\D/g, "") : "";
+      const cleanId = identifier.replace(/\D/g, "");
+
+      if (rowName === identifier || (cleanId && rowPhone && rowPhone.includes(cleanId))) {
+        // Writes 'x' if checked, empty string if unchecked
+        sheet.getRange(r + 1, checkIdx + 1).setValue(isCheckedIn ? 'x' : '');
+        updated = true;
+        break;
+      }
+    }
+
+    clearBackendAdminCache(cleanGroup);
+    return { success: updated, message: updated ? "Check-in updated" : "Player not found" };
+  } catch (err) {
+    return { success: false, message: err.message };
+  }
+}
+
+// 3. TOGGLE PLAYER ACTIVE (Writes 'Active' or 'Inactive' to Sheet)
+function togglePlayerActive(payload) {
+  try {
+    const group = payload.group || payload.groupName || "";
+    const cleanGroup = String(group).replace(/^(Score|Sched)\s*/i, "").trim();
+    const identifier = String(payload.identifier || payload.phone || payload.name || "").trim().toLowerCase();
+    const newActiveState = payload.active === true || String(payload.active).toLowerCase() === "true";
+
+    const ss = getDb();
+    const sheet = ss.getSheetByName("Sched " + cleanGroup) || ss.getSheetByName("Score " + cleanGroup);
+
+    if (!sheet) return { success: false, message: "Sheet not found" };
+
+    const data = sheet.getDataRange().getValues();
+    const headers = data[0].map(h => h.toString().toLowerCase().trim());
+    
+    const nameIdx = headers.findIndex(h => h.includes("name"));
+    const phoneIdx = headers.findIndex(h => h.includes("phone"));
+    let activeIdx = headers.findIndex(h => h === "active" || h.includes("status") || h.includes("active?"));
+
+    if (activeIdx === -1) {
+      return { success: false, message: "Could not find 'Active' column in sheet." };
+    }
+
+    let updated = false;
+    for (let r = 1; r < data.length; r++) {
+      const rowName = String(data[r][nameIdx !== -1 ? nameIdx : 0] || "").trim().toLowerCase();
+      const rowPhone = phoneIdx !== -1 ? String(data[r][phoneIdx] || "").replace(/\D/g, "") : "";
+      const cleanId = identifier.replace(/\D/g, "");
+
+      if (rowName === identifier || (cleanId && rowPhone && rowPhone.includes(cleanId))) {
+        sheet.getRange(r + 1, activeIdx + 1).setValue(newActiveState ? "Active" : "Inactive");
+        updated = true;
+        break;
+      }
+    }
+
+    clearBackendAdminCache(cleanGroup);
+    return { success: updated, message: updated ? "Status updated" : "Player not found" };
+  } catch (err) {
+    return { success: false, message: err.message };
+  }
 }
