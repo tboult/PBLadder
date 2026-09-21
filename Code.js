@@ -1599,7 +1599,7 @@ function generateScheduleTabs(genTarget, courts) {
 }
 
 function rescheduleFromCheckIns(reschedTarget, courts) {
-  logDebug("rescheduleFromCheckIns", "Rescheduling checked-in players", { reschedTarget, courts });
+  logDebug("rescheduleFromCheckIns", "Rescheduling checked-in players while preserving scores & check-in marks", { reschedTarget, courts });
   const ss = getDb();
   let targetName = reschedTarget ? String(reschedTarget).replace(/^Score\s*/i, "Sched ").trim() : "Sched Womens";
   if (!targetName.startsWith("Sched ")) targetName = "Sched " + targetName;
@@ -1608,50 +1608,144 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
   let sheet = ss.getSheetByName(targetName);
   if (!sheet) return `⚠️ Error: Schedule tab '${targetName}' not found.`;
 
-  let players = fetchPlayersFromSheet(targetName);
-  let checkedInPlayers = players.filter(p => p.checkedIn || p.checked);
-  let uncheckedPlayers = players.filter(p => !(p.checkedIn || p.checked));
+  const currentWeek = calculateCurrentWeekNumber();
 
-  let availableCourts = courts ? parseAndSortCourts(courts) : getCourtsForGroup(groupName);
-  let headers = ["Player Name", "Court", "Check-In", "Game 1", "Game 2", "Game 3", "Total"];
-  let rows = [headers];
-
-  let numChecked = checkedInPlayers.length;
-  let foursomesCount = Math.floor(numChecked / 4);
-
-  let courtWarning = "";
-  if (foursomesCount > availableCourts.length) {
-    courtWarning = ` ⚠️ Error: Insufficient courts! Needed: ${foursomesCount}, Available: ${availableCourts.length}. Oversubscribed players assigned BYE.`;
-    logDebug("rescheduleFromCheckIns", "Insufficient courts error", { groupName, required: foursomesCount, available: availableCourts.length });
+  // 1. Read existing row data to preserve scores, check-in status, and prior court assignments
+  let existingData = sheet.getDataRange().getValues();
+  let existingMap = {};
+  if (existingData.length > 1) {
+    for (let r = 1; r < existingData.length; r++) {
+      let row = existingData[r];
+      let pName = row[0] ? String(row[0]).trim() : "";
+      if (pName) {
+        existingMap[pName] = {
+          court: row[1] ? String(row[1]).trim() : "BYE",
+          checkIn: row[2] !== undefined ? String(row[2]).trim() : "",
+          g1: row[3] !== undefined ? row[3] : "",
+          g2: row[4] !== undefined ? row[4] : "",
+          g3: row[5] !== undefined ? row[5] : "",
+          total: row[6] !== undefined ? row[6] : "",
+          entered: row[7] !== undefined ? row[7] : ""
+        };
+      }
+    }
   }
 
-  checkedInPlayers.forEach((p, idx) => {
-    let currentFoursome = Math.floor(idx / 4);
-    let assignedCourt = "BYE";
+  // 2. Fetch current list of players and determine check-in statuses
+  let players = fetchPlayersFromSheet(targetName);
+  let availableCourts = courts ? parseAndSortCourts(courts) : getCourtsForGroup(groupName);
+  let availableCourtNames = availableCourts.map(c => "Court " + c);
 
-    if (currentFoursome < availableCourts.length) {
-      assignedCourt = "Court " + availableCourts[currentFoursome];
+  let checkedInPlayers = [];
+  let uncheckedPlayers = [];
+
+  players.forEach(p => {
+    let prev = existingMap[p.name] || { court: "BYE", checkIn: "", g1: "", g2: "", g3: "", total: "", entered: "" };
+    // A player is checked in if marked via app OR if they already have a check-in mark on the sheet
+    let isChecked = Boolean(p.checkedIn || p.checked || (prev.checkIn && prev.checkIn !== ""));
+    p.prev = prev;
+    p.isChecked = isChecked;
+
+    if (isChecked) {
+      checkedInPlayers.push(p);
+    } else {
+      uncheckedPlayers.push(p);
     }
+  });
 
-    rows.push([p.name, assignedCourt, "X", "", "", "", ""]);
+  // 3. Allocate players to courts
+  let courtAssignments = {};
+  availableCourtNames.forEach(cName => { courtAssignments[cName] = []; });
+
+  let unassignedCheckedIn = [];
+
+  // Phase A: Lock in players who are already assigned to valid courts
+  checkedInPlayers.forEach(p => {
+    let prevCourt = p.prev.court;
+    let hasScores = (p.prev.g1 !== "" || p.prev.g2 !== "" || p.prev.g3 !== "" || p.prev.total !== "" || p.prev.entered !== "");
+
+    if (availableCourtNames.includes(prevCourt) && (hasScores || courtAssignments[prevCourt].length < 4)) {
+      courtAssignments[prevCourt].push(p);
+      p.assignedCourt = prevCourt;
+    } else {
+      // Includes newly checked-in players previously sitting on "BYE"
+      unassignedCheckedIn.push(p);
+    }
+  });
+
+  // Phase B: Fill open court slots (< 4 players) with newly checked-in players
+  availableCourtNames.forEach(cName => {
+    while (courtAssignments[cName].length < 4 && unassignedCheckedIn.length > 0) {
+      let candidate = unassignedCheckedIn.shift();
+      candidate.assignedCourt = cName;
+      courtAssignments[cName].push(candidate);
+    }
+  });
+
+  // Phase C: Excess checked-in players remain on BYE
+  unassignedCheckedIn.forEach(p => {
+    p.assignedCourt = "BYE";
+  });
+
+  // 4. Construct output rows
+  let headers = ["Player Name", "Court", "Check-In", "Game 1", "Game 2", "Game 3", "Total", "Entered"];
+  let rows = [headers];
+
+  checkedInPlayers.forEach(p => {
+    let finalCourt = p.assignedCourt || "BYE";
+    // Maintain check-in mark "X" even when assigned to BYE
+    let checkInVal = p.prev.checkIn || "X";
+    rows.push([
+      p.name,
+      finalCourt,
+      checkInVal,
+      p.prev.g1,
+      p.prev.g2,
+      p.prev.g3,
+      p.prev.total,
+      p.prev.entered
+    ]);
   });
 
   uncheckedPlayers.forEach(p => {
-    rows.push([p.name, "BYE", "", "", "", "", ""]);
+    rows.push([
+      p.name,
+      "BYE",
+      "",
+      p.prev.g1,
+      p.prev.g2,
+      p.prev.g3,
+      p.prev.total,
+      p.prev.entered
+    ]);
   });
 
+  // 5. Write updated data to sheet
   sheet.clearContents();
   sheet.getRange(1, 1, rows.length, headers.length).setValues(rows);
   sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
 
+  // Preserve Week Marker metadata in I1:I2
+  var i1Cell = sheet.getRange("I1");
+  i1Cell.setValue("SCHEDULE_WEEK");
+  i1Cell.setFontWeight("bold");
+
+  var i2Cell = sheet.getRange("I2");
+  i2Cell.setValue(currentWeek);
+  i2Cell.setHorizontalAlignment("center");
+
   const cacheKey = getCheckInCacheKey(targetName);
-  CacheService.getScriptCache().remove(cacheKey);
+  if (typeof CacheService !== 'undefined' && cacheKey) {
+    CacheService.getScriptCache().remove(cacheKey);
+  }
 
-  let assignedCourtsCount = Math.min(foursomesCount, availableCourts.length);
-  let totalByes = (numChecked - (assignedCourtsCount * 4)) + uncheckedPlayers.length;
+  let numChecked = checkedInPlayers.length;
+  let activeCourtsCount = availableCourtNames.filter(c => courtAssignments[c].length > 0).length;
+  let totalByes = rows.filter(r => r[1] === "BYE").length - 1;
 
-  return `✅ Rescheduled '${targetName}' based on ${numChecked} checked-in players (${assignedCourtsCount} courts assigned, ${totalByes} BYEs).${courtWarning}`;
+  return `✅ Rescheduled '${targetName}' while preserving existing scores and check-in marks (${numChecked} checked-in, ${activeCourtsCount} courts assigned, ${totalByes} BYEs).`;
 }
+
 
 function calculateStats(row, col) {
   let total = 0;
