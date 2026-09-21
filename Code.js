@@ -2413,7 +2413,7 @@ function ensurePlayerCheckedIn(sheetName, targetPlayer) {
 }
 
 
-// 1. GET ADMIN PLAYER STATUS (Reads Active from Col A & Phone from Col F of Score Sheet)
+// 1. GET ADMIN PLAYER STATUS (Searches for Status/Active column, falls back to Col A)
 function getAdminPlayerStatus(payload) {
   try {
     const group = payload.group || payload.groupName || "";
@@ -2427,27 +2427,30 @@ function getAdminPlayerStatus(payload) {
       return { success: false, message: "Sheets not found for group: " + cleanGroup, players: [] };
     }
 
-    // A. Read Active Status (Col A) & Phone (Col F) from "Score [Group]"
+    // A. Read Status & Phone from "Score [Group]"
     const activeMap = {}; 
     if (scoreSheet) {
       const scoreData = scoreSheet.getDataRange().getValues();
       if (scoreData.length > 0) {
         const scoreHeaders = scoreData[0].map(h => h.toString().toLowerCase().trim());
         
+        // Find Status Column (Looks for StatusatusSt, Status, or Active)
+        let activeIdx = scoreHeaders.findIndex(h => h.includes("status") || h.includes("active"));
+        if (activeIdx === -1) activeIdx = 0; // Fallback to Column A
+
         let nameIdx = scoreHeaders.findIndex(h => h.includes("name") || h.includes("player"));
-        if (nameIdx === -1) nameIdx = 1; // Column B
+        if (nameIdx === -1) nameIdx = 1; // Fallback to Column B
 
         let phoneIdx = scoreHeaders.findIndex(h => h.includes("phone") || h.includes("mobile"));
-        if (phoneIdx === -1) phoneIdx = 5; // Explicit fallback to Column F
+        if (phoneIdx === -1) phoneIdx = 5; // Fallback to Column F
 
         for (let r = 1; r < scoreData.length; r++) {
           const row = scoreData[r];
           const pName = String(row[nameIdx] || "").trim().toLowerCase();
           const pPhone = String(row[phoneIdx] || "").replace(/\D/g, "");
 
-          // Column A (Index 0) holds Active Status
-          const colAVal = String(row[0] || "").trim().toLowerCase();
-          const isActive = colAVal === "" || ["active", "y", "yes", "true", "x"].includes(colAVal);
+          const statusVal = String(row[activeIdx] || "").trim().toLowerCase();
+          const isActive = statusVal === "" || ["active", "y", "yes", "true", "x"].includes(statusVal);
 
           if (pName) activeMap[pName] = isActive;
           if (pPhone) activeMap[pPhone] = isActive;
@@ -2481,7 +2484,6 @@ function getAdminPlayerStatus(payload) {
         const phoneStr = phoneIdx !== -1 ? String(row[phoneIdx] || "").trim() : "";
         const cleanPhone = phoneStr.replace(/\D/g, "");
 
-        // Cross-reference Active state from Score map
         let isActive = true;
         if (activeMap.hasOwnProperty(cleanName)) {
           isActive = activeMap[cleanName];
@@ -2489,7 +2491,6 @@ function getAdminPlayerStatus(payload) {
           isActive = activeMap[cleanPhone];
         }
 
-        // Check-in state ('x' or true on Sched sheet)
         const rawCheck = checkIdx !== -1 ? String(row[checkIdx]).trim().toLowerCase() : "";
         const isCheckedIn = ["x", "true", "yes", "checked"].includes(rawCheck) || row[checkIdx] === true;
 
@@ -2509,7 +2510,7 @@ function getAdminPlayerStatus(payload) {
   }
 }
 
-// 2. TOGGLE PLAYER ACTIVE (Matches Name in Col B or Phone in Col F -> Writes to Col A)
+// 2. TOGGLE PLAYER ACTIVE (Writes to the dynamically found Status column)
 function togglePlayerActive(payload) {
   try {
     const group = payload.group || payload.groupName || "";
@@ -2529,13 +2530,15 @@ function togglePlayerActive(payload) {
 
     const headers = data[0].map(h => h.toString().toLowerCase().trim());
     
-    // Name Column: Search header or fallback to Column B (Index 1)
-    let nameIdx = headers.findIndex(h => h.includes("name") || h.includes("player"));
-    if (nameIdx === -1) nameIdx = 1;
+    // Find Status Column (Looks for StatusatusSt, Status, or Active)
+    let activeIdx = headers.findIndex(h => h.includes("status") || h.includes("active"));
+    if (activeIdx === -1) activeIdx = 0; // Fallback to Column A
 
-    // Phone Column: Search header or fallback to Column F (Index 5)
+    let nameIdx = headers.findIndex(h => h.includes("name") || h.includes("player"));
+    if (nameIdx === -1) nameIdx = 1; // Fallback Column B
+
     let phoneIdx = headers.findIndex(h => h.includes("phone") || h.includes("mobile"));
-    if (phoneIdx === -1) phoneIdx = 5;
+    if (phoneIdx === -1) phoneIdx = 5; // Fallback Column F
 
     let updated = false;
     for (let r = 1; r < data.length; r++) {
@@ -2546,8 +2549,8 @@ function togglePlayerActive(payload) {
       const phoneMatch = targetPhone && rowPhone && rowPhone.includes(targetPhone);
 
       if (nameMatch || phoneMatch) {
-        // Writes "Active" or "Inactive" to Column A (Column 1)
-        scoreSheet.getRange(r + 1, 1).setValue(newActiveState ? "Active" : "Inactive");
+        // Write back to the exact column index we found (or Column A)
+        scoreSheet.getRange(r + 1, activeIdx + 1).setValue(newActiveState ? "Active" : "Inactive");
         updated = true;
         break;
       }
@@ -2564,47 +2567,7 @@ function togglePlayerActive(payload) {
 }
 
 
-// 2. TOGGLE PLAYER ACTIVE (Writes "Active" or "Inactive" into Column A of Score sheet)
-function togglePlayerActive(payload) {
-  try {
-    const group = payload.group || payload.groupName || "";
-    const cleanGroup = String(group).replace(/^(Score|Sched)\s*/i, "").trim();
-    const identifier = String(payload.identifier || payload.phone || payload.name || "").trim().toLowerCase();
-    const cleanIdPhone = identifier.replace(/\D/g, "");
-    const newActiveState = payload.active === true || String(payload.active).toLowerCase() === "true";
 
-    const ss = getDb();
-    const scoreSheet = ss.getSheetByName("Score " + cleanGroup) || ss.getSheetByName("Sched " + cleanGroup);
-
-    if (!scoreSheet) return { success: false, message: "Score sheet not found: Score " + cleanGroup };
-
-    const data = scoreSheet.getDataRange().getValues();
-    if (data.length <= 1) return { success: false, message: "No data found on Score sheet" };
-
-    const headers = data[0].map(h => h.toString().toLowerCase().trim());
-    let nameIdx = headers.findIndex(h => h.includes("name") || h.includes("player"));
-    let phoneIdx = headers.findIndex(h => h.includes("phone") || h.includes("mobile"));
-    if (nameIdx === -1) nameIdx = 1; // Default to Column B
-
-    let updated = false;
-    for (let r = 1; r < data.length; r++) {
-      const rowName = String(data[r][nameIdx] || "").trim().toLowerCase();
-      const rowPhone = phoneIdx !== -1 ? String(data[r][phoneIdx] || "").replace(/\D/g, "") : "";
-
-      if (rowName === identifier || (cleanIdPhone && rowPhone && rowPhone.includes(cleanIdPhone))) {
-        // Column A is Column 1 in 1-based indexing
-        scoreSheet.getRange(r + 1, 1).setValue(newActiveState ? "Active" : "Inactive");
-        updated = true;
-        break;
-      }
-    }
-
-    clearBackendAdminCache(cleanGroup);
-    return { success: updated, message: updated ? "Status updated in Column A" : "Player not found on Score sheet" };
-  } catch (err) {
-    return { success: false, message: err.message };
-  }
-}
 
 // 3. TOGGLE CHECK-IN (Writes 'x' or '' into Checked In column on Sched sheet)
 function toggleSingleCheckIn(payload) {
