@@ -1,0 +1,22 @@
+# Ignore frontend files when running 'clasp push'
+index.html
+sw.js
+manifest.json
+.git/
+README.md
+SunLadder.png
+SunLadder.svg
+LICENSE
+.#.clasp.json
+# Emacs backup files (ending with ~)
+*~
+**/*~
+
+# Emacs auto-save files (#file#)
+\#*#
+**/\#*#
+
+# Emacs lock files (.#file)
+.#*
+**/.*
+*.sh

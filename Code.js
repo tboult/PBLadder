@@ -1201,7 +1201,8 @@ function menuGenerateScheduleTabs() {
 
 function menuUpdateStandingsWithShift() {
   try {
-    let res = processWeeklyScoresForSheet(getValidActiveScoreSheet(),  "W"+getCurrentWeekIdentifier"W10", true);
+      let sheet = getValidActiveScoreSheet();
+      let res = processWeeklyScoresForSheet(sheet, getCurrentWeekIdentifier(sheet.getName()), true);
     if (SpreadsheetApp.getUi()) SpreadsheetApp.getUi().alert(res);
     return res;
   } catch(e) {
@@ -1212,7 +1213,9 @@ function menuUpdateStandingsWithShift() {
 
 function menuCorrectScoresNoShift() {
   try {
-    let res = processWeeklyScoresForSheet(getValidActiveScoreSheet(), "W10", false);
+   let sheet = getValidActiveScoreSheet();
+   let res = processWeeklyScoresForSheet(sheet, getCurrentWeekIdentifier(sheet.getName()), true);
+
     if (SpreadsheetApp.getUi()) SpreadsheetApp.getUi().alert(res);
     return res;
   } catch(e) {
