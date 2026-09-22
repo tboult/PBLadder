@@ -31,8 +31,17 @@ function testToggleDebug() {
     phone: "7199630573",        // A phone number present in your sheet
     playerName: "Terry Boult"      // A name present in your sheet
   };
+}
 
-  var result = toggleUnifiedActiveStatus(testPayload);
+function testfindfour() {
+  // Replace these with actual values from your Google Sheet to test!
+  var testPayload = {
+    groupName: "Mens",          // Your group name
+    phone: "7199630573",        // A phone number present in your sheet
+    playerName: "Terry Boult"      // A name present in your sheet
+  };
+    
+  var result = findFoursomeByPhone(testPayload);
   Logger.log("RESULT: " + JSON.stringify(result));
 }
 
@@ -285,6 +294,10 @@ var _ROSTER_LOOKUP_CACHE = null;
 /**
  * High-performance Phone Lookup with In-Memory Array Caching
  */
+/**
+ * Finds a player's court assignment and foursome by searching Score sheets for phone/identity
+ * and Sched sheets for court pairings.
+ */
 function findFoursomeByPhone(params) {
   let phoneInput = "", targetGroup = "";
   if (typeof params === 'object' && params !== null) {
@@ -296,61 +309,127 @@ function findFoursomeByPhone(params) {
 
   const cleanPhone = String(phoneInput).replace(/\D/g, "");
   const searchName = String(phoneInput).trim().toLowerCase();
-  if (cleanPhone.length < 7 && searchName.length < 2) return null;
+  
+  if (cleanPhone.length < 7 && searchName.length < 2) {
+    return { success: false, message: "Search term too short." };
+  }
+
+  // Helper: Strip non-breaking spaces and clean whitespace
+  function cleanStr(val) {
+    return String(val || '')
+      .replace(/[\u00a0\u1680\u180e\u2000-\u200b\u202f\u205f\u3000\ufeff]/g, " ")
+      .trim();
+  }
+
+  // Extract core group name (e.g., "Score Mens" or "Sched Mens" -> "MENS")
+  const cleanTarget = cleanStr(targetGroup).replace(/^(Score|Sched)\s*/i, "").trim().toUpperCase();
 
   const ss = getDb();
-  let groupsToSearch = targetGroup 
-    ? [cleanGroupName(targetGroup)] 
+  let groupsToSearch = cleanTarget 
+    ? [cleanTarget] 
     : (typeof GROUPS !== 'undefined' ? GROUPS : ["Womens", "Mens", "Mixed"]);
 
   for (let g = 0; g < groupsToSearch.length; g++) {
-    let group = groupsToSearch[g];
-    let sheet = ss.getSheetByName("Sched " + group);
-    if (!sheet) continue;
+    const group = cleanStr(groupsToSearch[g]);
+    const schedSheet = ss.getSheetByName("Sched " + group);
+    const scoreSheet = ss.getSheetByName("Score " + group);
 
-    let data = sheet.getDataRange().getValues();
-    if (data.length <= 1) continue;
+    if (!schedSheet && !scoreSheet) continue;
 
-    let headers = data[0].map(h => h.toString().toLowerCase().trim());
-    let nameIdx = headers.findIndex(h => h.includes("name") || h.includes("player"));
-    if (nameIdx === -1) nameIdx = 0;
-    let courtIdx = headers.findIndex(h => h.includes("court"));
-    if (courtIdx === -1) courtIdx = 1;
-    let checkIdx = headers.findIndex(h => h.includes("check"));
-    if (checkIdx === -1 && data[0].length >= 3) checkIdx = 2;
+    let targetPlayerName = "";
+    let targetPhone = cleanPhone;
 
-    // Phase 1: Locate player and court assignment
+    // STEP 1: Search Score Sheet (Master Roster) for Phone or Name Match
+    if (scoreSheet) {
+      const scoreData = scoreSheet.getDataRange().getValues();
+      if (scoreData.length > 1) {
+        const headers = scoreData[0].map(h => cleanStr(h).toLowerCase());
+        const nameIdx = headers.findIndex(h => /name|player/i.test(h));
+        const firstIdx = headers.findIndex(h => /\bfirst\b/i.test(h));
+        const lastIdx = headers.findIndex(h => /\blast\b/i.test(h));
+        const phoneIdx = headers.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
+
+        for (let r = 1; r < scoreData.length; r++) {
+          let pName = "";
+          if (firstIdx !== -1 || lastIdx !== -1) {
+            const f = firstIdx !== -1 ? cleanStr(scoreData[r][firstIdx]) : "";
+            const l = lastIdx !== -1 ? cleanStr(scoreData[r][lastIdx]) : "";
+            pName = `${f} ${l}`.trim();
+          }
+          if (!pName && nameIdx !== -1) pName = cleanStr(scoreData[r][nameIdx]);
+          if (!pName) continue;
+
+          const pPhone = phoneIdx !== -1 ? cleanStr(scoreData[r][phoneIdx]).replace(/\D/g, "") : "";
+
+          // Safe phone check: STRICTLY requires pPhone to be at least 7 digits to prevent endsWith("") bug
+          const isPhoneMatch = cleanPhone.length >= 7 && pPhone.length >= 7 && 
+            (pPhone.endsWith(cleanPhone.slice(-7)) || cleanPhone.endsWith(pPhone.slice(-7)));
+
+          const isNameMatch = searchName.length >= 2 && pName.toLowerCase().includes(searchName);
+
+          if (isPhoneMatch || isNameMatch) {
+            targetPlayerName = pName;
+            if (pPhone) targetPhone = pPhone;
+            break;
+          }
+        }
+      }
+    }
+
+    // STEP 2: Search Sched Sheet for Court & Check-In status
+    if (!schedSheet) continue;
+    const schedData = schedSheet.getDataRange().getValues();
+    if (schedData.length <= 1) continue;
+
+    const headers = schedData[0].map(h => cleanStr(h).toLowerCase());
+    const nameIdx = headers.findIndex(h => /name|player/i.test(h)) !== -1 
+      ? headers.findIndex(h => /name|player/i.test(h)) 
+      : 1;
+    const courtIdx = headers.findIndex(h => /court/i.test(h));
+    let checkIdx = headers.findIndex(h => /check|x/i.test(h));
+    if (checkIdx === -1 && schedData[0].length >= 7) checkIdx = 6;
+    const schedPhoneIdx = headers.findIndex(h => /phone|cell|mobile/i.test(h));
+
     let targetCourt = "";
-    let matchedPlayerName = "";
+    let matchedSchedName = "";
 
-    for (let r = 1; r < data.length; r++) {
-      let pName = String(data[r][nameIdx] || "").trim();
+    for (let r = 1; r < schedData.length; r++) {
+      const pName = cleanStr(schedData[r][nameIdx]);
       if (!pName || pName.startsWith("---") || pName.toLowerCase().startsWith("time:")) continue;
 
-      let pPhone = "";
-      if (headers.some(h => h.includes("phone"))) {
-        let pIdx = headers.findIndex(h => h.includes("phone"));
-        pPhone = String(data[r][pIdx] || "").replace(/\D/g, "");
-      }
+      const pPhone = schedPhoneIdx !== -1 ? cleanStr(schedData[r][schedPhoneIdx]).replace(/\D/g, "") : "";
 
-      let isPhoneMatch = cleanPhone.length >= 7 && (pPhone.endsWith(cleanPhone) || cleanPhone.endsWith(pPhone));
-      let isNameMatch = searchName.length >= 2 && pName.toLowerCase().includes(searchName);
+      const isPhoneMatch = cleanPhone.length >= 7 && pPhone.length >= 7 && 
+        (pPhone.endsWith(cleanPhone.slice(-7)) || cleanPhone.endsWith(pPhone.slice(-7)));
 
-      if (isPhoneMatch || isNameMatch) {
-        matchedPlayerName = pName;
-        targetCourt = String(data[r][courtIdx] || "BYE").trim();
+      const isDirectNameMatch = searchName.length >= 2 && pName.toLowerCase().includes(searchName);
+
+      // Match against Score sheet full/first name
+      const isScoreMatch = targetPlayerName && (
+        pName.toLowerCase().includes(targetPlayerName.toLowerCase()) || 
+        targetPlayerName.toLowerCase().includes(pName.toLowerCase()) ||
+        pName.toLowerCase().split(/\s+/)[0] === targetPlayerName.toLowerCase().split(/\s+/)[0]
+      );
+
+      if (isPhoneMatch || isDirectNameMatch || isScoreMatch) {
+        matchedSchedName = pName;
+        targetCourt = courtIdx !== -1 ? cleanStr(schedData[r][courtIdx]) : "BYE";
         break;
       }
     }
 
-    if (!matchedPlayerName) continue;
+    if (!matchedSchedName || !targetCourt || targetCourt.toUpperCase() === "BYE") continue;
 
-    // Phase 2: Find all 4 players assigned to this court
-    let foursome = [];
-    for (let r = 1; r < data.length; r++) {
-      let pName = String(data[r][nameIdx] || "").trim();
-      let court = String(data[r][courtIdx] || "").trim();
-      let isChecked = isCheckInTrue(data[r][checkIdx]);
+    // STEP 3: Gather all 4 players assigned to targetCourt
+    const foursome = [];
+    for (let r = 1; r < schedData.length; r++) {
+      const pName = cleanStr(schedData[r][nameIdx]);
+      const court = courtIdx !== -1 ? cleanStr(schedData[r][courtIdx]) : "";
+      const rawCheck = checkIdx !== -1 ? schedData[r][checkIdx] : false;
+      
+      const isChecked = (typeof isCheckInTrue === 'function') 
+        ? isCheckInTrue(rawCheck) 
+        : ["x", "true", "yes", "1"].includes(cleanStr(rawCheck).toLowerCase());
 
       if (pName && court.toLowerCase() === targetCourt.toLowerCase() && !pName.startsWith("---")) {
         foursome.push({
@@ -365,13 +444,14 @@ function findFoursomeByPhone(params) {
       success: true,
       group: group,
       court: targetCourt,
-      player: matchedPlayerName,
+      player: matchedSchedName,
       foursome: foursome
     };
   }
 
   return { success: false, message: "Player or assigned court not found." };
 }
+
 
 
 function submitCourtScores(payload) {
