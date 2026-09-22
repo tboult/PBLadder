@@ -18,10 +18,12 @@ PROD_DEPLOYMENT_ID="AKfycbyuY1-ZkbpA2Udpe__rKSE6H4EBfl_OKn_Xep719FJII1u5RxAXhSzU
 if [ "$TARGET_ENV" = "prod" ]; then
     DEPLOYMENT_ID="$PROD_DEPLOYMENT_ID"
     CONFIG_FILE="prodclasp.json"
+    MANIFEST_FILE="prodmanifest.json"    
     echo "🚀 DEPLOYING TO PRODUCTION..."
 else
     DEPLOYMENT_ID="$DEV_DEPLOYMENT_ID"
     CONFIG_FILE="devclasp.json"
+    MANIFEST_FILE="defmanifest.json"        
     echo "🛠️ DEPLOYING TO DEVELOPMENT..."
 fi
 
@@ -33,7 +35,12 @@ fi
 
 # 5. Swap .clasp.json to target the correct Apps Script project
 cp "$CONFIG_FILE" .clasp.json
-echo "📋 coppied config to .clasp.json <- $CONFIG_FILE"
+echo "📋 copied config to .clasp.json -> $CONFIG_FILE"
+
+if [ -f "$MANIFEST_FILE" ]; then
+    cp "$MANIFEST_FILE" manifest.json
+    echo "📱 copied manifest.json -> $MANIFEST_FILE"
+fi    
 
 # 6. Update CACHE_NAME in sw.js
 NEW_VER="v$(date +%Y%m%d%H%M%S)"
