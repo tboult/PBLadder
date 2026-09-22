@@ -14,7 +14,8 @@
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="https://raw.githubusercontent.com/tboult/RR/refs/heads/main/SunLadder.png">
     <link rel="icon" type="image/png" sizes="192x192" href="https://raw.githubusercontent.com/tboult/RR/refs/heads/main/SunLadder.png">
-
+    <link rel="stylesheet" href="theme.css">
+    <link rel="stylesheet" href="style.css">
     <style>
       :root {
         --bg-color: #f4f6f8;
@@ -44,6 +45,16 @@
         --bye-header-text: #856404;
         --focus-ring: #ffbf47;
       }
+
+
+      /* style.css */
+      header {
+      background-color: var(--header-bg);
+      }
+      
+      button.primary {
+      background-color: var(--primary-bg);
+      }      
 
       body.high-contrast {
         --bg-color: #000000;

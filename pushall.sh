@@ -19,11 +19,13 @@ if [ "$TARGET_ENV" = "prod" ]; then
     DEPLOYMENT_ID="$PROD_DEPLOYMENT_ID"
     CONFIG_FILE="prodclasp.json"
     MANIFEST_FILE="prodmanifest.json"    
+    THEME_FILE="prodtheme.css"
     echo "🚀 DEPLOYING TO PRODUCTION..."
 else
     DEPLOYMENT_ID="$DEV_DEPLOYMENT_ID"
     CONFIG_FILE="devclasp.json"
-    MANIFEST_FILE="defmanifest.json"        
+    MANIFEST_FILE="defmanifest.json"
+    THEME_FILE="devtheme.css"    
     echo "🛠️ DEPLOYING TO DEVELOPMENT..."
 fi
 
@@ -41,6 +43,12 @@ if [ -f "$MANIFEST_FILE" ]; then
     cp "$MANIFEST_FILE" manifest.json
     echo "📱 copied manifest.json -> $MANIFEST_FILE"
 fi    
+
+# Swap theme.css
+if [ -f "$THEME_FILE" ]; then
+    cp "$THEME_FILE" theme.css
+    echo "🎨 copied $THEME_FILE -> theme.css"
+fi
 
 # 6. Update CACHE_NAME in sw.js
 NEW_VER="v$(date +%Y%m%d%H%M%S)"

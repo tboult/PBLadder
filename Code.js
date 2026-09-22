@@ -1,9 +1,8 @@
 /*
  * GLOBAL CONFIGURATION & HELPER DEFINITIONS
+ Dev
  * ========================================== */
 
-const ENABLE_LOGGING = true; 
-const SPREADSHEET_ID = "14jmYyesfG9btWcIeptDwD6Bkxj8UZiQVlAOGc6BdM84";
 const VALID_SCORE_TABS = ["Score Womens", "Score Mens", "Score Mixed"];
 const SCORE_TABS = VALID_SCORE_TABS;
 const MAX_MOVEMENT = 4;
@@ -75,9 +74,15 @@ function testCheckInDirectly() {
     Logger.log("ERROR: " + err.toString());
   }
 }
+// Replace hardcoded boolean with a Script Property check
+function isLoggingEnabled() {
+  const prop = PropertiesService.getScriptProperties().getProperty("ENABLE_LOGGING");
+  return prop === "true"; // Defaults to false if missing or set to "false"
+}
 
-function logDebug(fnName, msg, extra = "") {
-  if (typeof ENABLE_LOGGING !== 'undefined' && !ENABLE_LOGGING) return;
+// Example usage in your logger:
+function logDebug(tag, message, details) {
+  if (!isLoggingEnabled()) return;
   let extraStr = "";
   if (extra !== undefined && extra !== null && extra !== "") {
     if (typeof extra === "object") {
