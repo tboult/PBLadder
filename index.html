@@ -566,7 +566,7 @@
 
   window.API_URL = "https://script.google.com/macros/s/AKfycbweTOjVcY0R1sxXrYfbN2S9jqMz4yr5b1alVoz0gjVy3P3ty42rtHlfgfpdjtFnF4nFaQ/exec";
   const API_URL = window.API_URL;
-  const CURRENT_APP_VERSION = "0.9.5";
+  const CURRENT_APP_VERSION = "0.9.6";
 
   const GROUP_COURT_MAP = {
       "Womens": [3,4,5,6,7,8,15,16,17,18,19,20],
@@ -666,7 +666,7 @@ async function apiCall(action, payload = {}) {
   });
 
   // 2. Log when a call is deduplicated/cached
-  if (action === 'getPlayersForCheckIn' && apiQueue.some(q => q.action === 'getPlayersForCheckIn' && JSON.stringify(q.payload) === JSON.stringify(payload))) {
+  if (action === 'getUnifiedRoster' && apiQueue.some(q => q.action === 'getUnifiedRoster' && JSON.stringify(q.payload) === JSON.stringify(payload))) {
     console.log(`⚡ [API Cache Hit] Deduplicating "${action}", returning cached players.`, checkInPlayersCache);
     return Promise.resolve({ players: checkInPlayersCache });
   }
@@ -1035,76 +1035,6 @@ async function submitAdminRegistration() {
 
 let checkInPlayersCache = [];
 
-async function loadCheckInPlayers() {
-  const groupName = document.getElementById('sheetSelect')?.value || getSavedGroup();
-  const listEl = document.getElementById('playerList');
-  const statusEl = document.getElementById('checkInStatus');
-
-  if (!groupName) {
-    if (listEl) listEl.innerHTML = '<i>Select a group above...</i>';
-    return;
-  }
-
-  if (listEl && listEl.querySelector('.saving')) return;
-
-  if (listEl && listEl.children.length === 0) {
-    listEl.innerHTML = '<span class="loading-spinner"></span> Loading players...';
-  }
-
-  try {
-    // Ensure clean action name without hidden spaces
-    const res = await apiCall('getPlayersForCheckIn', { 
-      groupName: groupName.trim(),
-      group: groupName.trim(),
-      sheet: "Sched " + groupName.trim()
-    });
-
-    const rawList = Array.isArray(res) ? res : (res && res.players ? res.players : []);
-
-    if (rawList && rawList.length > 0) {
-      // 1. Standard sort
-      let sortedList = processAndSortPlayers(rawList);
-
-      // 2. Retrieve active player criteria
-      const currentPhone = String(
-        (typeof activeLookupPlayer !== 'undefined' && activeLookupPlayer?.phone) || 
-        localStorage.getItem('scpb_saved_phone') || ''
-      ).trim();
-
-      const currentName = String(
-        (typeof activeLookupPlayer !== 'undefined' && (activeLookupPlayer?.name || activeLookupPlayer?.playerName)) || 
-        localStorage.getItem('scpb_saved_name') || ''
-      ).trim().toLowerCase();
-
-      // 3. Move current player to index 0 if found
-      if (currentPhone || currentName) {
-        const userIndex = sortedList.findIndex(p => {
-          const pPhone = String(p.phone || p.id || p.playerId || '').trim();
-          const pName = String(p.name || p.playerName || '').trim().toLowerCase();
-
-          const phoneMatch = currentPhone && pPhone && pPhone === currentPhone;
-          const nameMatch = currentName && pName && pName === currentName;
-
-          return phoneMatch || nameMatch;
-        });
-
-        if (userIndex > -1) {
-          const [currentUser] = sortedList.splice(userIndex, 1);
-          currentUser.isCurrentPlayer = true; // Helpful flag for UI styling if needed
-          sortedList.unshift(currentUser);
-        }
-      }
-
-      checkInPlayersCache = sortedList;
-      renderCheckInPlayers(checkInPlayersCache);
-      if (statusEl) statusEl.innerText = '';
-    } else {
-      if (listEl) listEl.innerHTML = '<i>No check-in data found for group.</i>';
-    }
-  } catch (err) {
-    if (statusEl) statusEl.innerText = '❌ ' + err.message;
-  }
-}
 
 
 function renderCheckInPlayers(players) {
@@ -1462,7 +1392,7 @@ async function toggleStatus() {
   if (statusEl) statusEl.innerText = 'Updating status...';
 
   try {
-    const res = await apiCall('togglePlayerStatus', {
+    const res = await apiCall('toggleUnifiedActiveStatus', {
       phone: activeLookupPlayer.phone,
       groupName: activeLookupPlayer.group,
       group: activeLookupPlayer.group,
@@ -1725,74 +1655,6 @@ function loadAdminTabData(groupName) {
   loadAdminPlayerStatusCache(groupName);
 }
 
-async function loadAdminPlayerStatusCache(overrideGroup = null, forceRefresh = false) {
-  // Determine target group from param, dropdown element, or stored session
-  const groupName = overrideGroup || 
-                    document.getElementById('adminGlobalGroupSelect')?.value || 
-                    getSavedGroup();
-
-  const container = document.getElementById('adminPlayerStatusList');
-
-  if (!groupName) {
-    if (container) container.innerHTML = '<i>Select a group above to load roster...</i>';
-    return;
-  }
-
-  const storageKey = `admin_cache_${groupName}`;
-
-  // 1. Attempt reading from localStorage if not forcing a network refresh
-  if (!forceRefresh) {
-    const cachedData = localStorage.getItem(storageKey);
-    if (cachedData) {
-      try {
-        adminPlayersCache = JSON.parse(cachedData);
-        if (typeof filterAdminPlayers === 'function') {
-          filterAdminPlayers();
-        }
-        return; // Return cached data early without an API call
-      } catch (e) {
-        console.warn('Failed to parse cached admin roster from localStorage:', e);
-      }
-    }
-  }
-
-  // 2. Show loading feedback in the UI
-  if (container) {
-    container.innerHTML = '<span class="loading-spinner"></span> Loading player roster...';
-  }
-
-  // 3. Fetch fresh data from backend
-  try {
-    const res = await apiCall('getAdminPlayerStatus', { 
-      groupName: groupName,
-      group: groupName,
-      sheet: "Sched " + groupName,
-      forceRefresh: forceRefresh
-    });
-
-    if (res && res.success && Array.isArray(res.players)) {
-      adminPlayersCache = res.players;
-      
-      // Save data to localStorage for persistence across reloads
-      localStorage.setItem(storageKey, JSON.stringify(res.players));
-
-      if (typeof filterAdminPlayers === 'function') {
-        filterAdminPlayers();
-      }
-    } else {
-      adminPlayersCache = [];
-      if (container) {
-        container.innerHTML = `<i>${res?.message || 'No player data found for group.'}</i>`;
-      }
-    }
-  } catch (err) {
-    console.error('loadAdminPlayerStatusCache error:', err);
-    adminPlayersCache = [];
-    if (container) {
-      container.innerHTML = '<i>Error loading player roster. Check console logs.</i>';
-    }
-  }
-}
 
 
 
@@ -2397,87 +2259,6 @@ navigator.serviceWorker.addEventListener('controllerchange', () => {
 
 
 
-async function loadAdminPlayerStatusCache(overrideGroup = null, forceRefresh = false) {
-  const groupName = overrideGroup || 
-                    document.getElementById('adminGlobalGroupSelect')?.value || 
-                    getSavedGroup();
-
-  const container = document.getElementById('adminPlayerStatusList');
-
-  if (!groupName) {
-    if (container) container.innerHTML = '<i>Select a group above to load roster...</i>';
-    return;
-  }
-
-  const storageKey = `admin_cache_${groupName}`;
-
-  // Read local cache only when forceRefresh is false
-  if (!forceRefresh) {
-    const cachedData = localStorage.getItem(storageKey);
-    if (cachedData) {
-      try {
-        adminPlayersCache = JSON.parse(cachedData);
-        if (typeof filterAdminPlayers === 'function') {
-          filterAdminPlayers();
-        }
-        return;
-      } catch (e) {
-        console.warn('Failed to parse cached admin roster:', e);
-      }
-    }
-  }
-
-  if (container) {
-    container.innerHTML = '<span class="loading-spinner"></span> Loading player roster...';
-  }
-
-  try {
-    const res = await apiCall('getAdminPlayerStatus', { 
-      groupName: groupName,
-      group: groupName,
-      sheet: "Sched " + groupName,
-      forceRefresh: forceRefresh
-    });
-
-    if (res && res.success && Array.isArray(res.players)) {
-      // Normalize self-check-in status across all possible backend property names/values
-      adminPlayersCache = res.players.map(player => {
-        const checkedInStatus = Boolean(
-          player.isCheckedIn === true || 
-          player.checkedIn === true || 
-          String(player.status).toLowerCase() === 'checked in' ||
-          String(player.status).toLowerCase() === 'yes' ||
-          String(player.checkedIn).toLowerCase() === 'yes' ||
-          String(player.checkedIn).toLowerCase() === 'true'
-        );
-
-        return {
-          ...player,
-          isCheckedIn: checkedInStatus,
-          checkedIn: checkedInStatus
-        };
-      });
-
-      // Update local storage with fresh state
-      localStorage.setItem(storageKey, JSON.stringify(adminPlayersCache));
-
-      if (typeof filterAdminPlayers === 'function') {
-        filterAdminPlayers();
-      }
-    } else {
-      adminPlayersCache = [];
-      if (container) {
-        container.innerHTML = `<i>${res?.message || 'No player data found for group.'}</i>`;
-      }
-    }
-  } catch (err) {
-    console.error('loadAdminPlayerStatusCache error:', err);
-    adminPlayersCache = [];
-    if (container) {
-      container.innerHTML = '<i>Error loading player roster. Check console logs.</i>';
-    }
-  }
-}
 
 
 
@@ -2566,7 +2347,7 @@ async function toggleAdminPlayerActive(btnEl, playerName, phone, currentActiveSt
   btnEl.innerText = '⏳ Updating...';
 
   try {
-    const res = await apiCall('togglePlayerStatus', {
+    const res = await apiCall('toggleUnifiedActiveStatus', {
       phone: phone,
       playerName: playerName,
       groupName: groupName,
@@ -2686,105 +2467,8 @@ function filterAdminPlayers() {
   }).join('');
 }
 
-// 4. LOAD ADMIN PLAYER STATUS CACHE
-async function loadAdminPlayerStatusCache(overrideGroup = null, forceRefresh = false) {
-  const groupName = overrideGroup || 
-                    document.getElementById('adminGlobalGroupSelect')?.value || 
-                    getSavedGroup();
 
-  const container = document.getElementById('adminPlayerStatusList');
-
-  if (!groupName) {
-    if (container) container.innerHTML = '<i>Select a group above to load roster...</i>';
-    return;
-  }
-
-  const storageKey = `admin_cache_${groupName}`;
-
-  if (!forceRefresh) {
-    const cachedData = localStorage.getItem(storageKey);
-    if (cachedData) {
-      try {
-        adminPlayersCache = JSON.parse(cachedData);
-        if (typeof filterAdminPlayers === 'function') {
-          filterAdminPlayers();
-        }
-        return;
-      } catch (e) {
-        console.warn('Failed to parse cached admin roster:', e);
-      }
-    }
-  }
-
-  if (container) {
-    container.innerHTML = '<span class="loading-spinner"></span> Loading player roster...';
-  }
-
-  try {
-    const res = await apiCall('getAdminPlayerStatus', { 
-      groupName: groupName,
-      group: groupName,
-      sheet: "Sched " + groupName,
-      forceRefresh: forceRefresh
-    });
-
-    if (res && res.success && Array.isArray(res.players)) {
-      adminPlayersCache = res.players.map(player => {
-        const rawCheckInVal = player['Check-In'] ?? 
-                              player.checkIn ?? 
-                              player.isCheckedIn ?? 
-                              player.checkedIn ?? 
-                              (String(player.status).toLowerCase() === 'checked in' ? true : false);
-
-        const checkedInStatus = Boolean(
-          rawCheckInVal === true || 
-          String(rawCheckInVal).toLowerCase() === 'yes' ||
-          String(rawCheckInVal).toLowerCase() === 'checked in' ||
-          String(rawCheckInVal).toLowerCase() === 'true' ||
-          String(rawCheckInVal).toLowerCase() === 'x'
-        );
-
-        const rawActiveVal = player.active ?? 
-                             player.isActive ?? 
-                             player.status;
-
-        const activeStatus = Boolean(
-          rawActiveVal === true || 
-          String(rawActiveVal).toLowerCase() === 'active' ||
-          String(rawActiveVal).toLowerCase() === 'true' ||
-          String(rawActiveVal).toLowerCase() === 'yes'
-        );
-
-        return {
-          ...player,
-          isCheckedIn: checkedInStatus,
-          checkedIn: checkedInStatus,
-          active: activeStatus,
-          status: activeStatus ? 'Active' : 'Inactive'
-        };
-      });
-
-      localStorage.setItem(storageKey, JSON.stringify(adminPlayersCache));
-
-      if (typeof filterAdminPlayers === 'function') {
-        filterAdminPlayers();
-      }
-    } else {
-      adminPlayersCache = [];
-      if (container) {
-        container.innerHTML = `<i>${res?.message || 'No player data found for group.'}</i>`;
-      }
-    }
-  } catch (err) {
-    console.error('loadAdminPlayerStatusCache error:', err);
-    adminPlayersCache = [];
-    if (container) {
-      container.innerHTML = '<i>Error loading player roster. Check console logs.</i>';
-    }
-  }
-}
-
-      let adminPollingInterval;
+let adminPollingInterval;
 
 // Call this when the Admin UI view is opened
 function initAdminView(currentGroup) {
@@ -2819,8 +2503,44 @@ function loadAdminPlayerData(group, isBackgroundPoll = false) {
       console.error("Admin poll failed:", err);
       if (!isBackgroundPoll) hideAdminLoader();
     })
-    .handleApiRequest({ action: 'getAdminPlayerStatus', group: group });
+    .handleApiRequest({ action: 'getUnifiedRoster', group: group });
 }
+
+// Replace all check-in/admin loaders with this one universal loader
+async function loadUnifiedRosterData(groupName, forceRefresh = false) {
+  const targetGroup = groupName || document.getElementById('sheetSelect')?.value || document.getElementById('adminGlobalGroupSelect')?.value || getSavedGroup();
+  
+  if (!targetGroup) return;
+
+  const playerListEl = document.getElementById('playerList');
+  const adminListEl = document.getElementById('adminPlayerStatusList');
+  
+  if (playerListEl) playerListEl.innerHTML = '<span class="loading-spinner"></span> Loading players...';
+  if (adminListEl) adminListEl.innerHTML = '<span class="loading-spinner"></span> Loading roster...';
+
+  try {
+    const res = await apiCall('getUnifiedRoster', { 
+      groupName: targetGroup.trim(),
+      forceRefresh: forceRefresh 
+    });
+
+    if (res && res.success && res.players) {
+      // Route data to whichever view is currently active in the DOM
+      if (document.getElementById('checkInStatus')) {
+        renderCheckInPlayers(processAndSortPlayers(res.players));
+      }
+      if (document.getElementById('adminGlobalGroupSelect')) {
+        adminPlayersCache = res.players; // Keep this variable alive for your filterAdminPlayers function
+        filterAdminPlayers();
+      }
+    } else {
+      if (playerListEl) playerListEl.innerHTML = '<i>No data found.</i>';
+      if (adminListEl) adminListEl.innerHTML = '<i>No data found.</i>';
+    }
+  } catch (err) {
+    console.error("Unified load error:", err);
+  }
+}  
       
 </script>
   </body>
