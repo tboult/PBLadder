@@ -1,6 +1,6 @@
 /*
  * GLOBAL CONFIGURATION & HELPER DEFINITIONS
- Dev
+ 
  * ========================================== */
 
 const VALID_SCORE_TABS = ["Score Womens", "Score Mens", "Score Mixed"];
@@ -80,8 +80,7 @@ function isLoggingEnabled() {
   return prop === "true"; // Defaults to false if missing or set to "false"
 }
 
-// Example usage in your logger:
-function logDebug(tag, message, details) {
+function logDebug(fnName, msg, extra = "") {
   if (!isLoggingEnabled()) return;
   let extraStr = "";
   if (extra !== undefined && extra !== null && extra !== "") {
