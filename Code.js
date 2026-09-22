@@ -94,15 +94,20 @@ function logDebug(fnName, msg, extra = "") {
 }
 
 function getDb() {
-  if (_dbInstance) return _dbInstance;
-  if (typeof SPREADSHEET_ID !== 'undefined' && SPREADSHEET_ID) {
+    if (_dbInstance) return _dbInstance;
+    // Automatically pulls the Dev ID when running in Dev, or Prod ID when running in Prod
+    const sheetId = PropertiesService.getScriptProperties().getProperty("SHEET_ID");
+  
+    if (!sheetId) {
+        throw new Error("Missing 'SHEET_ID' in Script Properties.");
+    }
+  
     try {
       _dbInstance = SpreadsheetApp.openById(SPREADSHEET_ID);
       return _dbInstance;
     } catch(e) {
-      logDebug("getDb", "Error opening by ID, falling back to active", e.message);
+      logDebug("getDb", "Error opening by Sheet ID, falling back to active", e.message);
     }
-  }
   _dbInstance = SpreadsheetApp.getActiveSpreadsheet();
   return _dbInstance;
 }
@@ -212,6 +217,7 @@ function toggleSingleCheckIn(sheetNameOrData, playerName, isCheckedIn) {
   return result;
 }
 
+
 function updatePlayerCheckInInSheet(sheetName, targetPlayer, checkedState) {
   logDebug("updatePlayerCheckInInSheet", "Updating check-in", { sheetName, targetPlayer, checkedState });
   if (!sheetName || !targetPlayer) return { success: false, message: "Missing parameter" };
@@ -219,7 +225,6 @@ function updatePlayerCheckInInSheet(sheetName, targetPlayer, checkedState) {
   const ss = getDb();
   let cleanGroupName = String(sheetName).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
   let sheet = ss.getSheetByName("Sched " + cleanGroupName) || 
-              ss.getSheetByName("Score " + cleanGroupName) || 
               ss.getSheetByName(sheetName);
 
   if (!sheet) return { success: false, message: "Sheet not found: " + sheetName };
@@ -227,26 +232,49 @@ function updatePlayerCheckInInSheet(sheetName, targetPlayer, checkedState) {
   const data = sheet.getDataRange().getValues();
   if (!data || data.length <= 1) return { success: false, message: "No data in sheet" };
 
-  const headers = data[0].map(h => h.toString().toLowerCase().replace(/[\s\-_]/g, "").trim());
-  let nameIdx = headers.findIndex(h => h.includes("name") || h.includes("player"));
+  // Helper to normalize strings (replaces non-breaking spaces \u00A0 and double spaces)
+  const cleanStr = str => String(str || "").replace(/[\u00A0\s]+/g, " ").trim().toLowerCase();
+
+  // 1. Dynamically locate the header row (in case Row 1 is a title/banner)
+  let headerRowIdx = 0;
+  let nameIdx = -1;
+  let checkInIdx = -1;
+
+  for (let r = 0; r < Math.min(data.length, 5); r++) {
+    const rowHeaders = data[r].map(h => cleanStr(h).replace(/[\s\-_]/g, ""));
+    const tempNameIdx = rowHeaders.findIndex(h => h.includes("player") || h.includes("name"));
+    
+    if (tempNameIdx !== -1) {
+      headerRowIdx = r;
+      nameIdx = tempNameIdx;
+      checkInIdx = rowHeaders.findIndex(h => h.includes("checkin") || h.includes("status") || h === "x");
+      break;
+    }
+  }
+
+  // Fallbacks if header scan didn't locate exact columns
   if (nameIdx === -1) nameIdx = 0;
+  if (checkInIdx === -1) checkInIdx = 2; // Column C ("Check-In")
 
-  let checkInIdx = headers.findIndex(h => h.includes("checkin") || h.includes("checkedin") || h === "x");
-  if (checkInIdx === -1 && data[0].length >= 7) checkInIdx = 6;
-
-  const targetNorm = String(targetPlayer).trim().toLowerCase();
+  const targetNorm = cleanStr(targetPlayer);
   let found = false;
 
-  for (let r = 1; r < data.length; r++) {
-    let pName = (data[r][nameIdx] || "").toString().trim().toLowerCase();
-    if (pName === targetNorm) {
+  // 2. Scan player rows below the header
+  for (let r = headerRowIdx + 1; r < data.length; r++) {
+    let pName = cleanStr(data[r][nameIdx]);
+    if (!pName) continue;
+
+    // Exact match OR fuzzy containment (handles "Jennifer Little (Sub)" or "Jennifer Little / Partner")
+    if (pName === targetNorm || pName.includes(targetNorm) || targetNorm.includes(pName)) {
       sheet.getRange(r + 1, checkInIdx + 1).setValue(checkedState ? "X" : "");
       found = true;
       break;
     }
   }
-  return { success: found, message: found ? "Updated check-in" : "Player not found on sheet" };
+
+  return { success: found, message: found ? "Updated check-in" : `Player '${targetPlayer}' not found on sheet` };
 }
+
 
 function saveCheckIns(schedSheetName, checkedPlayerNames) {
   logDebug("saveCheckIns", "Saving check-ins for sheet", { schedSheetName, checkedPlayerNames });
