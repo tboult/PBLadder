@@ -73,6 +73,7 @@ function getDb() {
 }
 
 
+
 function buildColMap(header) {
   let col = {};
   if (!header) return col;
@@ -2379,16 +2380,16 @@ function toggleUnifiedActiveStatus(payload) {
 );
 }
 
-
 function getCheckInCacheKey(groupName) {
   return "CHECKIN_CACHE_" + (groupName || 'DEFAULT').toUpperCase();
 }
 
 
+
 function clearUnifiedCache(groupOrSheetName) {
   if (typeof CacheService === 'undefined') return;
-    const cache = CacheService.getScriptCache();
-  cosnt cacheKey = getCheckInCacheKey(groupOrSheetName);
+  const cache = CacheService.getScriptCache();
+  const cacheKey = getCheckInCacheKey(groupOrSheetName);
   
   try {
     cache.removeAll([cacheKey, "APP_INIT_DATA", "GLOBAL_SCHEDULE_INDEX"]);
