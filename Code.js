@@ -1466,103 +1466,114 @@ function getMostRecentRank(row, col, maxWeekNum = 10) {
 }
 
 function generateScheduleTabs(genTarget, courts) {
-  let targetGroup = genTarget;
-  if (typeof genTarget === 'object' && genTarget !== null) {
-    targetGroup = genTarget.group || genTarget.sheet || genTarget.schedSheetName || "";
-  }
+  return executeWithLock(function() {
+    let targetGroup = genTarget;
 
-  logDebug("generateScheduleTabs", "Generating schedule tabs", { genTarget: targetGroup, courts });
-
-  const ss = getDb();
-  let groupsToProcess = [];
-  const currentWeek = calculateCurrentWeekNumber();
-
-  if (targetGroup) {
-    let cleanGroup = String(targetGroup).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
-    groupsToProcess = [cleanGroup];
-  } else {
-    groupsToProcess = (typeof GROUPS !== 'undefined' && GROUPS.length > 0) ? GROUPS : [getTargetGroup()];
-  }
-
-  let summary = [];
-
-  groupsToProcess.forEach(groupName => {
-    let scoreSheet = getScoreSheetByGroup(groupName);
-    if (!scoreSheet) {
-      summary.push(`⚠️ Score tab for '${groupName}' not found.`);
-      return;
+    // Unpack payload if passed as a single object
+    if (typeof genTarget === 'object' && genTarget !== null) {
+      courts = genTarget.courts || courts;
+      targetGroup = genTarget.group || genTarget.sheet || genTarget.schedSheetName || genTarget.genTarget || genTarget.target || "";
     }
 
-    sortActivePlayersForSheet(scoreSheet);
-    const data = scoreSheet.getDataRange().getValues();
-    if (data.length <= 1) return;
+    logDebug("generateScheduleTabs", "Generating schedule tabs", { genTarget: targetGroup, courts });
 
-    const col = buildColMap(data[0]);
-    let activePlayers = [];
+    const ss = getDb();
+    let groupsToProcess = [];
+    const currentWeek = calculateCurrentWeekNumber();
 
-    for (let r = 1; r < data.length; r++) {
-      let row = data[r];
-      let status = (col.status !== undefined && row[col.status]) ? String(row[col.status]).toUpperCase().trim() : "ACTIVE";
-      let name = col.name !== undefined ? row[col.name] : `${row[col.first] || ''} ${row[col.last] || ''}`.trim();
-      if (name && status === "ACTIVE") {
-        activePlayers.push(name);
-      }
+    if (targetGroup) {
+      let cleanGroup = String(targetGroup).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
+      groupsToProcess = [cleanGroup];
+    } else {
+      groupsToProcess = (typeof GROUPS !== 'undefined' && GROUPS.length > 0) ? GROUPS : [getTargetGroup()];
     }
 
-    let availableCourts = courts ? parseAndSortCourts(courts) : getCourtsForGroup(groupName);
-    let schedSheetName = "Sched " + groupName;
-    let schedSheet = ss.getSheetByName(schedSheetName) || ss.insertSheet(schedSheetName);
+    let summary = [];
 
-    schedSheet.clear();
-
-    let headers = ["Player Name", "Court", "Check-In", "Game 1", "Game 2", "Game 3", "Total", "Entered"];
-    let rows = [headers];
-
-    let numPlayers = activePlayers.length;
-    let foursomesCount = Math.floor(numPlayers / 4);
-
-    let courtWarning = "";
-    if (foursomesCount > availableCourts.length) {
-      courtWarning = ` ⚠️ Error: Insufficient courts! Needed: ${foursomesCount}, Available: ${availableCourts.length}. Oversubscribed players assigned BYE.`;
-      logDebug("generateScheduleTabs", "Insufficient courts error", { groupName, required: foursomesCount, available: availableCourts.length });
-    }
-
-    for (let i = 0; i < activePlayers.length; i++) {
-      let pName = activePlayers[i];
-      let currentFoursome = Math.floor(i / 4);
-      let assignedCourt = "BYE";
-
-      if (currentFoursome < availableCourts.length) {
-        assignedCourt = "Court " + availableCourts[currentFoursome];
+    groupsToProcess.forEach(groupName => {
+      let scoreSheet = getScoreSheetByGroup(groupName);
+      if (!scoreSheet) {
+        summary.push(`⚠️ Score tab for '${groupName}' not found.`);
+        return;
       }
 
-      rows.push([pName, assignedCourt, "", "", "", "", "", ""]);
-    }
+      sortActivePlayersForSheet(scoreSheet);
+      const data = scoreSheet.getDataRange().getValues();
+      if (data.length <= 1) return;
 
-    schedSheet.getRange(1, 1, rows.length, headers.length).setValues(rows);
-    schedSheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
+      const col = buildColMap(data[0]);
+      let activePlayers = [];
 
-    var i1Cell = schedSheet.getRange("I1");
-    i1Cell.setValue("SCHEDULE_WEEK");
-    i1Cell.setFontWeight("bold");
+      for (let r = 1; r < data.length; r++) {
+        let row = data[r];
+        let status = (col.status !== undefined && row[col.status]) ? String(row[col.status]).toUpperCase().trim() : "ACTIVE";
+        let name = col.name !== undefined ? row[col.name] : `${row[col.first] || ''} ${row[col.last] || ''}`.trim();
+        if (name && status === "ACTIVE") {
+          activePlayers.push(name);
+        }
+      }
 
-    var i2Cell = schedSheet.getRange("I2");
-    i2Cell.setValue(currentWeek);
-    i2Cell.setHorizontalAlignment("center");
+      let availableCourts = courts ? parseAndSortCourts(courts) : getCourtsForGroup(groupName);
+      let schedSheetName = "Sched " + groupName;
+      let schedSheet = ss.getSheetByName(schedSheetName) || ss.insertSheet(schedSheetName);
 
-    const cacheKey = getCheckInCacheKey(schedSheetName);
-    if (typeof CacheService !== 'undefined' && cacheKey) {
-      CacheService.getScriptCache().remove(cacheKey);
-    }
+      schedSheet.clear();
 
-    let assignedCourtsCount = Math.min(foursomesCount, availableCourts.length);
-    let byeCount = numPlayers - (assignedCourtsCount * 4);
+      let headers = ["Player Name", "Court", "Check-In", "Game 1", "Game 2", "Game 3", "Total", "Entered"];
+      let rows = [headers];
 
-    summary.push(`Created schedule for '${groupName}' with ${numPlayers} players (${assignedCourtsCount} courts assigned, ${byeCount} BYEs).${courtWarning}`);
+      let numPlayers = activePlayers.length;
+      let foursomesCount = Math.floor(numPlayers / 4);
+
+      let courtWarning = "";
+      if (foursomesCount > availableCourts.length) {
+        courtWarning = ` ⚠️ Error: Insufficient courts! Needed: ${foursomesCount}, Available: ${availableCourts.length}. Oversubscribed players assigned BYE.`;
+        logDebug("generateScheduleTabs", "Insufficient courts error", { groupName, required: foursomesCount, available: availableCourts.length });
+      }
+
+      for (let i = 0; i < activePlayers.length; i++) {
+        let pName = activePlayers[i];
+        let currentFoursome = Math.floor(i / 4);
+        let assignedCourt = "BYE";
+
+        if (currentFoursome < availableCourts.length) {
+          assignedCourt = "Court " + availableCourts[currentFoursome];
+        }
+
+        rows.push([pName, assignedCourt, "", "", "", "", "", ""]);
+      }
+
+      schedSheet.getRange(1, 1, rows.length, headers.length).setValues(rows);
+      schedSheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
+
+      var i1Cell = schedSheet.getRange("I1");
+      i1Cell.setValue("SCHEDULE_WEEK");
+      i1Cell.setFontWeight("bold");
+
+      var i2Cell = schedSheet.getRange("I2");
+      i2Cell.setValue(currentWeek);
+      i2Cell.setHorizontalAlignment("center");
+
+      const cacheKey = getCheckInCacheKey(schedSheetName);
+      if (typeof CacheService !== 'undefined' && cacheKey) {
+        CacheService.getScriptCache().remove(cacheKey);
+      }
+
+      // Moved inside the loop for each group processed
+      if (typeof clearUnifiedCache === 'function') {
+        clearUnifiedCache(schedSheetName);
+      }
+
+      let assignedCourtsCount = Math.min(foursomesCount, availableCourts.length);
+      let byeCount = numPlayers - (assignedCourtsCount * 4);
+
+      summary.push(`Created schedule for '${groupName}' with ${numPlayers} players (${assignedCourtsCount} courts assigned, ${byeCount} BYEs).${courtWarning}`);
+    });
+
+    return "✅ " + summary.join("\n");
   });
-    clearUnifiedCache(schedSheetName);
-  return "✅ " + summary.join("\n");
 }
+
 
 
 
