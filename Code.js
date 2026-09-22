@@ -2107,7 +2107,7 @@ return executeWithLock(function() {
   updateRankingsSheetForGroup(ss, cleanGroupName, activePlayers, inactivePlayers, weekNum);
   clearAllGroupCaches(cleanGroupName);
   return `✅ Standings and Week ${weekNum} Rankings (R${weekNum}) processed for '${sheet.getName()}'! (${activePlayers.length} Active, ${inactivePlayers.length} Inactive)`;
-}
+})
 }
 
 
