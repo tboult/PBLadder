@@ -72,11 +72,6 @@ function getDb() {
   return _dbInstance;
 }
 
-function getCheckInCacheKey(sheetName) {
-  if (!sheetName) return "checkin_default";
-  const clean = String(sheetName).replace(/[^a-zA-Z0-9]/g, "_").toLowerCase();
-  return "checkin_" + clean;
-}
 
 function buildColMap(header) {
   let col = {};
@@ -264,42 +259,91 @@ var _ROSTER_LOOKUP_CACHE = null;
  * High-performance Phone Lookup with In-Memory Array Caching
  */
 function findFoursomeByPhone(params) {
-  const phoneInput = typeof params === 'object' ? params.phone : params;
-  const targetGroup = typeof params === 'object' ? params.group : null;
-  const cleanPhone = String(phoneInput || "").replace(/\D/g, "");
-  
-  if (cleanPhone.length < 7) return null;
-
-  // Fetch or retrieve memory-cached roster rows
-  if (!_ROSTER_LOOKUP_CACHE) {
-    const ss = getDb();
-    const rosterSheet = ss.getSheetByName("Master Roster") || ss.getSheetByName("Roster");
-    if (!rosterSheet) return null;
-    
-    const rawData = rosterSheet.getDataRange().getValues();
-    if (rawData.length <= 1) return null;
-
-    const headers = rawData[0].map(h => h.toString().toLowerCase().trim());
-    const phoneIdx = headers.findIndex(h => h.includes("phone"));
-    const nameIdx = headers.findIndex(h => h.includes("name"));
-    const groupIdx = headers.findIndex(h => h.includes("group"));
-
-    // Pre-process rows into a clean key-value lookup array
-    _ROSTER_LOOKUP_CACHE = rawData.slice(1).map(row => ({
-      name: nameIdx !== -1 ? String(row[nameIdx]).trim() : "",
-      phoneDigits: phoneIdx !== -1 ? String(row[phoneIdx]).replace(/\D/g, "") : "",
-      group: groupIdx !== -1 ? String(row[groupIdx]).trim() : ""
-    }));
+  let phoneInput = "", targetGroup = "";
+  if (typeof params === 'object' && params !== null) {
+    phoneInput = params.phone || params.userPhone || params.target || "";
+    targetGroup = params.group || params.groupName || params.sheet || "";
+  } else {
+    phoneInput = String(params || "");
   }
 
-  // Fast array match
-  const match = _ROSTER_LOOKUP_CACHE.find(p => {
-    const isPhoneMatch = p.phoneDigits.endsWith(cleanPhone) || cleanPhone.endsWith(p.phoneDigits);
-    const isGroupMatch = !targetGroup || p.group.toLowerCase() === targetGroup.toLowerCase();
-    return isPhoneMatch && isGroupMatch;
-  });
+  const cleanPhone = String(phoneInput).replace(/\D/g, "");
+  const searchName = String(phoneInput).trim().toLowerCase();
+  if (cleanPhone.length < 7 && searchName.length < 2) return null;
 
-  return match ? { player: match } : null;
+  const ss = getDb();
+  let groupsToSearch = targetGroup 
+    ? [cleanGroupName(targetGroup)] 
+    : (typeof GROUPS !== 'undefined' ? GROUPS : ["Womens", "Mens", "Mixed"]);
+
+  for (let g = 0; g < groupsToSearch.length; g++) {
+    let group = groupsToSearch[g];
+    let sheet = ss.getSheetByName("Sched " + group);
+    if (!sheet) continue;
+
+    let data = sheet.getDataRange().getValues();
+    if (data.length <= 1) continue;
+
+    let headers = data[0].map(h => h.toString().toLowerCase().trim());
+    let nameIdx = headers.findIndex(h => h.includes("name") || h.includes("player"));
+    if (nameIdx === -1) nameIdx = 0;
+    let courtIdx = headers.findIndex(h => h.includes("court"));
+    if (courtIdx === -1) courtIdx = 1;
+    let checkIdx = headers.findIndex(h => h.includes("check"));
+    if (checkIdx === -1 && data[0].length >= 3) checkIdx = 2;
+
+    // Phase 1: Locate player and court assignment
+    let targetCourt = "";
+    let matchedPlayerName = "";
+
+    for (let r = 1; r < data.length; r++) {
+      let pName = String(data[r][nameIdx] || "").trim();
+      if (!pName || pName.startsWith("---") || pName.toLowerCase().startsWith("time:")) continue;
+
+      let pPhone = "";
+      if (headers.some(h => h.includes("phone"))) {
+        let pIdx = headers.findIndex(h => h.includes("phone"));
+        pPhone = String(data[r][pIdx] || "").replace(/\D/g, "");
+      }
+
+      let isPhoneMatch = cleanPhone.length >= 7 && (pPhone.endsWith(cleanPhone) || cleanPhone.endsWith(pPhone));
+      let isNameMatch = searchName.length >= 2 && pName.toLowerCase().includes(searchName);
+
+      if (isPhoneMatch || isNameMatch) {
+        matchedPlayerName = pName;
+        targetCourt = String(data[r][courtIdx] || "BYE").trim();
+        break;
+      }
+    }
+
+    if (!matchedPlayerName) continue;
+
+    // Phase 2: Find all 4 players assigned to this court
+    let foursome = [];
+    for (let r = 1; r < data.length; r++) {
+      let pName = String(data[r][nameIdx] || "").trim();
+      let court = String(data[r][courtIdx] || "").trim();
+      let isChecked = isCheckInTrue(data[r][checkIdx]);
+
+      if (pName && court.toLowerCase() === targetCourt.toLowerCase() && !pName.startsWith("---")) {
+        foursome.push({
+          name: pName,
+          court: court,
+          checkedIn: isChecked
+        });
+      }
+    }
+
+    return {
+      success: true,
+      group: group,
+      court: targetCourt,
+      player: matchedPlayerName,
+      foursome: foursome
+    };
+  }
+
+  return { success: false, message: "Player or assigned court not found." };
 }
 
 
@@ -481,7 +525,7 @@ function getRankingsAndSchedData(groupName) {
     let isWeekFinalized = Boolean(sheetWeekNum) && Boolean(activeWeekNum) && (sheetWeekNum === activeWeekNum);
 
     //TB hack for now
-    //isWeekFinalized      =true;
+    isWeekFinalized      =true;
     if (!isWeekFinalized) {
       html += `
         <div style="background:#fff3bf; color:#856404; border:1px solid #ffeeba; padding:12px; margin-bottom:15px; border-radius:6px; font-weight:bold; text-align:center;">
@@ -664,7 +708,6 @@ function handleApiRequest(e) {
   let lock = null;
 
   try {
-    // 1. Safely parse URL query parameters and JSON post body
     e = e || {};
     let urlParams = e.parameter || {};
     let bodyParams = {};
@@ -677,36 +720,25 @@ function handleApiRequest(e) {
       }
     }
 
-    // Merge URL and Body parameters (Body parameters take precedence)
+    // Unify parameters into a single normalized payload object
     let payload = Object.assign({}, urlParams, bodyParams);
+    if (payload.payload && typeof payload.payload === 'object') {
+      payload = Object.assign({}, payload, payload.payload);
+    }
 
-    // 2. Extract action from parameter, top-level body, or nested payload wrapper
-    let rawAction = urlParams.action || 
-                    bodyParams.action || 
-                    (bodyParams.payload && bodyParams.payload.action) || 
-                    "";
-
-    // 3. Clean hidden non-breaking spaces (\u00A0) and whitespace
+    let rawAction = urlParams.action || bodyParams.action || payload.action || "";
     let action = String(rawAction)
       .replace(/[\u00A0\u1680\u180E\u2000-\u200B\u202F\u205F\u3000\uFEFF]/g, " ")
       .trim();
 
-    if (typeof logDebug === 'function') {
-      logDebug("handleApiRequest", "Processing action: '" + action + "'");
-    }
+    if (!action) throw new Error("Invalid or missing API action");
 
-    if (!action) {
-      throw new Error("Invalid or missing API action: action parameter is empty or undefined");
-    }
-
-const WRITE_ACTIONS = [
+    const WRITE_ACTIONS = [
       'sortActivePlayers', 'sortActivePlayersForSheet', 'generateScheduleTabs',
       'updateStandingsWithShift', 'correctScoresNoShift', 'processWeeklyScoresForSheet',
       'toggleSingleCheckIn', 'checkInPlayer', 'CheckInPlayer', 'saveCheckIns', 
       'toggleUnifiedActiveStatus', 'submitCourtScores', 'submitScores', 'addNewUser', 
-      'registerPlayer', 'rescheduleFromCheckIns', 'menuSortActivePlayers', 
-      'menuGenerateScheduleTabs', 'menuUpdateStandingsWithShift',
-      'menuCorrectScoresNoShift', 'startNewSeason'
+      'registerPlayer', 'rescheduleFromCheckIns', 'startNewSeason'
     ];
 
     requiresLock = WRITE_ACTIONS.indexOf(action) !== -1;
@@ -720,6 +752,7 @@ const WRITE_ACTIONS = [
         })).setMimeType(ContentService.MimeType.JSON);
       }
     }
+
     let result;
     switch(action) {
 
@@ -1419,8 +1452,6 @@ function generateScheduleTabs(genTarget, courts) {
 
 
 
-function submitCourtScores(payload) {
-}
 
 function rescheduleFromCheckIns(reschedTarget, courts) {
   return executeWithLock(function() {
@@ -2051,7 +2082,9 @@ function getScoreSheetByGroup(groupName) {
 function getWeekNumber(sheet) {
   if (!sheet) return 1;
   var weekVal = sheet.getRange("I2").getValue();
-  return weekVal !== "";
+  if (weekVal === "" || weekVal === null || weekVal === undefined) return 1;
+  var num = parseInt(String(weekVal).replace(/\D/g, ""), 10);
+  return isNaN(num) ? 1 : num;
 }
 
 function setWeekNumber(sheet, weekNum) {
@@ -2347,26 +2380,17 @@ function toggleUnifiedActiveStatus(payload) {
 
 
 
-/**
- * Optimized Batch Cache Invalidation Helper
- */
-function clearUnifiedCache(targetKeys) {
+function clearUnifiedCache(groupOrSheetName) {
   if (typeof CacheService === 'undefined') return;
-  
   const cache = CacheService.getScriptCache();
-  const keysToRemove = Array.isArray(targetKeys) ? targetKeys : [targetKeys];
+  const cacheKey = getCheckInCacheKey(groupOrSheetName);
   
-  // Add systemic global keys to ensure app UI stays synchronized
-  keysToRemove.push("APP_INIT_DATA", "GLOBAL_SCHEDULE_INDEX");
-
   try {
-    // Single bulk removal call
-    cache.removeAll(keysToRemove);
+    cache.removeAll([cacheKey, "APP_INIT_DATA", "GLOBAL_SCHEDULE_INDEX"]);
   } catch (err) {
-    logDebug("clearUnifiedCache", "Failed bulk cache clear", err.message);
+    logDebug("clearUnifiedCache", "Failed cache clear", err.message);
   }
 }
-
 
 
 function onEdit(e) {
