@@ -46,7 +46,8 @@ function testgetRankingsAndSchedData() {
 
 function testunifiedata() {
   var testPayload = {
-    groupName: "Mens",          // Your group name
+      groupName: "Mens",         
+      forceRefresh: true      
   };
     const result= getUnifiedRoster(testPayload,true)
      Logger.log("SUCCESS: " + JSON.stringify(result));
@@ -2275,22 +2276,20 @@ function getUnifiedRoster(payload) {
     const schedSheetName = "Sched " + cleanGroup;
     const scoreSheetName = "Score " + cleanGroup;
     
-    // Dedicated Cache Key specifically for Unified Rosters
     const cacheKey = "UNIFIED_ROSTER_CACHE_" + cleanGroup;
     const cache = CacheService.getScriptCache();
     
-    // 1. Check Cache (with structural validation)
+    // 1. Check Cache unless forceRefresh is true
     if (!payload.forceRefresh) {
       const cached = cache.get(cacheKey);
       if (cached) {
         try {
           const parsed = JSON.parse(cached);
-          // Validate cached data is an array and contains phone keys
-          if (Array.isArray(parsed) && parsed.length > 0 && ("phone" in parsed[0])) {
+          if (Array.isArray(parsed) && parsed.length > 0) {
             return { success: true, players: parsed, source: "cache" };
           }
         } catch (e) {
-          // Stale or corrupt JSON in cache -> bypass and rebuild
+          // Ignore corrupt cache
         }
       }
     }
@@ -2303,53 +2302,84 @@ function getUnifiedRoster(payload) {
       return { success: false, message: "Neither " + scoreSheetName + " nor " + schedSheetName + " was found." };
     }
 
-    // Map to store combined player objects keyed by normalized name
-    const playerMap = {};
+    // Helper: Strip non-breaking spaces and clean whitespace
+    function cleanStr(val) {
+      return String(val || '')
+        .replace(/[\u00a0\u1680\u180e\u2000-\u200b\u202f\u205f\u3000\ufeff]/g, " ")
+        .trim();
+    }
 
-    // 2. PASS 1: Read Master Roster from Score Sheet (Name, Phone, Active Status)
+    // Helper: Extract last name safely from full name
+    function extractLastName(fullName) {
+      const str = cleanStr(fullName).toLowerCase();
+      if (!str) return "";
+      if (str.includes(",")) return str.split(",")[0].trim(); // Format: "LastName, FirstName"
+      const parts = str.split(/\s+/);
+      return parts.length > 1 ? parts[parts.length - 1] : "";
+    }
+
+    const scorePlayers = [];
+
+    // 2. READ SCORE SHEET (Master Roster)
     if (scoreSheet) {
       const scoreData = scoreSheet.getDataRange().getValues();
       if (scoreData.length > 1) {
-        const headers = scoreData[0].map(h => String(h).toLowerCase().trim());
+        const headers = scoreData[0].map(h => cleanStr(h).toLowerCase());
         
-        const nameIdx = headers.findIndex(h => /name|player/i.test(h));
-        const firstIdx = headers.findIndex(h => /first/i.test(h));
-        const lastIdx = headers.findIndex(h => /last/i.test(h));
+        const firstIdx = headers.findIndex(h => /\bfirst\b/i.test(h));
+        const lastIdx = headers.findIndex(h => /\blast\b/i.test(h));
+        const fullNameIdx = headers.findIndex(h => /(full\s*name|^name$\vert{}^player$|player\s*name)/i.test(h) && !/first|last/i.test(h));
         const phoneIdx = headers.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
         const activeIdx = headers.findIndex(h => /status|active/i.test(h));
 
         for (let r = 1; r < scoreData.length; r++) {
-          let pName = nameIdx !== -1 ? String(scoreData[r][nameIdx] || "").trim() : "";
-          if (!pName && (firstIdx !== -1 || lastIdx !== -1)) {
-            pName = `${scoreData[r][firstIdx] || ''} ${scoreData[r][lastIdx] || ''}`.trim();
+          let fName = firstIdx !== -1 ? cleanStr(scoreData[r][firstIdx]) : "";
+          let lName = lastIdx !== -1 ? cleanStr(scoreData[r][lastIdx]) : "";
+          let pName = "";
+
+          if (fName || lName) {
+            pName = `${fName} ${lName}`.trim();
           }
+          if (!pName && fullNameIdx !== -1) {
+            pName = cleanStr(scoreData[r][fullNameIdx]);
+          }
+          if (!pName) {
+            const anyNameIdx = headers.findIndex(h => /name|player/i.test(h));
+            if (anyNameIdx !== -1) pName = cleanStr(scoreData[r][anyNameIdx]);
+          }
+
           if (!pName) continue;
 
-          const normKey = pName.toLowerCase();
-          const cleanPhone = phoneIdx !== -1 ? String(scoreData[r][phoneIdx] || "").replace(/\D/g, "") : "";
+          const cleanPhone = phoneIdx !== -1 ? cleanStr(scoreData[r][phoneIdx]).replace(/\D/g, "") : "";
           
           let isActive = true;
           if (activeIdx !== -1) {
-            const rawStatus = String(scoreData[r][activeIdx] || "").trim().toUpperCase();
+            const rawStatus = cleanStr(scoreData[r][activeIdx]).toUpperCase();
             isActive = (rawStatus !== "INACTIVE" && rawStatus !== "FALSE");
           }
 
-          playerMap[normKey] = {
-            name: pName,
+          const normFull = pName.toLowerCase();
+          const normLast = lName ? lName.toLowerCase() : extractLastName(pName);
+
+          scorePlayers.push({
+            rawName: pName,
+            normFull: normFull,
+            normLast: normLast,
             phone: cleanPhone,
             active: isActive,
-            checkedIn: false,
-            court: "BYE"
-          };
+            used: false // Flag to ensure 1-to-1 matching
+          });
         }
       }
     }
 
-    // 3. PASS 2: Overlay Schedule Data (Courts & Check-Ins) from Sched Sheet
+    const finalRoster = [];
+
+    // 3. READ SCHED SHEET & MERGE WITH SCORE PLAYERS
     if (schedSheet) {
       const schedData = schedSheet.getDataRange().getValues();
       if (schedData.length > 1) {
-        const headers = schedData[0].map(h => String(h).toLowerCase().trim());
+        const headers = schedData[0].map(h => cleanStr(h).toLowerCase());
         
         const nameIdx = headers.findIndex(h => /name|player/i.test(h)) !== -1 
           ? headers.findIndex(h => /name|player/i.test(h)) 
@@ -2360,52 +2390,88 @@ function getUnifiedRoster(payload) {
         const courtIdx = headers.findIndex(h => /court/i.test(h));
 
         for (let r = 1; r < schedData.length; r++) {
-          const pName = String(schedData[r][nameIdx] || "").trim();
+          const pName = cleanStr(schedData[r][nameIdx]);
           if (!pName || pName.startsWith("---") || pName.toLowerCase().startsWith("time:")) continue;
 
-          const normKey = pName.toLowerCase();
-          const schedPhone = phoneIdx !== -1 ? String(schedData[r][phoneIdx] || "").replace(/\D/g, "") : "";
-          
+          const normFull = pName.toLowerCase();
+          const normLast = extractLastName(pName);
+          const schedPhone = phoneIdx !== -1 ? cleanStr(schedData[r][phoneIdx]).replace(/\D/g, "") : "";
+
           let rawCheck = checkIdx !== -1 ? schedData[r][checkIdx] : false;
           let isCheckedIn = (typeof isCheckInTrue === 'function') 
             ? isCheckInTrue(rawCheck) 
-            : ["x", "true", "yes", "1"].includes(String(rawCheck).toLowerCase().trim());
+            : ["x", "true", "yes", "1"].includes(cleanStr(rawCheck).toLowerCase());
 
-          const courtVal = courtIdx !== -1 ? String(schedData[r][courtIdx] || "").trim() : "BYE";
+          const courtVal = courtIdx !== -1 ? cleanStr(schedData[r][courtIdx]) : "BYE";
 
-          if (playerMap[normKey]) {
-            // Player exists in master list: update court, check-in, and phone if missing
-            playerMap[normKey].checkedIn = isCheckedIn;
-            if (courtVal) playerMap[normKey].court = courtVal;
-            if (!playerMap[normKey].phone && schedPhone) playerMap[normKey].phone = schedPhone;
+          let match = null;
+
+          // Priority A: Exact Full Name Match
+          match = scorePlayers.find(sp => !sp.used && sp.normFull === normFull);
+
+          // Priority B: Phone Number Match
+          if (!match && schedPhone && schedPhone.length >= 7) {
+            match = scorePlayers.find(sp => !sp.used && sp.phone && sp.phone.endsWith(schedPhone.slice(-7)));
+          }
+
+          // Priority C: Last Name Fallback (Only if unique and >= 3 characters)
+          if (!match && normLast && normLast.length >= 3) {
+            const lastMatches = scorePlayers.filter(sp => !sp.used && sp.normLast === normLast);
+            if (lastMatches.length === 1) {
+              match = lastMatches[0];
+            }
+          }
+
+          if (match) {
+            match.used = true; // Mark as consumed
+            finalRoster.push({
+              name: pName, // Use display name from Sched Sheet
+              phone: schedPhone || match.phone,
+              active: match.active,
+              checkedIn: isCheckedIn,
+              court: courtVal || "BYE"
+            });
           } else {
-            // Player is only on Sched sheet: create entry
-            playerMap[normKey] = {
+            // Unmatched player appearing only on Sched sheet
+            finalRoster.push({
               name: pName,
               phone: schedPhone,
               active: true,
               checkedIn: isCheckedIn,
               court: courtVal || "BYE"
-            };
+            });
           }
         }
       }
     }
 
-    // Convert map back to list
-    const players = Object.values(playerMap);
+    // 4. ADD UNASSIGNED SCORE SHEET PLAYERS (Players on BYE today)
+    scorePlayers.forEach(sp => {
+      if (!sp.used) {
+        finalRoster.push({
+          name: sp.rawName,
+          phone: sp.phone,
+          active: sp.active,
+          checkedIn: false,
+          court: "BYE"
+        });
+      }
+    });
 
-    // 4. Update Cache (600 seconds = 10 mins)
-    const payloadString = JSON.stringify(players);
+    // Save fresh roster to Script Cache
+    const payloadString = JSON.stringify(finalRoster);
     if (payloadString.length < 100000) {
       cache.put(cacheKey, payloadString, 600);
     }
 
-    return { success: true, players: players, source: "live" };
+    return { success: true, players: finalRoster, source: "live" };
+
   } catch (err) {
     return { success: false, error: err.toString(), players: [] };
   }
 }
+
+
 
 
 
