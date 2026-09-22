@@ -2284,6 +2284,7 @@ function invalidateAdminCache(groupName = null) {
 }
 
 // 1. TOGGLE ADMIN CHECK-IN
+
 async function toggleAdminCheckIn(btnEl, playerName, phone, currentCheckedInState) {
   const groupName = document.getElementById('adminGlobalGroupSelect')?.value || getSavedGroup();
   if (!groupName) {
@@ -2352,16 +2353,26 @@ async function toggleAdminPlayerActive(btnEl, playerName, phone, currentActiveSt
   btnEl.disabled = true;
   btnEl.innerText = '⏳ Updating...';
 
-  try {
-    const res = await apiCall('toggleUnifiedActiveStatus', {
-      phone: phone,
-      playerName: playerName,
-      groupName: groupName,
-      group: groupName,
-      sheet: "Score " + groupName
-    });
+  const payload = {
+    phone: phone,
+    playerName: playerName,
+    groupName: groupName,
+    group: groupName,
+    sheet: "Score " + groupName,
+    targetState: !currentActiveState
+  };
 
-    if (res && (res.success || !res.error)) {
+  // 🔍 DEBUG 1: Log what you are sending to the server
+  console.log('📡 Sending toggleUnifiedActiveStatus payload:', payload);
+
+  try {
+    const res = await apiCall('toggleUnifiedActiveStatus', payload);
+
+    // 🔍 DEBUG 2: Log the exact server response
+    console.log('✅ Server response for toggleUnifiedActiveStatus:', res);
+
+    // FIX: Strictly require res.success to be true
+    if (res && res.success === true) {
       const newActiveState = res.newStatus 
         ? (String(res.newStatus).toLowerCase() === 'active') 
         : !currentActiveState;
@@ -2386,7 +2397,8 @@ async function toggleAdminPlayerActive(btnEl, playerName, phone, currentActiveSt
 
       filterAdminPlayers();
     } else {
-      alert('Failed to toggle active status: ' + (res?.message || 'Server error'));
+      // Revert UI if server returns success: false
+      alert('Failed to toggle active status: ' + (res?.error || res?.message || 'Server error'));
       btnEl.disabled = false;
       btnEl.innerHTML = originalText;
     }

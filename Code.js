@@ -2337,47 +2337,65 @@ function getUnifiedRoster(payload) {
 
 
 function toggleUnifiedActiveStatus(payload) {
-  return executeWithLock(function() {    
-  try {
-    const group = payload.groupName || payload.group || "";
-    const cleanGroup = String(group).replace(/^(Score|Sched)\s*/i, "").trim();
-    const targetPhone = String(payload.phone || "").replace(/\D/g, "");
-    
-    const ss = getDb();
-    const scoreSheet = ss.getSheetByName("Score " + cleanGroup);
-    if (!scoreSheet) return { success: false, message: "Score sheet not found." };
+  return executeWithLock(function() {
+    try {
+      const group = payload.groupName || payload.group || "";
+      const cleanGroup = String(group).replace(/^(Score|Sched)\s*/i, "").trim();
+      const targetPhone = String(payload.phone || "").replace(/\D/g, "");
+      const targetName = String(payload.playerName || payload.name || "").trim().toLowerCase();
 
-    const data = scoreSheet.getDataRange().getValues();
-    const headers = data[0].map(h => h.toString().toLowerCase().trim());
-    let activeIdx = headers.findIndex(h => h === "status" || h === "active");
-    let phoneIdx = headers.findIndex(h => h.includes("phone") || h.includes("mobile"));
-    
-    if (activeIdx === -1 || phoneIdx === -1) return { success: false, message: "Required columns missing." };
+      const ss = getDb();
+      const scoreSheet = ss.getSheetByName("Score " + cleanGroup);
+      if (!scoreSheet) return { success: false, error: "Score sheet 'Score " + cleanGroup + "' not found." };
 
-    for (let r = 1; r < data.length; r++) {
-      let rowPhone = String(data[r][phoneIdx] || "").replace(/\D/g, "");
-      if (rowPhone && targetPhone && rowPhone.endsWith(targetPhone.slice(-7))) {
-        // Toggle the status cleanly
-        const cell = scoreSheet.getRange(r + 1, activeIdx + 1);
-        const currentStatus = String(cell.getValue() || "").trim().toUpperCase();
-        const newStatus = (currentStatus === "ACTIVE") ? "INACTIVE" : "ACTIVE";
-        
-        cell.setValue(newStatus);
-        cell.setBackground(newStatus === "ACTIVE" ? "#d4FF8a" : "#fff366");
-        
-        // Wipe the global cache so Admin and User tabs instantly see the change
-        const cacheKey = getCheckInCacheKey("Sched " + cleanGroup);
-        CacheService.getScriptCache().remove(cacheKey);
-        
-        return { success: true, newStatus: newStatus };
+      const data = scoreSheet.getDataRange().getValues();
+      if (data.length < 2) return { success: false, error: "Sheet has no player rows." };
+
+      const headers = data[0].map(h => h.toString().toLowerCase().trim());
+      let activeIdx = headers.findIndex(h => h === "status" || h === "active" || h.includes("active"));
+      let phoneIdx = headers.findIndex(h => h.includes("phone") || h.includes("mobile"));
+      let nameIdx = headers.findIndex(h => h.includes("name") || h.includes("player"));
+
+      if (activeIdx === -1) return { success: false, error: "Status/Active column header not found." };
+
+      for (let r = 1; r < data.length; r++) {
+        let rowPhone = phoneIdx !== -1 ? String(data[r][phoneIdx] || "").replace(/\D/g, "") : "";
+        let rowName = nameIdx !== -1 ? String(data[r][nameIdx] || "").trim().toLowerCase() : "";
+
+        // Match by phone OR fallback match by player name
+        let isPhoneMatch = targetPhone && rowPhone && rowPhone.endsWith(targetPhone.slice(-7));
+        let isNameMatch = targetName && rowName && (rowName === targetName || rowName.includes(targetName));
+
+        if (isPhoneMatch || isNameMatch) {
+          const cell = scoreSheet.getRange(r + 1, activeIdx + 1);
+          const currentStatus = String(cell.getValue() || "").trim().toUpperCase();
+          const newStatus = (currentStatus === "ACTIVE") ? "INACTIVE" : "ACTIVE";
+
+          cell.setValue(newStatus);
+          cell.setBackground(newStatus === "ACTIVE" ? "#d4FF8a" : "#fff366");
+          
+          // Force Google Sheets to save writes immediately
+          SpreadsheetApp.flush();
+
+          // Safely invalidate cache without crashing if helper function is missing
+          try {
+            if (typeof getCheckInCacheKey === 'function') {
+              const cacheKey = getCheckInCacheKey("Sched " + cleanGroup);
+              CacheService.getScriptCache().remove(cacheKey);
+            }
+          } catch (cacheErr) {
+            Logger.log("Cache clear warning: " + cacheErr.message);
+          }
+
+          return { success: true, newStatus: newStatus };
+        }
       }
+
+      return { success: false, error: "Player not found by phone (" + targetPhone + ") or name (" + targetName + ")." };
+    } catch (err) {
+      return { success: false, error: err.message };
     }
-    return { success: false, message: "Player not found." };
-  } catch (err) {
-    return { success: false, message: err.message };
-  }
-  }
-);
+  });
 }
 
 function getCheckInCacheKey(groupName) {
