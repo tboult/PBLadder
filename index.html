@@ -2496,6 +2496,122 @@ function invalidateAdminCache(groupName = null) {
   }
 }
 
+// 1. TOGGLE ADMIN CHECK-IN
+async function toggleAdminCheckIn(btnEl, playerName, phone, currentCheckedInState) {
+  const groupName = document.getElementById('adminGlobalGroupSelect')?.value || getSavedGroup();
+  if (!groupName) {
+    alert('Please select a target group first.');
+    return;
+  }
+
+  const newState = !currentCheckedInState;
+  const originalText = btnEl.innerHTML;
+  
+  btnEl.disabled = true;
+  btnEl.innerText = '⏳ Updating...';
+
+  try {
+    const res = await apiCall('toggleSingleCheckIn', { 
+      sheet: "Sched " + groupName,
+      groupName: groupName,
+      group: groupName,
+      playerName: playerName || phone, 
+      phone: phone || playerName, 
+      isCheckedIn: newState 
+    });
+
+    if (res && (res.success || !res.error)) {
+      if (Array.isArray(adminPlayersCache)) {
+        const cleanPhone = String(phone || '').replace(/\D/g, '');
+        const cleanName = String(playerName || '').trim().toLowerCase();
+
+        const pObj = adminPlayersCache.find(p => {
+          const pPhone = String(p.phone || '').replace(/\D/g, '');
+          const pName = String(p.name || `${p.first || ''} ${p.last || ''}`).trim().toLowerCase();
+          return (cleanPhone && pPhone === cleanPhone) || (cleanName && pName === cleanName);
+        });
+
+        if (pObj) {
+          pObj.checkedIn = newState;
+          pObj.isCheckedIn = newState;
+        }
+
+        localStorage.setItem(`admin_cache_${groupName}`, JSON.stringify(adminPlayersCache));
+      }
+
+      filterAdminPlayers();
+    } else {
+      alert('Failed to update check-in status: ' + (res?.message || 'Server error'));
+      btnEl.disabled = false;
+      btnEl.innerHTML = originalText;
+    }
+  } catch (err) {
+    console.error('toggleAdminCheckIn error:', err);
+    alert('Network error updating check-in status.');
+    btnEl.disabled = false;
+    btnEl.innerHTML = originalText;
+  }
+}
+
+// 2. TOGGLE ADMIN PLAYER ACTIVE / INACTIVE
+async function toggleAdminPlayerActive(btnEl, playerName, phone, currentActiveState) {
+  const groupName = document.getElementById('adminGlobalGroupSelect')?.value || getSavedGroup();
+  if (!groupName) {
+    alert('Please select a target group first.');
+    return;
+  }
+
+  const originalText = btnEl.innerHTML;
+  btnEl.disabled = true;
+  btnEl.innerText = '⏳ Updating...';
+
+  try {
+    const res = await apiCall('togglePlayerStatus', {
+      phone: phone,
+      playerName: playerName,
+      groupName: groupName,
+      group: groupName,
+      sheet: "Score " + groupName
+    });
+
+    if (res && (res.success || !res.error)) {
+      const newActiveState = res.newStatus 
+        ? (String(res.newStatus).toLowerCase() === 'active') 
+        : !currentActiveState;
+
+      if (Array.isArray(adminPlayersCache)) {
+        const cleanPhone = String(phone || '').replace(/\D/g, '');
+        const cleanName = String(playerName || '').trim().toLowerCase();
+
+        const pObj = adminPlayersCache.find(p => {
+          const pPhone = String(p.phone || '').replace(/\D/g, '');
+          const pName = String(p.name || `${p.first || ''} ${p.last || ''}`).trim().toLowerCase();
+          return (cleanPhone && pPhone === cleanPhone) || (cleanName && pName === cleanName);
+        });
+
+        if (pObj) {
+          pObj.active = newActiveState;
+          pObj.status = newActiveState ? 'Active' : 'Inactive';
+        }
+
+        localStorage.setItem(`admin_cache_${groupName}`, JSON.stringify(adminPlayersCache));
+      }
+
+      filterAdminPlayers();
+    } else {
+      alert('Failed to toggle active status: ' + (res?.message || 'Server error'));
+      btnEl.disabled = false;
+      btnEl.innerHTML = originalText;
+    }
+  } catch (err) {
+    console.error('toggleAdminPlayerActive error:', err);
+    alert('Network error updating active status.');
+    btnEl.disabled = false;
+    btnEl.innerHTML = originalText;
+  }
+}
+
+// 3. FILTER ADMIN PLAYERS
 function filterAdminPlayers() {
   const query = (document.getElementById('adminPlayerSearch')?.value || '').toLowerCase().trim();
   const container = document.getElementById('adminPlayerStatusList');
@@ -2522,8 +2638,14 @@ function filterAdminPlayers() {
     const safeName = String(pName).replace(/'/g, "\\'");
     const safePhone = String(player.phone || '').replace(/'/g, "\\'");
     
-    const isActive = player.active === true;
-    const isCheckedIn = player.checkedIn === true;
+    const isActive = player.active === true || 
+                     String(player.active).toLowerCase() === 'true' || 
+                     String(player.status).toLowerCase() === 'active';
+
+    const isCheckedIn = player.checkedIn === true || 
+                        player.isCheckedIn === true || 
+                        String(player.checkedIn).toLowerCase() === 'true' || 
+                        String(player.status).toLowerCase() === 'checked in';
 
     return `
       <div style="display:flex; justify-content:space-between; align-items:center; padding:0.6rem; border-bottom:1px solid #eee; gap:0.5rem;">
@@ -2564,8 +2686,141 @@ function filterAdminPlayers() {
   }).join('');
 }
 
+// 4. LOAD ADMIN PLAYER STATUS CACHE
+async function loadAdminPlayerStatusCache(overrideGroup = null, forceRefresh = false) {
+  const groupName = overrideGroup || 
+                    document.getElementById('adminGlobalGroupSelect')?.value || 
+                    getSavedGroup();
 
+  const container = document.getElementById('adminPlayerStatusList');
 
+  if (!groupName) {
+    if (container) container.innerHTML = '<i>Select a group above to load roster...</i>';
+    return;
+  }
+
+  const storageKey = `admin_cache_${groupName}`;
+
+  if (!forceRefresh) {
+    const cachedData = localStorage.getItem(storageKey);
+    if (cachedData) {
+      try {
+        adminPlayersCache = JSON.parse(cachedData);
+        if (typeof filterAdminPlayers === 'function') {
+          filterAdminPlayers();
+        }
+        return;
+      } catch (e) {
+        console.warn('Failed to parse cached admin roster:', e);
+      }
+    }
+  }
+
+  if (container) {
+    container.innerHTML = '<span class="loading-spinner"></span> Loading player roster...';
+  }
+
+  try {
+    const res = await apiCall('getAdminPlayerStatus', { 
+      groupName: groupName,
+      group: groupName,
+      sheet: "Sched " + groupName,
+      forceRefresh: forceRefresh
+    });
+
+    if (res && res.success && Array.isArray(res.players)) {
+      adminPlayersCache = res.players.map(player => {
+        const rawCheckInVal = player['Check-In'] ?? 
+                              player.checkIn ?? 
+                              player.isCheckedIn ?? 
+                              player.checkedIn ?? 
+                              (String(player.status).toLowerCase() === 'checked in' ? true : false);
+
+        const checkedInStatus = Boolean(
+          rawCheckInVal === true || 
+          String(rawCheckInVal).toLowerCase() === 'yes' ||
+          String(rawCheckInVal).toLowerCase() === 'checked in' ||
+          String(rawCheckInVal).toLowerCase() === 'true' ||
+          String(rawCheckInVal).toLowerCase() === 'x'
+        );
+
+        const rawActiveVal = player.active ?? 
+                             player.isActive ?? 
+                             player.status;
+
+        const activeStatus = Boolean(
+          rawActiveVal === true || 
+          String(rawActiveVal).toLowerCase() === 'active' ||
+          String(rawActiveVal).toLowerCase() === 'true' ||
+          String(rawActiveVal).toLowerCase() === 'yes'
+        );
+
+        return {
+          ...player,
+          isCheckedIn: checkedInStatus,
+          checkedIn: checkedInStatus,
+          active: activeStatus,
+          status: activeStatus ? 'Active' : 'Inactive'
+        };
+      });
+
+      localStorage.setItem(storageKey, JSON.stringify(adminPlayersCache));
+
+      if (typeof filterAdminPlayers === 'function') {
+        filterAdminPlayers();
+      }
+    } else {
+      adminPlayersCache = [];
+      if (container) {
+        container.innerHTML = `<i>${res?.message || 'No player data found for group.'}</i>`;
+      }
+    }
+  } catch (err) {
+    console.error('loadAdminPlayerStatusCache error:', err);
+    adminPlayersCache = [];
+    if (container) {
+      container.innerHTML = '<i>Error loading player roster. Check console logs.</i>';
+    }
+  }
+}
+
+      let adminPollingInterval;
+
+// Call this when the Admin UI view is opened
+function initAdminView(currentGroup) {
+  loadAdminPlayerData(currentGroup);
+  
+  // Clear any existing intervals
+  if (adminPollingInterval) clearInterval(adminPollingInterval);
+  
+  // Set polling for every 30 seconds
+  adminPollingInterval = setInterval(() => {
+    loadAdminPlayerData(currentGroup, true); 
+  }, 30000);
+}
+
+// Call this when the Admin UI is closed or hidden
+function teardownAdminView() {
+  if (adminPollingInterval) clearInterval(adminPollingInterval);
+}
+
+function loadAdminPlayerData(group, isBackgroundPoll = false) {
+  // Optional: show a loading spinner only if it's not a background poll
+  if (!isBackgroundPoll) showAdminLoader(); 
+
+  google.script.run
+    .withSuccessHandler((response) => {
+      if (response.success) {
+        renderAdminPlayerList(response.players); // Your existing UI render function
+      }
+      if (!isBackgroundPoll) hideAdminLoader();
+    })
+    .withFailureHandler((err) => {
+      console.error("Admin poll failed:", err);
+      if (!isBackgroundPoll) hideAdminLoader();
+    })
+    .handleApiRequest({ action: 'getAdminPlayerStatus', group: group });
+}
       
 </script>
   </body>

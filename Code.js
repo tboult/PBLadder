@@ -962,9 +962,9 @@ function handleApiRequest(e) {
         result = togglePlayerActive(payload);
         break;
 
-      case 'toggleSingleCheckIn':
-        result = toggleSingleCheckIn(payload);
-        break;
+
+
+
         
       case 'checkInPlayer':
       case 'CheckInPlayer':         
@@ -2413,62 +2413,7 @@ function ensurePlayerCheckedIn(sheetName, targetPlayer) {
 }
 
 
-// 1. GET ADMIN PLAYER STATUS (Searches for Status/Active column, falls back to Col A)
-// Google Apps Script Snippet (backend)
-function getAdminPlayerStatus(e) {
-  var groupName = e.parameter.groupName || e.parameter.group;
-  var sheetName = "Sched " + groupName;
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
-  
-  if (!sheet) {
-    return ContentService.createTextOutput(JSON.stringify({
-      success: false, 
-      message: "Sheet " + sheetName + " not found."
-    })).setMimeType(ContentService.MimeType.JSON);
-  }
 
-  var data = sheet.getDataRange().getValues();
-  var headers = data[0];
-  
-  // Find column indices specifically matching "Check-In"
-  var nameIdx = headers.indexOf("Player") !== -1 ? headers.indexOf("Player") : headers.indexOf("Name");
-  
-  var checkInIdx = headers.indexOf("Check-In");
-  if (checkInIdx === -1) {
-    // Fallbacks in case of slight header variations
-    checkInIdx = headers.indexOf("Checked In") !== -1 ? headers.indexOf("Checked In") : headers.indexOf("Status");
-  }
-
-  var players = [];
-  for (var i = 1; i < data.length; i++) {
-    var row = data[i];
-    var playerName = row[nameIdx];
-    
-    if (playerName) {
-      var checkInVal = checkInIdx !== -1 ? String(row[checkInIdx]).trim().toUpperCase() : "";
-      
-      // Consider checked in if cell is "YES", "CHECKED IN", "TRUE", or non-empty indicator
-      var isCheckedIn = (
-        checkInVal === "YES" || 
-        checkInVal === "CHECKED IN" || 
-        checkInVal === "TRUE" || 
-        checkInVal === "X"
-      );
-
-      players.push({
-        name: playerName,
-        isCheckedIn: isCheckedIn,
-        checkedIn: isCheckedIn,
-        status: isCheckedIn ? "Checked In" : "Not Checked In"
-      });
-    }
-  }
-
-  return ContentService.createTextOutput(JSON.stringify({
-    success: true,
-    players: players
-  })).setMimeType(ContentService.MimeType.JSON);
-}
 function getAdminPlayerStatus(payload) {
   try {
     const group = payload.group || payload.groupName || "";
@@ -2565,9 +2510,8 @@ function getAdminPlayerStatus(payload) {
   }
 }
 
-// 2. TOGGLE PLAYER ACTIVE (Writes to the dynamically found Status column)
 function togglePlayerActive(payload) {
-  try {s
+  try {
     const group = payload.group || payload.groupName || "";
     const cleanGroup = String(group).replace(/^(Score|Sched)\s*/i, "").trim();
     
@@ -2576,7 +2520,7 @@ function togglePlayerActive(payload) {
     const newActiveState = payload.active === true || String(payload.active).toLowerCase() === "true";
 
     const ss = getDb();
-    const scoreSheet = ss.getSheetByName("Score " + cleanGroup) || ss.getSheetByName("Sched " + cleanGroup);
+    const scoreSheet = ss.getSheetByName("Score " + cleanGroup);
 
     if (!scoreSheet) return { success: false, message: "Score sheet not found: Score " + cleanGroup };
 
@@ -2585,30 +2529,28 @@ function togglePlayerActive(payload) {
 
     const headers = data[0].map(h => h.toString().toLowerCase().trim());
     
-    let activeIdx = headers.findIndex(h => h.includes("status") || h.includes("active"));
-    if (activeIdx === -1) activeIdx = 0;
+    let activeIdx = headers.findIndex(h => h === "status" || h === "active");
+    if (activeIdx === -1) {
+      return { success: false, message: "Status column not found on Score sheet." };
+    }
 
     let nameIdx = headers.findIndex(h => h.includes("name") || h.includes("player"));
-    if (nameIdx === -1) nameIdx = 1;
+    if (nameIdx === -1) nameIdx = 0;
 
     let phoneIdx = headers.findIndex(h => h.includes("phone") || h.includes("mobile"));
-    if (phoneIdx === -1) phoneIdx = 5;
 
     let updated = false;
     for (let r = 1; r < data.length; r++) {
       const rowName = String(data[r][nameIdx] || "").trim().toLowerCase();
-      const rowPhone = String(data[r][phoneIdx] || "").replace(/\D/g, "");
+      const rowPhone = phoneIdx !== -1 ? String(data[r][phoneIdx] || "").replace(/\D/g, "") : "";
 
-      const nameMatch = targetName && rowName && (rowName === targetName || rowName.includes(targetName) || targetName.includes(rowName));
+      const nameMatch = targetName && rowName && (rowName === targetName || rowName.includes(targetName));
       const phoneMatch = targetPhone && rowPhone && rowPhone.includes(targetPhone);
 
       if (nameMatch || phoneMatch) {
         const cell = scoreSheet.getRange(r + 1, activeIdx + 1);
         
-        // Write value
-        cell.setValue(newActiveState ? "ACTIVE" : "Inactive");
-        
-        // Fill Google Sheet Cell background: Green  vs Yellow 
+        cell.setValue(newActiveState ? "ACTIVE" : "INACTIVE");
         cell.setBackground(newActiveState ? "#d4FF8a" : "#fff366");
         
         updated = true;
@@ -2616,74 +2558,17 @@ function togglePlayerActive(payload) {
       }
     }
 
-    clearBackendAdminCache(cleanGroup);
+    // Safely clear the cache instead of using the undefined clearBackendAdminCache function
+    const cacheKey = getCheckInCacheKey("Sched " + cleanGroup);
+    if (typeof CacheService !== 'undefined') {
+      try { CacheService.getScriptCache().remove(cacheKey); } catch(e) {}
+    }
+
     return { 
       success: updated, 
-      message: updated ? "Status updated" : `Player '${targetName || targetPhone}' not found on Score sheet.` 
+      message: updated ? "Status updated" : `Player '${targetName || targetPhone}' not found.` 
     };
   } catch (err) {
     return { success: false, message: err.message };
-  }
-}
-
-
-
-
-// 3. TOGGLE CHECK-IN (Writes 'x' or '' into Checked In column on Sched sheet)
-function toggleSingleCheckIn(payload) {
-  try {
-    const group = payload.group || payload.groupName || "";
-    const cleanGroup = String(group).replace(/^(Score|Sched)\s*/i, "").trim();
-    const identifier = String(payload.playerName || payload.phone || "").trim().toLowerCase();
-    const cleanIdPhone = identifier.replace(/\D/g, "");
-    const isCheckedIn = payload.isCheckedIn === true || String(payload.isCheckedIn).toLowerCase() === "true";
-
-    const ss = getDb();
-    const schedSheet = ss.getSheetByName("Sched " + cleanGroup) || ss.getSheetByName("Score " + cleanGroup);
-
-    if (!schedSheet) return { success: false, message: "Sched sheet not found: Sched " + cleanGroup };
-
-    const data = schedSheet.getDataRange().getValues();
-    if (data.length <= 1) return { success: false, message: "No data on Sched sheet" };
-
-    const headers = data[0].map(h => h.toString().toLowerCase().trim());
-    const nameIdx = headers.findIndex(h => h.includes("name") || h.includes("player"));
-    const phoneIdx = headers.findIndex(h => h.includes("phone") || h.includes("mobile"));
-    const checkIdx = headers.findIndex(h => h.includes("check") || h === "checked in" || h === "checkedin");
-
-    if (checkIdx === -1) {
-      return { success: false, message: "Could not find 'Checked In' column on Sched sheet." };
-    }
-
-    let updated = false;
-    for (let r = 1; r < data.length; r++) {
-      const rowName = String(data[r][nameIdx !== -1 ? nameIdx : 0] || "").trim().toLowerCase();
-      const rowPhone = phoneIdx !== -1 ? String(data[r][phoneIdx] || "").replace(/\D/g, "") : "";
-
-      if (rowName === identifier || (cleanIdPhone && rowPhone && rowPhone.includes(cleanIdPhone))) {
-        // Writes 'x' or empty string to match standard check-in page
-        schedSheet.getRange(r + 1, checkIdx + 1).setValue(isCheckedIn ? 'x' : '');
-        updated = true;
-        break;
-      }
-    }
-
-    clearBackendAdminCache(cleanGroup);
-    return { success: updated, message: updated ? "Check-in updated on Sched sheet" : "Player not found on Sched sheet" };
-  } catch (err) {
-    return { success: false, message: err.message };
-  }
-}
-
-
-function clearBackendAdminCache(groupName) {
-  try {
-    const cleanGroup = String(groupName || "").replace(/^(Score|Sched)\s*/i, "").trim();
-    if (cleanGroup && typeof CacheService !== 'undefined') {
-      CacheService.getScriptCache().remove("admin_roster_cache_" + cleanGroup);
-    }
-  } catch (e) {
-    // Fail silently - it's just a cache clearer
-    console.warn("Failed to clear cache: " + e.message);
   }
 }
