@@ -1357,6 +1357,76 @@ function renderLookupResult(player, foursome) {
   }
 }
 
+async function saveScores() {
+  if (!activeLookupPlayer || activeFoursome.length < 4) {
+    alert('Active court match assignment not found.');
+    return;
+  }
+
+  // Helper to parse score inputs: returns undefined for empty fields, 'INVALID' for negative/bad numbers
+  const parseScore = (id) => {
+    const val = document.getElementById(id)?.value?.trim();
+    if (val === '' || val === undefined || val === null) return undefined;
+    const parsed = parseInt(val, 10);
+    return isNaN(parsed) || parsed < 0 ? 'INVALID' : parsed;
+  };
+
+  const v1_1 = parseScore('sc1_p1');
+  const v1_2 = parseScore('sc1_p2');
+  const v2_1 = parseScore('sc2_p1');
+  const v2_2 = parseScore('sc2_p2');
+  const v3_1 = parseScore('sc3_p1');
+  const v3_2 = parseScore('sc3_p2');
+
+  const allScores = [v1_1, v1_2, v2_1, v2_2, v3_1, v3_2];
+
+  if (allScores.includes('INVALID')) {
+    alert('Please enter valid non-negative numbers for all filled score fields.');
+    return;
+  }
+
+  // Ensure at least one score field is filled
+  if (allScores.every(v => v === undefined)) {
+    alert('Please enter at least one game score before submitting.');
+    return;
+  }
+
+  const p1 = activeFoursome[0].name;
+  const p2 = activeFoursome[1].name;
+  const p3 = activeFoursome[2].name;
+  const p4 = activeFoursome[3].name;
+
+   // Frontend maps game rotation to individual player objects (leaving empty games as undefined)
+  const scoresPayload = [
+    { name: p1, g1: v1_1, g2: v2_1, g3: v3_1 },
+    { name: p2, g1: v1_2, g2: v2_2, g3: v3_1 },
+    { name: p3, g1: v1_2, g2: v2_1, g3: v3_2 },
+    { name: p4, g1: v1_1, g2: v2_2, g3: v3_2 }
+  ];
+
+  const submitterPhone = activeLookupPlayer.phone || localStorage.getItem('scpb_saved_phone') || '';
+  const cleanGroup = String(activeLookupPlayer.group || '').replace(/^(Sched|Score)\s*/i, '').trim();
+  const statusEl = document.getElementById('phoneStatus');
+  if (statusEl) statusEl.innerText = 'Submitting scores...';
+
+  try {
+    const res = await apiCall('submitCourtScores', {
+      group: cleanGroup,
+      scores: scoresPayload,
+      submittedBy: submitterPhone
+    });
+
+    if (res && res.success) {
+      if (statusEl) statusEl.innerText = '✅ Scores submitted successfully!';
+    } else {
+      if (statusEl) statusEl.innerText = '❌ Submission failed: ' + (res.message || 'Error');
+    }
+  } catch (err) {
+    if (statusEl) statusEl.innerText = '❌ Error submitting scores: ' + err.message;
+  }
+}
+
+
 
 
 
