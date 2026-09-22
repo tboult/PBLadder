@@ -1,0 +1,17 @@
+{
+  "scriptId": "1Bw4rug7TsDqfjZjCwGTb2-2_RXt9VVPWq6uT2AuSDigCe39MbIyGzEst",
+  "rootDir": "",
+  "projectId": "pickeballladder",
+  "scriptExtensions": [
+    ".js",
+    ".gs"
+  ],
+  "htmlExtensions": [
+    ".html"
+  ],
+  "jsonExtensions": [
+    ".json"
+  ],
+  "filePushOrder": [],
+  "skipSubdirectories": false
+}
