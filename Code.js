@@ -298,13 +298,18 @@ var _ROSTER_LOOKUP_CACHE = null;
  * Finds a player's court assignment and foursome by searching Score sheets for phone/identity
  * and Sched sheets for court pairings.
  */
-function findFoursomeByPhone(params) {
+/**
+ * Finds a player's court assignment and foursome by searching Score sheets for phone/identity
+ * and Sched sheets for court pairings.
+ */
+function findFoursomeByPhone(params, groupNameArg) {
   let phoneInput = "", targetGroup = "";
   if (typeof params === 'object' && params !== null) {
     phoneInput = params.phone || params.userPhone || params.target || "";
-    targetGroup = params.group || params.groupName || params.sheet || "";
+    targetGroup = params.group || params.groupName || params.sheet || groupNameArg || "";
   } else {
     phoneInput = String(params || "");
+    targetGroup = String(groupNameArg || "");
   }
 
   const cleanPhone = String(phoneInput).replace(/\D/g, "");
@@ -314,20 +319,22 @@ function findFoursomeByPhone(params) {
     return { success: false, message: "Search term too short." };
   }
 
-  // Helper: Strip non-breaking spaces and clean whitespace
   function cleanStr(val) {
     return String(val || '')
       .replace(/[\u00a0\u1680\u180e\u2000-\u200b\u202f\u205f\u3000\ufeff]/g, " ")
       .trim();
   }
 
-  // Extract core group name (e.g., "Score Mens" or "Sched Mens" -> "MENS")
-  const cleanTarget = cleanStr(targetGroup).replace(/^(Score|Sched)\s*/i, "").trim().toUpperCase();
+  // Extract group name and preserve exact title casing ("Womens", "Mens", "Mixed")
+  const rawTarget = cleanStr(targetGroup).replace(/^(Score|Sched)\s*/i, "").trim();
+  const knownGroups = typeof GROUPS !== 'undefined' ? GROUPS : ["Womens", "Mens", "Mixed"];
+  const matchedGroup = knownGroups.find(g => g.toLowerCase() === rawTarget.toLowerCase());
+  const cleanTarget = matchedGroup || rawTarget;
 
   const ss = getDb();
   let groupsToSearch = cleanTarget 
     ? [cleanTarget] 
-    : (typeof GROUPS !== 'undefined' ? GROUPS : ["Womens", "Mens", "Mixed"]);
+    : knownGroups;
 
   for (let g = 0; g < groupsToSearch.length; g++) {
     const group = cleanStr(groupsToSearch[g]);
@@ -361,7 +368,6 @@ function findFoursomeByPhone(params) {
 
           const pPhone = phoneIdx !== -1 ? cleanStr(scoreData[r][phoneIdx]).replace(/\D/g, "") : "";
 
-          // Safe phone check: STRICTLY requires pPhone to be at least 7 digits to prevent endsWith("") bug
           const isPhoneMatch = cleanPhone.length >= 7 && pPhone.length >= 7 && 
             (pPhone.endsWith(cleanPhone.slice(-7)) || cleanPhone.endsWith(pPhone.slice(-7)));
 
@@ -404,7 +410,6 @@ function findFoursomeByPhone(params) {
 
       const isDirectNameMatch = searchName.length >= 2 && pName.toLowerCase().includes(searchName);
 
-      // Match against Score sheet full/first name
       const isScoreMatch = targetPlayerName && (
         pName.toLowerCase().includes(targetPlayerName.toLowerCase()) || 
         targetPlayerName.toLowerCase().includes(pName.toLowerCase()) ||
@@ -930,7 +935,7 @@ function handleApiRequest(e) {
         break;
 
       case 'findFoursomeByPhone': 
-        result = findFoursomeByPhone(payload.phone, payload.groupName || payload.group);
+        result = findFoursomeByPhone(payload);
         break;
 
       case 'getUnifiedRoster':
