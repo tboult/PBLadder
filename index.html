@@ -2478,7 +2478,6 @@ async function loadAdminPlayerStatusCache(overrideGroup = null, forceRefresh = f
     }
   }
 }
-a
 
 
 
@@ -2565,97 +2564,6 @@ function filterAdminPlayers() {
   }).join('');
 }
 
-
-
-async function loadAdminPlayerStatusCache(overrideGroup = null, forceRefresh = false) {
-  // 1. Determine target group name
-  const groupName = overrideGroup || 
-                    document.getElementById('adminGlobalGroupSelect')?.value || 
-                    getSavedGroup();
-
-  const container = document.getElementById('adminPlayerStatusList');
-
-  if (!groupName) {
-    if (container) container.innerHTML = '<i>Select a group above to load roster...</i>';
-    return;
-  }
-
-  const storageKey = `admin_cache_${groupName}`;
-
-  // 2. Read local cache only when forceRefresh is false
-  if (!forceRefresh) {
-    const cachedData = localStorage.getItem(storageKey);
-    if (cachedData) {
-      try {
-        adminPlayersCache = JSON.parse(cachedData);
-        if (typeof filterAdminPlayers === 'function') {
-          filterAdminPlayers();
-        }
-        return;
-      } catch (e) {
-        console.warn('Failed to parse cached admin roster:', e);
-      }
-    }
-  }
-
-  // 3. Show loading UI feedback
-  if (container) {
-    container.innerHTML = '<span class="loading-spinner"></span> Loading player roster...';
-  }
-
-  // 4. Fetch fresh data from backend
-  try {
-    const res = await apiCall('getAdminPlayerStatus', { 
-      groupName: groupName,
-      group: groupName,
-      sheet: "Sched " + groupName,
-      forceRefresh: forceRefresh
-    });
-
-    if (res && res.success && Array.isArray(res.players)) {
-      // HERE: Normalization logic that evaluates "Check-In" column values
-      adminPlayersCache = res.players.map(player => {
-        const rawCheckInVal = player['Check-In'] ?? 
-                              player.checkIn ?? 
-                              player.isCheckedIn ?? 
-                              player.checkedIn ?? 
-                              player.status;
-
-        const checkedInStatus = Boolean(
-          rawCheckInVal === true || 
-          String(rawCheckInVal).toLowerCase() === 'yes' ||
-          String(rawCheckInVal).toLowerCase() === 'checked in' ||
-          String(rawCheckInVal).toLowerCase() === 'true' ||
-          String(rawCheckInVal).toLowerCase() === 'x'
-        );
-
-        return {
-          ...player,
-          isCheckedIn: checkedInStatus,
-          checkedIn: checkedInStatus
-        };
-      });
-
-      // Save updated roster to localStorage so it survives page reload
-      localStorage.setItem(storageKey, JSON.stringify(adminPlayersCache));
-
-      if (typeof filterAdminPlayers === 'function') {
-        filterAdminPlayers();
-      }
-    } else {
-      adminPlayersCache = [];
-      if (container) {
-        container.innerHTML = `<i>${res?.message || 'No player data found for group.'}</i>`;
-      }
-    }
-  } catch (err) {
-    console.error('loadAdminPlayerStatusCache error:', err);
-    adminPlayersCache = [];
-    if (container) {
-      container.innerHTML = '<i>Error loading player roster. Check console logs.</i>';
-    }
-  }
-}
 
 
       
