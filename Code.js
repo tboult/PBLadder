@@ -1720,6 +1720,68 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
   });
 }
 
+/**
+ * Fetches the list of players for a given schedule tab or group.
+ * Reads player names from Column A of the Schedule tab.
+ * 
+ * @param {string} targetName - e.g., "Sched Womens" or "Womens"
+ * @return {Array<Object>} Array of player objects [{ name: "Jane Doe", checkedIn: false }, ...]
+ */
+function fetchPlayersFromSheet(targetName) {
+  const ss = getDb();
+  let sheetName = targetName.startsWith("Sched ") ? targetName : "Sched " + targetName;
+  let sheet = ss.getSheetByName(sheetName);
+  let players = [];
+  let playerSet = new Set();
+
+  // 1. Read players from the current Schedule sheet (Column A)
+  if (sheet) {
+    let data = sheet.getDataRange().getValues();
+    // Skip header row (index 0)
+    for (let i = 1; i < data.length; i++) {
+      let name = data[i][0] ? String(data[i][0]).trim() : "";
+      if (name && name !== "Player Name" && !playerSet.has(name)) {
+        playerSet.add(name);
+        players.push({
+          name: name,
+          checkedIn: false
+        });
+      }
+    }
+  }
+
+  // 2. Fallback: If Schedule tab is empty, fetch from master "Players" or "Roster" tab
+  if (players.length === 0) {
+    let groupName = sheetName.replace(/^Sched\s*/i, "").trim();
+    let rosterSheet = ss.getSheetByName("Players") || 
+                        ss.getSheetByName("Roster") || 
+                        ss.getSheetByName("Roster " + groupName);
+
+    if (rosterSheet) {
+      let rosterData = rosterSheet.getDataRange().getValues();
+      let headers = rosterData[0].map(h => String(h).trim().toLowerCase());
+      
+      let nameCol = headers.indexOf("player name") !== -1 ? headers.indexOf("player name") : 0;
+      let groupCol = headers.indexOf("group");
+
+      for (let i = 1; i < rosterData.length; i++) {
+        let name = rosterData[i][nameCol] ? String(rosterData[i][nameCol]).trim() : "";
+        let group = groupCol !== -1 && rosterData[i][groupCol] ? String(rosterData[i][groupCol]).trim() : "";
+
+        // Include player if group matches or if group filtering isn't present
+        if (name && (!group || group.toLowerCase() === groupName.toLowerCase()) && !playerSet.has(name)) {
+          playerSet.add(name);
+          players.push({
+            name: name,
+            checkedIn: false
+          });
+        }
+      }
+    }
+  }
+
+  return players;
+}
 
 
 function calculateStats(row, col) {
