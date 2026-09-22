@@ -1201,7 +1201,7 @@ function menuGenerateScheduleTabs() {
 
 function menuUpdateStandingsWithShift() {
   try {
-    let res = processWeeklyScoresForSheet(getValidActiveScoreSheet(), "W10", true);
+    let res = processWeeklyScoresForSheet(getValidActiveScoreSheet(),  "W"+getCurrentWeekIdentifier"W10", true);
     if (SpreadsheetApp.getUi()) SpreadsheetApp.getUi().alert(res);
     return res;
   } catch(e) {
@@ -1862,6 +1862,7 @@ function harvestScoresFromSchedules(ss, scoreData, col, targetWeekIdx, groupName
 }
 
 function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
+return executeWithLock(function() {
   const ss = getDb();
   const RESTRICT_BY_RAW_RANK = true;
   if (!sheet) sheet = ss.getActiveSheet();
@@ -2073,8 +2074,9 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
   sheet.clearContents();
   sheet.getRange(1, 1, finalRows.length, finalRows[0].length).setValues(finalRows);
   updateRankingsSheetForGroup(ss, cleanGroupName, activePlayers, inactivePlayers, weekNum);
-
+  clearAllGroupCaches(cleanGroupName);
   return `✅ Standings and Week ${weekNum} Rankings (R${weekNum}) processed for '${sheet.getName()}'! (${activePlayers.length} Active, ${inactivePlayers.length} Inactive)`;
+}
 }
 
 
@@ -2140,21 +2142,34 @@ function updateRankingsSheetForGroup(ss, groupName, activePlayers, inactivePlaye
   let rankSheetName = "Rankings " + groupName;
   let rankSheet = ss.getSheetByName(rankSheetName) || ss.insertSheet(rankSheetName);
   rankSheet.clear();
+  
   let rankOut = [["Rank", "Name", "Win %", "Total Points"]];
   
   activePlayers.forEach(p => {
     let winPctStr = (p.winPct * 100).toFixed(1) + "%";
-    rankOut.push([p.rjStr, p.name, winPctStr, p.total]);
+    let rawVal = p.rjStr != null ? String(p.rjStr) : "";
+    // Prepend single quote (') to force string literal evaluation
+    let rankStr = rawVal ? "'" + rawVal : "'";
+    rankOut.push([rankStr, p.name, winPctStr, p.total]);
   });
+  
   inactivePlayers.forEach(p => {
     let winPctStr = (p.winPct * 100).toFixed(1) + "%";
-    rankOut.push([p.rjStr || "INACTIVE", p.name, winPctStr, p.total]);
+    let rawVal = p.rjStr ? String(p.rjStr) : "INACTIVE";
+    // Prepend single quote (') to force string literal evaluation
+    let rankStr = "'" + rawVal;
+    rankOut.push([rankStr, p.name, winPctStr, p.total]);
   });
 
   let range = rankSheet.getRange(1, 1, rankOut.length, 4);
+  
+  // Format range as Plain Text BEFORE setting values
+  range.setNumberFormat("@");
   range.setValues(rankOut);
+  
   rankSheet.getRange(1, 1, 1, 4).setFontWeight("bold");
 }
+
 
 function sortActivePlayersForSheet(sheet) {
   logDebug("sortActivePlayersForSheet", "Sorting active players for sheet", sheet.getName());
