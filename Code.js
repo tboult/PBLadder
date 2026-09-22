@@ -23,6 +23,19 @@ const GROUP_COURT_MAP = {
 let _dbInstance = null;
 
 
+
+function testToggleDebug() {
+  // Replace these with actual values from your Google Sheet to test!
+  var testPayload = {
+    groupName: "Mens",          // Your group name
+    phone: "7199630573",        // A phone number present in your sheet
+    playerName: "Terry Boult"      // A name present in your sheet
+  };
+
+  var result = toggleUnifiedActiveStatus(testPayload);
+  Logger.log("RESULT: " + JSON.stringify(result));
+}
+
 function testgetRankingsAndSchedData() {
     getRankingsAndSchedData("Mens")
 }
