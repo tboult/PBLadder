@@ -1655,6 +1655,12 @@ function loadAdminTabData(groupName) {
   loadAdminPlayerStatusCache(groupName);
 }
 
+function loadAdminPlayerStatusCache(groupName) {
+  return loadUnifiedRosterData(groupName, true);
+}
+function loadCheckInPlayers(groupName, forceRefresh = true) {
+  return loadUnifiedRosterData(groupName, forceRefresh);
+}
 
 
 

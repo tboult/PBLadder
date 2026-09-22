@@ -2087,6 +2087,7 @@ function getWeekNumber(sheet) {
   return isNaN(num) ? 1 : num;
 }
 
+
 function setWeekNumber(sheet, weekNum) {
   if (!sheet) return;
   
@@ -2378,12 +2379,10 @@ function toggleUnifiedActiveStatus(payload) {
 );
 }
 
-
-
 function clearUnifiedCache(groupOrSheetName) {
   if (typeof CacheService === 'undefined') return;
   const cache = CacheService.getScriptCache();
-  const cacheKey = getCheckInCacheKey(groupOrSheetName);
+  var cacheKey = "CHECKIN_CACHE_" + String(group).toUpperCase();
   
   try {
     cache.removeAll([cacheKey, "APP_INIT_DATA", "GLOBAL_SCHEDULE_INDEX"]);
