@@ -2260,9 +2260,13 @@ function getUnifiedRoster(payload) {
     const schedSheetName = "Sched " + cleanGroup;
     const scoreSheetName = "Score " + cleanGroup;
     
-    const cacheKey = getCheckInCacheKey(schedSheetName);
+    const cacheKey = (typeof getCheckInCacheKey === 'function') 
+      ? getCheckInCacheKey(schedSheetName) 
+      : "CHECKIN_CACHE_" + cleanGroup.toUpperCase();
+
     const cache = CacheService.getScriptCache();
     
+    // Check Cache unless forceRefresh is true
     if (!payload.forceRefresh) {
       const cached = cache.get(cacheKey);
       if (cached) return { success: true, players: JSON.parse(cached) };
@@ -2273,61 +2277,91 @@ function getUnifiedRoster(payload) {
     const scoreSheet = ss.getSheetByName(scoreSheetName);
     if (!schedSheet && !scoreSheet) return { success: false, message: "Sheets not found." };
 
-    // 1. Build Active/Inactive Map with Strict String Normalization
     const activeMap = {}; 
+    const phoneMap = {};  // Lookup map for names to phone numbers
+
+    // 1. Process Score Sheet (Master Roster) for Status and Phone mapping
     if (scoreSheet) {
       const scoreData = scoreSheet.getDataRange().getValues();
-      if (scoreData.length > 0) {
-        const headers = scoreData[0].map(h => h.toString().toLowerCase().trim());
-        let activeIdx = headers.findIndex(h => h.includes("status") || h.includes("active"));
-        if (activeIdx === -1) activeIdx = 0;
-        let nameIdx = headers.findIndex(h => h.includes("name") || h.includes("player"));
-        if (nameIdx === -1) nameIdx = 1;
-        let phoneIdx = headers.findIndex(h => h.includes("phone") || h.includes("mobile"));
-        if (phoneIdx === -1) phoneIdx = 5;
+      if (scoreData.length > 1) {
+        const headers = scoreData[0].map(h => String(h).toLowerCase().trim());
+        
+        // Flexible header search using regex
+        const activeIdx = headers.findIndex(h => /status|active/i.test(h));
+        const nameIdx = headers.findIndex(h => /name|player/i.test(h));
+        const firstIdx = headers.findIndex(h => /first/i.test(h));
+        const lastIdx = headers.findIndex(h => /last/i.test(h));
+        const phoneIdx = headers.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
 
         for (let r = 1; r < scoreData.length; r++) {
-          const pName = String(scoreData[r][nameIdx] || "").trim().toLowerCase();
-          const pPhone = String(scoreData[r][phoneIdx] || "").replace(/\D/g, "");
-          
-          // String Normalization: handles "Active", "ACTIVE ", "Inactive", "INACTIVE"
-          const rawStatus = String(scoreData[r][activeIdx] || "").trim().toUpperCase();
-          const isActive = (rawStatus !== "INACTIVE"); // Defaults to active unless strictly inactive
+          let pName = nameIdx !== -1 ? String(scoreData[r][nameIdx] || "").trim() : "";
+          if (!pName && (firstIdx !== -1 || lastIdx !== -1)) {
+            pName = `${scoreData[r][firstIdx] || ''} ${scoreData[r][lastIdx] || ''}`.trim();
+          }
+          const normName = pName.toLowerCase();
+          if (!normName) continue;
 
-          if (pName) activeMap[pName] = isActive;
-          if (pPhone) activeMap[pPhone] = isActive;
+          const pPhone = phoneIdx !== -1 ? String(scoreData[r][phoneIdx] || "").replace(/\D/g, "") : "";
+
+          let isActive = true;
+          if (activeIdx !== -1) {
+            const rawStatus = String(scoreData[r][activeIdx] || "").trim().toUpperCase();
+            isActive = (rawStatus !== "INACTIVE" && rawStatus !== "FALSE");
+          }
+
+          activeMap[normName] = isActive;
+          if (pPhone) {
+            activeMap[pPhone] = isActive;
+            phoneMap[normName] = pPhone; // Map player name to clean phone string
+          }
         }
       }
     }
 
-    // 2. Build Player List from Sched Sheet
+    // 2. Build Player List from Sched Sheet (or Score Sheet fallback)
     let players = [];
     const mainSheet = schedSheet || scoreSheet;
     const data = mainSheet.getDataRange().getValues();
 
     if (data.length > 1) {
-      const headers = data[0].map(h => h.toString().toLowerCase().trim());
-      let nameIdx = headers.findIndex(h => h.includes("name") || h.includes("player")) !== -1 ? headers.findIndex(h => h.includes("name") || h.includes("player")) : 1;
-      let phoneIdx = headers.findIndex(h => h.includes("phone") || h.includes("mobile"));
-      let checkIdx = headers.findIndex(h => h.includes("check") || h === "x");
+      const headers = data[0].map(h => String(h).toLowerCase().trim());
+      
+      const nameIdx = headers.findIndex(h => /name|player/i.test(h)) !== -1 
+        ? headers.findIndex(h => /name|player/i.test(h)) 
+        : 1;
+      const phoneIdx = headers.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
+      let checkIdx = headers.findIndex(h => /check|checked|x/i.test(h));
       if (checkIdx === -1 && data[0].length >= 7) checkIdx = 6;
-      let courtIdx = headers.findIndex(h => h.includes("court"));
+      const courtIdx = headers.findIndex(h => /court/i.test(h));
 
       for (let r = 1; r < data.length; r++) {
         const pName = String(data[r][nameIdx] || "").trim();
         if (!pName || pName.startsWith("---") || pName.toLowerCase().startsWith("time:")) continue;
 
-        const cleanPhone = phoneIdx !== -1 ? String(data[r][phoneIdx] || "").replace(/\D/g, "") : "";
+        const normName = pName.toLowerCase();
+
+        // Try extracting phone from schedule sheet; fallback to Score Sheet phoneMap
+        let cleanPhone = phoneIdx !== -1 ? String(data[r][phoneIdx] || "").replace(/\D/g, "") : "";
+        if (!cleanPhone && phoneMap[normName]) {
+          cleanPhone = phoneMap[normName];
+        }
+
+        // Determine active status
         let isActive = true;
-        if (activeMap.hasOwnProperty(pName.toLowerCase())) isActive = activeMap[pName.toLowerCase()];
-        else if (cleanPhone && activeMap.hasOwnProperty(cleanPhone)) isActive = activeMap[cleanPhone];
+        if (activeMap.hasOwnProperty(normName)) {
+          isActive = activeMap[normName];
+        } else if (cleanPhone && activeMap.hasOwnProperty(cleanPhone)) {
+          isActive = activeMap[cleanPhone];
+        }
 
         let rawCheck = checkIdx !== -1 ? data[r][checkIdx] : false;
-        let isCheckedIn = (typeof isCheckInTrue === 'function') ? isCheckInTrue(rawCheck) : ["x", "true", "yes", 1].includes(String(rawCheck).toLowerCase());
-        
+        let isCheckedIn = (typeof isCheckInTrue === 'function') 
+          ? isCheckInTrue(rawCheck) 
+          : ["x", "true", "yes", "1"].includes(String(rawCheck).toLowerCase().trim());
+
         players.push({
           name: pName,
-          phone: phoneIdx !== -1 ? String(data[r][phoneIdx] || "").trim() : "",
+          phone: cleanPhone,
           active: isActive,
           checkedIn: isCheckedIn,
           court: courtIdx !== -1 ? String(data[r][courtIdx] || "").trim() : "BYE"
@@ -2337,13 +2371,12 @@ function getUnifiedRoster(payload) {
 
     const payloadString = JSON.stringify(players);
     if (payloadString.length < 100000) cache.put(cacheKey, payloadString, 600);
-    
+
     return { success: true, players: players };
   } catch (err) {
     return { success: false, error: err.toString(), players: [] };
   }
 }
-
 
 
 

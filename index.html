@@ -2341,76 +2341,21 @@ async function toggleAdminCheckIn(btnEl, playerName, phone, currentCheckedInStat
   }
 }
 
-// 2. TOGGLE ADMIN PLAYER ACTIVE / INACTIVE
-async function toggleAdminPlayerActive(btnEl, playerName, phone, currentActiveState) {
-  const groupName = document.getElementById('adminGlobalGroupSelect')?.value || getSavedGroup();
-  if (!groupName) {
-    alert('Please select a target group first.');
-    return;
-  }
-
-  const originalText = btnEl.innerHTML;
-  btnEl.disabled = true;
-  btnEl.innerText = '⏳ Updating...';
-
-  const payload = {
-    phone: phone,
-    playerName: playerName,
-    groupName: groupName,
-    group: groupName,
-    sheet: "Score " + groupName,
-    targetState: !currentActiveState
-  };
-
-  // 🔍 DEBUG 1: Log what you are sending to the server
-  console.log('📡 Sending toggleUnifiedActiveStatus payload:', payload);
-
-  try {
-    const res = await apiCall('toggleUnifiedActiveStatus', payload);
-
-    // 🔍 DEBUG 2: Log the exact server response
-    console.log('✅ Server response for toggleUnifiedActiveStatus:', res);
-
-    // FIX: Strictly require res.success to be true
-    if (res && res.success === true) {
-      const newActiveState = res.newStatus 
-        ? (String(res.newStatus).toLowerCase() === 'active') 
-        : !currentActiveState;
-
-      if (Array.isArray(adminPlayersCache)) {
-        const cleanPhone = String(phone || '').replace(/\D/g, '');
-        const cleanName = String(playerName || '').trim().toLowerCase();
-
-        const pObj = adminPlayersCache.find(p => {
-          const pPhone = String(p.phone || '').replace(/\D/g, '');
-          const pName = String(p.name || `${p.first || ''} ${p.last || ''}`).trim().toLowerCase();
-          return (cleanPhone && pPhone === cleanPhone) || (cleanName && pName === cleanName);
-        });
-
-        if (pObj) {
-          pObj.active = newActiveState;
-          pObj.status = newActiveState ? 'Active' : 'Inactive';
-        }
-
-        localStorage.setItem(`admin_cache_${groupName}`, JSON.stringify(adminPlayersCache));
-      }
-
-      filterAdminPlayers();
-    } else {
-      // Revert UI if server returns success: false
-      alert('Failed to toggle active status: ' + (res?.error || res?.message || 'Server error'));
-      btnEl.disabled = false;
-      btnEl.innerHTML = originalText;
-    }
-  } catch (err) {
-    console.error('toggleAdminPlayerActive error:', err);
-    alert('Network error updating active status.');
-    btnEl.disabled = false;
-    btnEl.innerHTML = originalText;
-  }
+/**
+ * Helper: Escapes strings safely for placement inside HTML attribute strings
+ */
+function escapeHtmlAttr(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/'/g, '&#39;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
-// 3. FILTER ADMIN PLAYERS
+/**
+ * Filters and renders the admin player status list
+ */
 function filterAdminPlayers() {
   const query = (document.getElementById('adminPlayerSearch')?.value || '').toLowerCase().trim();
   const container = document.getElementById('adminPlayerStatusList');
@@ -2423,7 +2368,7 @@ function filterAdminPlayers() {
 
   const filtered = adminPlayersCache.filter(p => {
     const pName = String(p.name || `${p.first || ''} ${p.last || ''}`).toLowerCase();
-    const pPhone = String(p.phone || '').replace(/\D/g, '');
+    const pPhone = String(p.phone || p.cell || p.mobile || '').replace(/\D/g, '');
     return pName.includes(query) || pPhone.includes(query);
   });
 
@@ -2433,10 +2378,16 @@ function filterAdminPlayers() {
   }
 
   container.innerHTML = filtered.map(player => {
-    const pName = player.name || `${player.first || ''} ${player.last || ''}`.trim();
-    const safeName = String(pName).replace(/'/g, "\\'");
-    const safePhone = String(player.phone || '').replace(/'/g, "\\'");
-    
+    // 1. Resolve player name & phone with property fallbacks
+    const rawName = player.name || `${player.first || ''} ${player.last || ''}`.trim() || 'Unknown Player';
+    const rawPhone = player.phone || player.cell || player.mobile || player.phoneNumber || '';
+    const cleanPhone = String(rawPhone).replace(/\D/g, '');
+
+    // 2. Escape for HTML attribute safety
+    const attrName = escapeHtmlAttr(rawName);
+    const attrPhone = escapeHtmlAttr(cleanPhone);
+
+    // 3. Resolve status booleans
     const isActive = player.active === true || 
                      String(player.active).toLowerCase() === 'true' || 
                      String(player.status).toLowerCase() === 'active';
@@ -2451,10 +2402,10 @@ function filterAdminPlayers() {
         
         <div style="flex:1; min-width:0;">
           <div style="font-weight:bold; font-size:0.95rem; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">
-            ${pName}
+            ${escapeHtmlAttr(rawName)}
           </div>
           <div style="font-size:0.8rem; color:#666;">
-            ${player.court ? `Court: <b>${player.court}</b> | ` : ''}${player.phone || 'No phone'}
+            ${player.court ? `Court: <b>${escapeHtmlAttr(player.court)}</b> | ` : ''}${cleanPhone || 'No phone'}
           </div>
         </div>
 
@@ -2464,7 +2415,7 @@ function filterAdminPlayers() {
             type="button"
             class="btn-main" 
             style="padding:0.35rem 0.6rem; font-size:0.8rem; background-color:${isCheckedIn ? '#2e7d32' : '#757575'}; color:white;"
-            onclick="toggleAdminCheckIn(this, '${safeName}', '${safePhone}', ${isCheckedIn})"
+            onclick="toggleAdminCheckIn(this, '${attrName}', '${attrPhone}', ${isCheckedIn})"
           >
             ${isCheckedIn ? '✅ Checked In' : '⬜ Check In'}
           </button>
@@ -2474,7 +2425,7 @@ function filterAdminPlayers() {
             type="button"
             class="btn-sub" 
             style="padding:0.35rem 0.6rem; font-size:0.8rem; background-color:${isActive ? '#1976d2' : '#d32f2f'}; color:white;"
-            onclick="toggleAdminPlayerActive(this, '${safeName}', '${safePhone}', ${isActive})"
+            onclick="toggleAdminPlayerActive(this, '${attrName}', '${attrPhone}', ${isActive})"
           >
             ${isActive ? 'Active' : 'Inactive'}
           </button>
@@ -2485,6 +2436,96 @@ function filterAdminPlayers() {
   }).join('');
 }
 
+/**
+ * Toggles player active state and updates backend and local cache
+ */
+async function toggleAdminPlayerActive(btnEl, playerName, phone, currentActiveState) {
+  const groupName = document.getElementById('adminGlobalGroupSelect')?.value || (typeof getSavedGroup === 'function' ? getSavedGroup() : '');
+  if (!groupName) {
+    alert('Please select a target group first.');
+    return;
+  }
+
+  // Sanitize incoming identifiers
+  const cleanPhone = String(phone || '').replace(/\D/g, '');
+  const cleanName = String(playerName || '').trim();
+
+  if (!cleanName && cleanPhone.length < 7) {
+    alert('Missing player name or valid phone number.');
+    return;
+  }
+
+  const originalText = btnEl ? btnEl.innerHTML : '';
+  if (btnEl) {
+    btnEl.disabled = true;
+    btnEl.innerText = '⏳ Updating...';
+  }
+
+  const payload = {
+    phone: cleanPhone,
+    playerName: cleanName,
+    groupName: groupName,
+    group: groupName,
+    sheet: "Score " + groupName,
+    targetState: !currentActiveState
+  };
+
+  console.log('📡 Sending toggleUnifiedActiveStatus payload:', payload);
+
+  try {
+    const res = await apiCall('toggleUnifiedActiveStatus', payload);
+    console.log('✅ Server response for toggleUnifiedActiveStatus:', res);
+
+    if (res && res.success === true) {
+      const newActiveState = res.newStatus 
+        ? (String(res.newStatus).toLowerCase() === 'active') 
+        : !currentActiveState;
+
+      // Update local cache safely
+      if (Array.isArray(adminPlayersCache)) {
+        const targetNameLower = cleanName.toLowerCase();
+
+        const pObj = adminPlayersCache.find(p => {
+          const pPhone = String(p.phone || p.cell || p.mobile || '').replace(/\D/g, '');
+          const pName = String(p.name || `${p.first || ''} ${p.last || ''}`).trim().toLowerCase();
+          
+          const phoneMatch = cleanPhone.length >= 7 && pPhone.length >= 7 && 
+                            (pPhone.endsWith(cleanPhone.slice(-7)) || cleanPhone.endsWith(pPhone.slice(-7)));
+          const nameMatch = targetNameLower.length > 0 && (pName === targetNameLower || pName.includes(targetNameLower) || targetNameLower.includes(pName));
+
+          return phoneMatch || nameMatch;
+        });
+
+        if (pObj) {
+          pObj.active = newActiveState;
+          pObj.status = newActiveState ? 'Active' : 'Inactive';
+        }
+
+        try {
+          localStorage.setItem(`admin_cache_${groupName}`, JSON.stringify(adminPlayersCache));
+        } catch (e) {
+          console.warn('Failed to save updated cache to localStorage:', e);
+        }
+      }
+
+      // Re-render UI list
+      filterAdminPlayers();
+    } else {
+      alert('Failed to toggle active status: ' + (res?.error || res?.message || 'Server error'));
+      if (btnEl) {
+        btnEl.disabled = false;
+        btnEl.innerHTML = originalText;
+      }
+    }
+  } catch (err) {
+    console.error('toggleAdminPlayerActive error:', err);
+    alert('Network error updating active status.');
+    if (btnEl) {
+      btnEl.disabled = false;
+      btnEl.innerHTML = originalText;
+    }
+  }
+}
 
 let adminPollingInterval;
 
