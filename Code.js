@@ -1143,7 +1143,7 @@ function getTargetScoreSheet(groupOrTabName) {
 
 function onOpen() {
   SpreadsheetApp.getUi()
-    .createMenu('🏆 Ladder Tools')
+    .createMenu('🏆 Prod Ladder Tools')
     .addItem('1. Sort Active Players (Current Tab)', 'menuSortActivePlayers')
     .addItem('2. Generate Schedule (Current Tab - All Active)', 'menuGenerateScheduleCurrentTab')
     .addItem('3. Generate Schedule (Current Tab - Checked-In Only)', 'menuGenerateScheduleCheckedIn')
