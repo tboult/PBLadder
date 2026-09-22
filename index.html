@@ -1165,7 +1165,7 @@ async function lookupPhone() {
   const lookupResultEl = document.getElementById('lookupResult');
   const regSectionEl = document.getElementById('registrationSection');
 
-  // Cache Check: skip network call if input phone & group match existing active player
+  // Cache Check
   const normInput = input.replace(/\D/g, '');
   const cachedPhone = (typeof activeLookupPlayer !== 'undefined' && activeLookupPlayer?.phone) 
     ? String(activeLookupPlayer.phone).replace(/\D/g, '') 
@@ -1185,31 +1185,57 @@ async function lookupPhone() {
 
   if (statusEl) statusEl.innerText = 'Searching for player...';
   try {
-      const res = await apiCall('findFoursomeByPhone', { 
-          phone: input, 
-          group: savedGroup,
-          groupName: savedGroup,
-          sheet: "Sched " + savedGroup
-      });      
+    const res = await apiCall('findFoursomeByPhone', { 
+      phone: input, 
+      group: savedGroup,
+      groupName: savedGroup,
+      sheet: "Sched " + savedGroup
+    });     
 
-    if (res && res.found) {
-      activeLookupPlayer = res.player;
-      activeLookupFoursome = res.courtFoursome || [];
+    // Support both res.success and res.found
+    if (res && (res.success || res.found)) {
+      // Extract foursome from res.foursome or res.courtFoursome
+      const foursomeList = res.foursome || res.courtFoursome || [];
+
+      // Normalize player structure (supports object or string response from backend)
+      let playerObj = {};
+      if (typeof res.player === 'object' && res.player !== null) {
+        playerObj = { ...res.player };
+      } else {
+        const rawName = String(res.player || input).trim();
+        const parts = rawName.split(/\s+/);
+        playerObj = {
+          name: rawName,
+          first: parts[0] || '',
+          last: parts.slice(1).join(' ') || '',
+          phone: input,
+          court: res.court || 'N/A',
+          group: res.group || savedGroup,
+          status: res.status || 'Active'
+        };
+      }
+
+      // Ensure group & court are populated on the player object
+      if (!playerObj.group) playerObj.group = res.group || savedGroup;
+      if (!playerObj.court) playerObj.court = res.court || 'N/A';
+
+      activeLookupPlayer = playerObj;
+      activeLookupFoursome = foursomeList;
 
       // Save user values to localStorage for check-in and UI persistence
-      if (res.player.first) localStorage.setItem('scpb_saved_first_name', res.player.first);
-      if (res.player.name) {
-        localStorage.setItem('scpb_saved_player_name', res.player.name);
-        localStorage.setItem('scpb_saved_name', res.player.name);
+      if (playerObj.first) localStorage.setItem('scpb_saved_first_name', playerObj.first);
+      if (playerObj.name) {
+        localStorage.setItem('scpb_saved_player_name', playerObj.name);
+        localStorage.setItem('scpb_saved_name', playerObj.name);
       }
-      if (res.player.group) localStorage.setItem('scpb_saved_group', res.player.group);
+      if (playerObj.group) localStorage.setItem('scpb_saved_group', playerObj.group);
 
-      // Safe banner update (errors inside won't break phone lookup)
+      // Safe banner update
       if (typeof updateWelcomeBanner === 'function') {
         try { updateWelcomeBanner(); } catch (bErr) { console.warn('Banner update error:', bErr); }
       }
       
-      // Schedule is not published yet
+      // Schedule not yet published
       if (res.scheduleReady === false) {
         if (statusEl) {
           statusEl.innerHTML = `<div class="card" style="background:#fff3cd; color:#856404; font-weight:bold; text-align:center; padding: 0.75rem;">
@@ -1227,7 +1253,7 @@ async function lookupPhone() {
       if (lookupResultEl) lookupResultEl.style.display = 'block';
 
       if (typeof renderLookupResult === 'function') {
-        renderLookupResult(res.player, res.courtFoursome);
+        renderLookupResult(playerObj, foursomeList);
       }
     } else {
       // Player phone not found in roster
@@ -1248,43 +1274,62 @@ async function lookupPhone() {
 }
 
 function renderLookupResult(player, foursome) { 
-  activeLookupPlayer = player;
+  activeLookupPlayer = player || {};
   activeFoursome = foursome || [];
 
-  document.getElementById('registrationSection').style.display = 'none';
-  document.getElementById('lookupResult').style.display = 'block';
+  const regEl = document.getElementById('registrationSection');
+  const resultEl = document.getElementById('lookupResult');
+  if (regEl) regEl.style.display = 'none';
+  if (resultEl) resultEl.style.display = 'block';
 
-  document.getElementById('pNameDisplay').innerText = `${player.first || ''} ${player.last || player.name || ''}`.trim();
-  document.getElementById('pGroupDisplay').innerText = player.group || 'N/A';
-  document.getElementById('pCourtDisplay').innerText = player.court || 'N/A';
+  // Construct display name
+  let displayName = '';
+  if (typeof player === 'string') {
+    displayName = player;
+  } else {
+    displayName = `${player.first || ''} ${player.last || ''}`.trim() || player.name || 'Unknown';
+  }
+
+  const nameDisp = document.getElementById('pNameDisplay');
+  const groupDisp = document.getElementById('pGroupDisplay');
+  const courtDisp = document.getElementById('pCourtDisplay');
+
+  if (nameDisp) nameDisp.innerText = displayName;
+  if (groupDisp) groupDisp.innerText = player.group || 'N/A';
+  if (courtDisp) courtDisp.innerText = player.court || 'N/A';
 
   const badge = document.getElementById('pStatusDisplay');
-  const isActive = (player.status || '').toLowerCase() === 'active';
-  badge.innerText = isActive ? 'Active' : 'Inactive';
-  badge.className = isActive ? 'status-badge status-active' : 'status-badge status-inactive';
+  if (badge) {
+    const isActive = (player.status || 'active').toLowerCase() === 'active';
+    badge.innerText = isActive ? 'Active' : 'Inactive';
+    badge.className = isActive ? 'status-badge status-active' : 'status-badge status-inactive';
+  }
 
   const scoreContainer = document.getElementById('scoreInputsContainer');
+  if (!scoreContainer) return;
   scoreContainer.innerHTML = '';
 
   if (activeFoursome.length === 4) {
-    const p1 = activeFoursome[0].name;
-    const p2 = activeFoursome[1].name;
-    const p3 = activeFoursome[2].name;
-    const p4 = activeFoursome[3].name;
+    const getPName = (p) => (typeof p === 'object' && p !== null ? (p.name || `${p.first || ''} ${p.last || ''}`.trim()) : String(p || ''));
+    
+    const p1 = getPName(activeFoursome[0]);
+    const p2 = getPName(activeFoursome[1]);
+    const p3 = getPName(activeFoursome[2]);
+    const p4 = getPName(activeFoursome[3]);
 
     scoreContainer.innerHTML = `
       <div class="card" style="margin-bottom:0.75rem;">
         <p style="margin:0 0 0.4rem 0;"><b>Court Foursome:</b></p>
         <ul style="padding-left:1.2rem; margin:0;">
-          <li>p1 ${p1}</li>
-          <li>p2 ${p2}</li>
-          <li>p3 ${p3}</li>
-          <li>p4 ${p4}</li>
+          <li>P1: ${p1}</li>
+          <li>P2: ${p2}</li>
+          <li>P3: ${p3}</li>
+          <li>P4: ${p4}</li>
         </ul>
       </div>
 
       <!-- Game 1: P1 & P4 vs P2 & P3 -->
-      <div style="margin-top:0.5rem; font-weight:bold; font-size:0.95rem;">Game 1: <br> p1 ${p1} &  p4 ${p4}  <br>   &nbsp;&nbsp; &nbsp;&nbsp;&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;vs &nbsp;&nbsp;  p2  ${p2} & p3 ${p3}</div>
+      <div style="margin-top:0.5rem; font-weight:bold; font-size:0.95rem;">Game 1: <br> ${p1} & ${p4} <br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;vs&nbsp;&nbsp; ${p2} & ${p3}</div>
       <div class="score-grid">
         <input type="number" min="0" max="15" id="sc1_p1" placeholder="P1&P4">
         vs 
@@ -1292,18 +1337,18 @@ function renderLookupResult(player, foursome) {
       </div>
 
       <!-- Game 2: P1 & P3 vs P2 & P4 -->
-      <div style="margin-top:0.75rem; font-weight:bold; font-size:0.95rem;">Game 2:  <br> p1 ${p1} & p3 ${p3} <br>    &nbsp;&nbsp; &nbsp;&nbsp;&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;vs &nbsp;&nbsp;  p2 ${p2} & p4 ${p4}</div>
+      <div style="margin-top:0.75rem; font-weight:bold; font-size:0.95rem;">Game 2: <br> ${p1} & ${p3} <br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;vs&nbsp;&nbsp; ${p2} & ${p4}</div>
       <div class="score-grid">
         <input type="number" min="0" max="15" id="sc2_p1" placeholder="P1&P3">
-         vs 
-        <input type="number" min="0" max="15" id="sc2_p2" placeholder="P2& P4">
+        vs 
+        <input type="number" min="0" max="15" id="sc2_p2" placeholder="P2&P4">
       </div>
 
       <!-- Game 3: P1 & P2 vs P3 & P4 -->
-      <div style="margin-top:0.75rem; font-weight:bold; font-size:0.95rem;">Game 3:<br> p1 ${p1} & p2 ${p2} <br>   &nbsp;&nbsp; &nbsp;&nbsp;&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;vs &nbsp;&nbsp; p3 ${p3} & p4 ${p4}</div>
+      <div style="margin-top:0.75rem; font-weight:bold; font-size:0.95rem;">Game 3:<br> ${p1} & ${p2} <br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;vs&nbsp;&nbsp; ${p3} & ${p4}</div>
       <div class="score-grid">
         <input type="number" min="0" max="15" id="sc3_p1" placeholder="P1 & P2">
-        vs
+        vs 
         <input type="number" min="0" max="15" id="sc3_p2" placeholder="P3 & P4">
       </div>
     `;
@@ -1311,76 +1356,6 @@ function renderLookupResult(player, foursome) {
     scoreContainer.innerHTML = '<i>No active 4-player court match assignment found.</i>';
   }
 }
-
-async function saveScores() {
-  if (!activeLookupPlayer || activeFoursome.length < 4) {
-    alert('Active court match assignment not found.');
-    return;
-  }
-
-  // Helper to parse score inputs: returns undefined for empty fields, 'INVALID' for negative/bad numbers
-  const parseScore = (id) => {
-    const val = document.getElementById(id)?.value?.trim();
-    if (val === '' || val === undefined || val === null) return undefined;
-    const parsed = parseInt(val, 10);
-    return isNaN(parsed) || parsed < 0 ? 'INVALID' : parsed;
-  };
-
-  const v1_1 = parseScore('sc1_p1');
-  const v1_2 = parseScore('sc1_p2');
-  const v2_1 = parseScore('sc2_p1');
-  const v2_2 = parseScore('sc2_p2');
-  const v3_1 = parseScore('sc3_p1');
-  const v3_2 = parseScore('sc3_p2');
-
-  const allScores = [v1_1, v1_2, v2_1, v2_2, v3_1, v3_2];
-
-  if (allScores.includes('INVALID')) {
-    alert('Please enter valid non-negative numbers for all filled score fields.');
-    return;
-  }
-
-  // Ensure at least one score field is filled
-  if (allScores.every(v => v === undefined)) {
-    alert('Please enter at least one game score before submitting.');
-    return;
-  }
-
-  const p1 = activeFoursome[0].name;
-  const p2 = activeFoursome[1].name;
-  const p3 = activeFoursome[2].name;
-  const p4 = activeFoursome[3].name;
-
-   // Frontend maps game rotation to individual player objects (leaving empty games as undefined)
-  const scoresPayload = [
-    { name: p1, g1: v1_1, g2: v2_1, g3: v3_1 },
-    { name: p2, g1: v1_2, g2: v2_2, g3: v3_1 },
-    { name: p3, g1: v1_2, g2: v2_1, g3: v3_2 },
-    { name: p4, g1: v1_1, g2: v2_2, g3: v3_2 }
-  ];
-
-  const submitterPhone = activeLookupPlayer.phone || localStorage.getItem('scpb_saved_phone') || '';
-  const cleanGroup = String(activeLookupPlayer.group || '').replace(/^(Sched|Score)\s*/i, '').trim();
-  const statusEl = document.getElementById('phoneStatus');
-  if (statusEl) statusEl.innerText = 'Submitting scores...';
-
-  try {
-    const res = await apiCall('submitCourtScores', {
-      group: cleanGroup,
-      scores: scoresPayload,
-      submittedBy: submitterPhone
-    });
-
-    if (res && res.success) {
-      if (statusEl) statusEl.innerText = '✅ Scores submitted successfully!';
-    } else {
-      if (statusEl) statusEl.innerText = '❌ Submission failed: ' + (res.message || 'Error');
-    }
-  } catch (err) {
-    if (statusEl) statusEl.innerText = '❌ Error submitting scores: ' + err.message;
-  }
-}
-
 
 
 

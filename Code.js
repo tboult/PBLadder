@@ -311,7 +311,9 @@ function findFoursomeByPhone(params, groupNameArg) {
     phoneInput = String(params || "");
     targetGroup = String(groupNameArg || "");
   }
+  if (!targetGroup) return { html: "<i>No group specified.</i>" };
 
+  
   const cleanPhone = String(phoneInput).replace(/\D/g, "");
   const searchName = String(phoneInput).trim().toLowerCase();
   
