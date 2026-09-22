@@ -36,8 +36,20 @@ function testToggleDebug() {
   Logger.log("RESULT: " + JSON.stringify(result));
 }
 
+
 function testgetRankingsAndSchedData() {
-    getRankingsAndSchedData("Mens")
+    const restult=getRankingsAndSchedData("Mens")
+     Logger.log("SUCCESS: " + JSON.stringify(result));
+}
+
+
+
+function testunifiedata() {
+  var testPayload = {
+    groupName: "Mens",          // Your group name
+  };
+    const result= getUnifiedRoster(testPayload,true)
+     Logger.log("SUCCESS: " + JSON.stringify(result));
 }
 
 
@@ -2256,123 +2268,140 @@ function ensurePlayerCheckedIn(sheetName, targetPlayer) {
 function getUnifiedRoster(payload) {
   try {
     const group = payload.group || payload.groupName || payload.sheet || "";
-    const cleanGroup = String(group).replace(/^(Score|Sched)\s*/i, "").trim();
+    const cleanGroup = String(group).replace(/^(Score|Sched)\s*/i, "").trim().toUpperCase();
+    
+    if (!cleanGroup) return { success: false, message: "No group specified." };
+
     const schedSheetName = "Sched " + cleanGroup;
     const scoreSheetName = "Score " + cleanGroup;
     
-    const cacheKey = (typeof getCheckInCacheKey === 'function') 
-      ? getCheckInCacheKey(schedSheetName) 
-      : "CHECKIN_CACHE_" + cleanGroup.toUpperCase();
-
+    // Dedicated Cache Key specifically for Unified Rosters
+    const cacheKey = "UNIFIED_ROSTER_CACHE_" + cleanGroup;
     const cache = CacheService.getScriptCache();
     
-    // Check Cache unless forceRefresh is true
+    // 1. Check Cache (with structural validation)
     if (!payload.forceRefresh) {
       const cached = cache.get(cacheKey);
-      if (cached) return { success: true, players: JSON.parse(cached) };
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          // Validate cached data is an array and contains phone keys
+          if (Array.isArray(parsed) && parsed.length > 0 && ("phone" in parsed[0])) {
+            return { success: true, players: parsed, source: "cache" };
+          }
+        } catch (e) {
+          // Stale or corrupt JSON in cache -> bypass and rebuild
+        }
+      }
     }
 
     const ss = getDb();
     const schedSheet = ss.getSheetByName(schedSheetName);
     const scoreSheet = ss.getSheetByName(scoreSheetName);
-    if (!schedSheet && !scoreSheet) return { success: false, message: "Sheets not found." };
+    
+    if (!schedSheet && !scoreSheet) {
+      return { success: false, message: "Neither " + scoreSheetName + " nor " + schedSheetName + " was found." };
+    }
 
-    const activeMap = {}; 
-    const phoneMap = {};  // Lookup map for names to phone numbers
+    // Map to store combined player objects keyed by normalized name
+    const playerMap = {};
 
-    // 1. Process Score Sheet (Master Roster) for Status and Phone mapping
+    // 2. PASS 1: Read Master Roster from Score Sheet (Name, Phone, Active Status)
     if (scoreSheet) {
       const scoreData = scoreSheet.getDataRange().getValues();
       if (scoreData.length > 1) {
         const headers = scoreData[0].map(h => String(h).toLowerCase().trim());
         
-        // Flexible header search using regex
-        const activeIdx = headers.findIndex(h => /status|active/i.test(h));
         const nameIdx = headers.findIndex(h => /name|player/i.test(h));
         const firstIdx = headers.findIndex(h => /first/i.test(h));
         const lastIdx = headers.findIndex(h => /last/i.test(h));
         const phoneIdx = headers.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
+        const activeIdx = headers.findIndex(h => /status|active/i.test(h));
 
         for (let r = 1; r < scoreData.length; r++) {
           let pName = nameIdx !== -1 ? String(scoreData[r][nameIdx] || "").trim() : "";
           if (!pName && (firstIdx !== -1 || lastIdx !== -1)) {
             pName = `${scoreData[r][firstIdx] || ''} ${scoreData[r][lastIdx] || ''}`.trim();
           }
-          const normName = pName.toLowerCase();
-          if (!normName) continue;
+          if (!pName) continue;
 
-          const pPhone = phoneIdx !== -1 ? String(scoreData[r][phoneIdx] || "").replace(/\D/g, "") : "";
-
+          const normKey = pName.toLowerCase();
+          const cleanPhone = phoneIdx !== -1 ? String(scoreData[r][phoneIdx] || "").replace(/\D/g, "") : "";
+          
           let isActive = true;
           if (activeIdx !== -1) {
             const rawStatus = String(scoreData[r][activeIdx] || "").trim().toUpperCase();
             isActive = (rawStatus !== "INACTIVE" && rawStatus !== "FALSE");
           }
 
-          activeMap[normName] = isActive;
-          if (pPhone) {
-            activeMap[pPhone] = isActive;
-            phoneMap[normName] = pPhone; // Map player name to clean phone string
+          playerMap[normKey] = {
+            name: pName,
+            phone: cleanPhone,
+            active: isActive,
+            checkedIn: false,
+            court: "BYE"
+          };
+        }
+      }
+    }
+
+    // 3. PASS 2: Overlay Schedule Data (Courts & Check-Ins) from Sched Sheet
+    if (schedSheet) {
+      const schedData = schedSheet.getDataRange().getValues();
+      if (schedData.length > 1) {
+        const headers = schedData[0].map(h => String(h).toLowerCase().trim());
+        
+        const nameIdx = headers.findIndex(h => /name|player/i.test(h)) !== -1 
+          ? headers.findIndex(h => /name|player/i.test(h)) 
+          : 1;
+        const phoneIdx = headers.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
+        let checkIdx = headers.findIndex(h => /check|checked|x/i.test(h));
+        if (checkIdx === -1 && schedData[0].length >= 7) checkIdx = 6;
+        const courtIdx = headers.findIndex(h => /court/i.test(h));
+
+        for (let r = 1; r < schedData.length; r++) {
+          const pName = String(schedData[r][nameIdx] || "").trim();
+          if (!pName || pName.startsWith("---") || pName.toLowerCase().startsWith("time:")) continue;
+
+          const normKey = pName.toLowerCase();
+          const schedPhone = phoneIdx !== -1 ? String(schedData[r][phoneIdx] || "").replace(/\D/g, "") : "";
+          
+          let rawCheck = checkIdx !== -1 ? schedData[r][checkIdx] : false;
+          let isCheckedIn = (typeof isCheckInTrue === 'function') 
+            ? isCheckInTrue(rawCheck) 
+            : ["x", "true", "yes", "1"].includes(String(rawCheck).toLowerCase().trim());
+
+          const courtVal = courtIdx !== -1 ? String(schedData[r][courtIdx] || "").trim() : "BYE";
+
+          if (playerMap[normKey]) {
+            // Player exists in master list: update court, check-in, and phone if missing
+            playerMap[normKey].checkedIn = isCheckedIn;
+            if (courtVal) playerMap[normKey].court = courtVal;
+            if (!playerMap[normKey].phone && schedPhone) playerMap[normKey].phone = schedPhone;
+          } else {
+            // Player is only on Sched sheet: create entry
+            playerMap[normKey] = {
+              name: pName,
+              phone: schedPhone,
+              active: true,
+              checkedIn: isCheckedIn,
+              court: courtVal || "BYE"
+            };
           }
         }
       }
     }
 
-    // 2. Build Player List from Sched Sheet (or Score Sheet fallback)
-    let players = [];
-    const mainSheet = schedSheet || scoreSheet;
-    const data = mainSheet.getDataRange().getValues();
+    // Convert map back to list
+    const players = Object.values(playerMap);
 
-    if (data.length > 1) {
-      const headers = data[0].map(h => String(h).toLowerCase().trim());
-      
-      const nameIdx = headers.findIndex(h => /name|player/i.test(h)) !== -1 
-        ? headers.findIndex(h => /name|player/i.test(h)) 
-        : 1;
-      const phoneIdx = headers.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
-      let checkIdx = headers.findIndex(h => /check|checked|x/i.test(h));
-      if (checkIdx === -1 && data[0].length >= 7) checkIdx = 6;
-      const courtIdx = headers.findIndex(h => /court/i.test(h));
-
-      for (let r = 1; r < data.length; r++) {
-        const pName = String(data[r][nameIdx] || "").trim();
-        if (!pName || pName.startsWith("---") || pName.toLowerCase().startsWith("time:")) continue;
-
-        const normName = pName.toLowerCase();
-
-        // Try extracting phone from schedule sheet; fallback to Score Sheet phoneMap
-        let cleanPhone = phoneIdx !== -1 ? String(data[r][phoneIdx] || "").replace(/\D/g, "") : "";
-        if (!cleanPhone && phoneMap[normName]) {
-          cleanPhone = phoneMap[normName];
-        }
-
-        // Determine active status
-        let isActive = true;
-        if (activeMap.hasOwnProperty(normName)) {
-          isActive = activeMap[normName];
-        } else if (cleanPhone && activeMap.hasOwnProperty(cleanPhone)) {
-          isActive = activeMap[cleanPhone];
-        }
-
-        let rawCheck = checkIdx !== -1 ? data[r][checkIdx] : false;
-        let isCheckedIn = (typeof isCheckInTrue === 'function') 
-          ? isCheckInTrue(rawCheck) 
-          : ["x", "true", "yes", "1"].includes(String(rawCheck).toLowerCase().trim());
-
-        players.push({
-          name: pName,
-          phone: cleanPhone,
-          active: isActive,
-          checkedIn: isCheckedIn,
-          court: courtIdx !== -1 ? String(data[r][courtIdx] || "").trim() : "BYE"
-        });
-      }
+    // 4. Update Cache (600 seconds = 10 mins)
+    const payloadString = JSON.stringify(players);
+    if (payloadString.length < 100000) {
+      cache.put(cacheKey, payloadString, 600);
     }
 
-    const payloadString = JSON.stringify(players);
-    if (payloadString.length < 100000) cache.put(cacheKey, payloadString, 600);
-
-    return { success: true, players: players };
+    return { success: true, players: players, source: "live" };
   } catch (err) {
     return { success: false, error: err.toString(), players: [] };
   }
