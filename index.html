@@ -375,7 +375,7 @@
 <!-- 2. PHONE NUMBER INPUT -->
 <div class="card" style="margin-top: 1rem;">
   <h3 style="margin-top:0;">📱 2. Phone Number</h3>
-  <div id="phoneEntrySection" display: block !important;  visibility: visible !important;  opacity: 1 !important>
+<div id="phoneEntrySection" style="display: block !important; visibility: visible !important; opacity: 1 !important;">
     <label style="font-size: 1.1rem;"><b>Enter Phone Number:</b></label>
     <input type="tel" id="phoneInput" placeholder="e.g. 555-123-4567" style="width: 100%; font-size: 1.25rem; padding: 0.75rem; margin-top: 0.5rem; margin-bottom: 0.75rem; border: 2px solid var(--input-border); border-radius: 0.5rem; box-sizing: border-box; text-align: center; display: block !important;  visibility: visible !important;  opacity: 1 !important;">
 </div>      
@@ -496,40 +496,11 @@
           </div>
         </details>
 
-        <!-- 2. Reschedule with Checked-In Players -->
-        <details class="card" style="margin-bottom:1rem; background: var(--bg-color); cursor: pointer;">
-          <summary style="font-weight:bold; font-size:1.05rem; outline:none;">🔄 2. Reschedule Checked-In Players</summary>
-          <div style="margin-top: 0.75rem;">
-            <label style="font-size:0.95rem; font-weight:bold;">Checked-In Players Only:</label>
-            <button id="reschedCheckedInBtn" class="btn-main" style="margin-top:0.5rem; margin-bottom:0.5rem; width:100%;" onclick="runRescheduleCheckedIn()">
-              🔄 Reschedule Checked-In Only
-            </button>
-            <button class="btn-sub" style="margin-top:0.25rem; width:100%;" onclick="runAdmin('rescheduleFromCheckIns')">
-              Force Reschedule From Check-Ins
-            </button>
-          </div>
-        </details>
 
-        <!-- 3. Reschedule All Active Players -->
-        <details class="card" style="margin-bottom:1rem; background: var(--bg-color); cursor: pointer;">
-          <summary style="font-weight:bold; font-size:1.05rem; outline:none;">⚡ 3. Reschedule All Active Players</summary>
-          <div style="margin-top: 0.75rem;">
-            <label style="font-size:0.95rem; font-weight:bold;">All Active Players in Group:</label>
-            <button id="reschedActiveBtn" class="btn-sub" style="margin-top:0.5rem; margin-bottom:0.5rem; background-color: #2d6a4f; color: white; width:100%;" onclick="runRescheduleActive()">
-              ⚡ Reschedule All Active
-            </button>
-            <button class="btn-sub" style="margin-top:0.25rem; width:100%;" onclick="runAdmin('generateScheduleTabs')">
-              Generate Schedule
-            </button>
-          </div>
-        </details>
-
-        
-
- <!-- 4. Combined Roster Manager (Active / Inactive & Check-In) -->
+ <!-- 2. Combined Roster Manager (Active / Inactive & Check-In) -->
         <details class="card" style="margin-bottom:1rem; background: var(--bg-color); cursor: pointer;">
           <summary style="font-weight:bold; font-size:1.05rem; outline:none;">
-            👥 4. Player Roster & Check-In Manager
+            👥 2. Player Roster & Check-In Manager
           </summary>
           <div style="margin-top:0.75rem;" onclick="event.stopPropagation();">
             <input 
@@ -548,6 +519,17 @@
             </div>
           </div>
     </details>
+
+        <!-- 3. Reschedule with Checked-In Players (Always Visible) -->
+        <div class="card" style="margin-bottom:1rem; background: var(--bg-color); padding: 1rem; border-radius: 0.5rem;">
+            <label style="font-size:0.95rem; font-weight:bold;">Schedule generation:</label>
+            <button id="reschedCheckedInBtn" class="btn-main" style="margin-top:0.5rem; margin-bottom:0.5rem; width:100%;" onclick="runRescheduleCheckedIn()">
+              🔄 (Re)Schedule Checked-In Only
+            </button>
+            <button id="reschedActiveBtn" class="btn-sub" style="margin-top:0.5rem; margin-bottom:0.5rem; background-color: #2d6a4f; color: white; width:100%;" onclick="runRescheduleActive()">       ⚡ Schedule All Active
+            </button>
+</div>
+        
         <!-- 5. Additional Tools & Scoring -->
         <details class="card" style="margin-bottom:1rem; background: var(--bg-color); cursor: pointer;">
           <summary style="font-weight:bold; font-size:1.05rem; outline:none;">🛠️ 5. Additional Admin Actions & Standings</summary>
@@ -1006,96 +988,9 @@ function handleSecretTap(e) {
 
 
 
-// Dedicated Check-In handler for Admin Button
-async function toggleAdminCheckIn(btnEl, identifier, currentCheckedState) {
-  if (btnEl.disabled) return;
-  
-  const newState = !currentCheckedState;
-  const originalText = btnEl.innerText;
-  const originalBg = btnEl.style.backgroundColor;
-
-  btnEl.disabled = true;
-  btnEl.innerText = "⏳ ...";
-  btnEl.style.opacity = "0.7";
-
-  const groupName = document.getElementById('adminGlobalGroupSelect')?.value || getSavedGroup();
-
-  try {
-    const res = await apiCall('toggleSingleCheckIn', { 
-      sheet: "Sched " + groupName,
-      groupName: groupName,
-      group: groupName,
-      playerName: identifier, 
-      phone: identifier, 
-      isCheckedIn: newState,
-      adminOverride: true
-    });
-
-    if (res && (res.success || !res.error)) {
-      // Update button directly without crashing
-      btnEl.innerText = newState ? '✅ Checked In' : '⬜ Check In';
-      btnEl.style.backgroundColor = newState ? '#2e7d32' : '#757575';
-      
-      // Update cache so state stays updated when searching
-      if (typeof adminPlayersCache !== 'undefined' && Array.isArray(adminPlayersCache)) {
-        const player = adminPlayersCache.find(p => (p.phone === identifier || p.name === identifier));
-        if (player) {
-          player.checkedIn = newState;
-          player.checked = newState;
-        }
-      }
-      
-      // Re-bind click event with new state
-      btnEl.setAttribute('onclick', `toggleAdminCheckIn(this, '${identifier}', ${newState})`);
-    } else {
-      alert('Failed to update check-in: ' + (res.message || 'Error'));
-      btnEl.innerText = originalText;
-      btnEl.style.backgroundColor = originalBg;
-    }
-  } catch (err) {
-    console.error('toggleAdminCheckIn error:', err);
-    alert('Network error updating check-in.');
-    btnEl.innerText = originalText;
-    btnEl.style.backgroundColor = originalBg;
-  } finally {
-    btnEl.disabled = false;
-    btnEl.style.opacity = "1";
-  }
-}
 
 
-async function toggleAdminStatus(phone, btnEl) {
-  if (!phone) return;
-  const origText = btnEl.innerText;
-  btnEl.disabled = true;
-  btnEl.innerText = '...';
 
-  const selectedGroup = document.getElementById('adminGlobalGroupSelect').value || getSavedGroup();
-
-  try {
-    const res = await apiCall('togglePlayerStatus', { 
-      phone: phone, 
-      groupName: selectedGroup,
-      group: selectedGroup,
-      sheet: "Sched " + selectedGroup
-    });
-    if (res && res.success) {
-      const p = adminPlayersCache.find(x => String(x.phone) === String(phone));
-      if (p) {
-        p.status = res.newStatus;
-      }
-      filterAdminPlayers();
-    } else {
-      alert('Failed to update status: ' + (res.message || 'Unknown error'));
-      btnEl.innerText = origText;
-      btnEl.disabled = false;
-    }
-  } catch(err) {
-    alert('Error connecting to backend.');
-    btnEl.innerText = origText;
-    btnEl.disabled = false;
-  }
-}
 
 async function submitAdminRegistration() {
   const first = document.getElementById('adminRegFirst').value.trim();
@@ -1364,7 +1259,7 @@ async function lookupPhone() {
           phone: input, 
           group: savedGroup,
           groupName: savedGroup,
-          sheet: "Sched " + cachedGroup
+          sheet: "Sched " + savedGroup
       });      
 
     if (res && res.found) {
@@ -1830,19 +1725,72 @@ function loadAdminTabData(groupName) {
   loadAdminPlayerStatusCache(groupName);
 }
 
-async function loadAdminPlayerStatusCache(group) {
-  if (!group) return;
+async function loadAdminPlayerStatusCache(overrideGroup = null, forceRefresh = false) {
+  // Determine target group from param, dropdown element, or stored session
+  const groupName = overrideGroup || 
+                    document.getElementById('adminGlobalGroupSelect')?.value || 
+                    getSavedGroup();
+
+  const container = document.getElementById('adminPlayerStatusList');
+
+  if (!groupName) {
+    if (container) container.innerHTML = '<i>Select a group above to load roster...</i>';
+    return;
+  }
+
+  const storageKey = `admin_cache_${groupName}`;
+
+  // 1. Attempt reading from localStorage if not forcing a network refresh
+  if (!forceRefresh) {
+    const cachedData = localStorage.getItem(storageKey);
+    if (cachedData) {
+      try {
+        adminPlayersCache = JSON.parse(cachedData);
+        if (typeof filterAdminPlayers === 'function') {
+          filterAdminPlayers();
+        }
+        return; // Return cached data early without an API call
+      } catch (e) {
+        console.warn('Failed to parse cached admin roster from localStorage:', e);
+      }
+    }
+  }
+
+  // 2. Show loading feedback in the UI
+  if (container) {
+    container.innerHTML = '<span class="loading-spinner"></span> Loading player roster...';
+  }
+
+  // 3. Fetch fresh data from backend
   try {
-    let res = await apiCall('getAdminPlayersByGroup', { 
-        group: group,
-        groupName: group,
-        sheet: "Sched " + group 
+    const res = await apiCall('getAdminPlayerStatus', { 
+      groupName: groupName,
+      group: groupName,
+      sheet: "Sched " + groupName,
+      forceRefresh: forceRefresh
     });
-    const playersList = Array.isArray(res) ? res : (res && res.players ? res.players : []);
-    adminPlayersCache = playersList;
-    filterAdminPlayers(); 
-  } catch(e) {
-    console.warn("Could not cache admin players:", e.message);
+
+    if (res && res.success && Array.isArray(res.players)) {
+      adminPlayersCache = res.players;
+      
+      // Save data to localStorage for persistence across reloads
+      localStorage.setItem(storageKey, JSON.stringify(res.players));
+
+      if (typeof filterAdminPlayers === 'function') {
+        filterAdminPlayers();
+      }
+    } else {
+      adminPlayersCache = [];
+      if (container) {
+        container.innerHTML = `<i>${res?.message || 'No player data found for group.'}</i>`;
+      }
+    }
+  } catch (err) {
+    console.error('loadAdminPlayerStatusCache error:', err);
+    adminPlayersCache = [];
+    if (container) {
+      container.innerHTML = '<i>Error loading player roster. Check console logs.</i>';
+    }
   }
 }
 
@@ -2455,9 +2403,28 @@ async function loadAdminPlayerStatusCache(overrideGroup = null, forceRefresh = f
                     getSavedGroup();
 
   const container = document.getElementById('adminPlayerStatusList');
+
   if (!groupName) {
     if (container) container.innerHTML = '<i>Select a group above to load roster...</i>';
     return;
+  }
+
+  const storageKey = `admin_cache_${groupName}`;
+
+  // Read local cache only when forceRefresh is false
+  if (!forceRefresh) {
+    const cachedData = localStorage.getItem(storageKey);
+    if (cachedData) {
+      try {
+        adminPlayersCache = JSON.parse(cachedData);
+        if (typeof filterAdminPlayers === 'function') {
+          filterAdminPlayers();
+        }
+        return;
+      } catch (e) {
+        console.warn('Failed to parse cached admin roster:', e);
+      }
+    }
   }
 
   if (container) {
@@ -2473,18 +2440,45 @@ async function loadAdminPlayerStatusCache(overrideGroup = null, forceRefresh = f
     });
 
     if (res && res.success && Array.isArray(res.players)) {
-      adminPlayersCache = res.players;
-      filterAdminPlayers();
+      // Normalize self-check-in status across all possible backend property names/values
+      adminPlayersCache = res.players.map(player => {
+        const checkedInStatus = Boolean(
+          player.isCheckedIn === true || 
+          player.checkedIn === true || 
+          String(player.status).toLowerCase() === 'checked in' ||
+          String(player.status).toLowerCase() === 'yes' ||
+          String(player.checkedIn).toLowerCase() === 'yes' ||
+          String(player.checkedIn).toLowerCase() === 'true'
+        );
+
+        return {
+          ...player,
+          isCheckedIn: checkedInStatus,
+          checkedIn: checkedInStatus
+        };
+      });
+
+      // Update local storage with fresh state
+      localStorage.setItem(storageKey, JSON.stringify(adminPlayersCache));
+
+      if (typeof filterAdminPlayers === 'function') {
+        filterAdminPlayers();
+      }
     } else {
       adminPlayersCache = [];
-      if (container) container.innerHTML = `<i>${res?.message || 'No player data found for group.'}</i>`;
+      if (container) {
+        container.innerHTML = `<i>${res?.message || 'No player data found for group.'}</i>`;
+      }
     }
   } catch (err) {
     console.error('loadAdminPlayerStatusCache error:', err);
     adminPlayersCache = [];
-    if (container) container.innerHTML = '<i>Error loading player roster. Check console logs.</i>';
+    if (container) {
+      container.innerHTML = '<i>Error loading player roster. Check console logs.</i>';
+    }
   }
 }
+a
 
 
 
@@ -2571,115 +2565,98 @@ function filterAdminPlayers() {
   }).join('');
 }
 
-async function toggleAdminPlayerActive(btnEl, playerName, phone, currentActiveState) {
-  if (btnEl.disabled) return;
 
-  const newActiveState = !currentActiveState;
-  const originalText = btnEl.innerText;
-  const originalBg = btnEl.style.backgroundColor;
 
-  btnEl.disabled = true;
-  btnEl.innerText = "⏳ ...";
-  btnEl.style.opacity = "0.7";
+async function loadAdminPlayerStatusCache(overrideGroup = null, forceRefresh = false) {
+  // 1. Determine target group name
+  const groupName = overrideGroup || 
+                    document.getElementById('adminGlobalGroupSelect')?.value || 
+                    getSavedGroup();
 
-  const groupName = document.getElementById('adminGlobalGroupSelect')?.value || getSavedGroup();
+  const container = document.getElementById('adminPlayerStatusList');
 
-  try {
-    const res = await apiCall('togglePlayerActive', {
-      groupName: groupName,
-      group: groupName,
-      sheet: "Score " + groupName,
-      name: playerName,
-      playerName: playerName,
-      phone: phone,
-      active: newActiveState
-    });
-
-    if (res && res.success) {
-      btnEl.innerText = newActiveState ? 'Active' : 'Inactive';
-      btnEl.style.backgroundColor = newActiveState ? '#1976d2' : '#d32f2f';
-
-      // Update in-memory cache
-      if (Array.isArray(adminPlayersCache)) {
-        const player = adminPlayersCache.find(p => 
-          (p.name && p.name.toLowerCase() === playerName.toLowerCase()) || 
-          (p.phone && phone && p.phone === phone)
-        );
-        if (player) player.active = newActiveState;
-      }
-
-      btnEl.setAttribute('onclick', `toggleAdminPlayerActive(this, '${playerName}', '${phone}', ${newActiveState})`);
-    } else {
-      alert('Failed to update active status: ' + (res?.message || 'Error'));
-      btnEl.innerText = originalText;
-      btnEl.style.backgroundColor = originalBg;
-    }
-  } catch (err) {
-    console.error('toggleAdminPlayerActive error:', err);
-    alert('Network error updating active status.');
-    btnEl.innerText = originalText;
-    btnEl.style.backgroundColor = originalBg;
-  } finally {
-    btnEl.disabled = false;
-    btnEl.style.opacity = "1";
+  if (!groupName) {
+    if (container) container.innerHTML = '<i>Select a group above to load roster...</i>';
+    return;
   }
-}
 
-async function toggleAdminCheckIn(btnEl, playerName, phone, currentCheckedState) {
-  if (btnEl.disabled) return;
+  const storageKey = `admin_cache_${groupName}`;
 
-  const newState = !currentCheckedState;
-  const originalText = btnEl.innerText;
-  const originalBg = btnEl.style.backgroundColor;
-
-  btnEl.disabled = true;
-  btnEl.innerText = "⏳ ...";
-  btnEl.style.opacity = "0.7";
-
-  const groupName = document.getElementById('adminGlobalGroupSelect')?.value || getSavedGroup();
-
-  try {
-    const res = await apiCall('toggleSingleCheckIn', { 
-      sheet: "Sched " + groupName,
-      groupName: groupName,
-      group: groupName,
-      playerName: playerName, 
-      phone: phone, 
-      isCheckedIn: newState,
-      adminOverride: true
-    });
-
-    if (res && (res.success || !res.error)) {
-      btnEl.innerText = newState ? '✅ Checked In' : '⬜ Check In';
-      btnEl.style.backgroundColor = newState ? '#2e7d32' : '#757575';
-
-      if (Array.isArray(adminPlayersCache)) {
-        const player = adminPlayersCache.find(p => 
-          (p.name && p.name.toLowerCase() === playerName.toLowerCase()) || 
-          (p.phone && phone && p.phone === phone)
-        );
-        if (player) {
-          player.checkedIn = newState;
-          player.checked = newState;
+  // 2. Read local cache only when forceRefresh is false
+  if (!forceRefresh) {
+    const cachedData = localStorage.getItem(storageKey);
+    if (cachedData) {
+      try {
+        adminPlayersCache = JSON.parse(cachedData);
+        if (typeof filterAdminPlayers === 'function') {
+          filterAdminPlayers();
         }
+        return;
+      } catch (e) {
+        console.warn('Failed to parse cached admin roster:', e);
       }
+    }
+  }
 
-      btnEl.setAttribute('onclick', `toggleAdminCheckIn(this, '${playerName}', '${phone}', ${newState})`);
+  // 3. Show loading UI feedback
+  if (container) {
+    container.innerHTML = '<span class="loading-spinner"></span> Loading player roster...';
+  }
+
+  // 4. Fetch fresh data from backend
+  try {
+    const res = await apiCall('getAdminPlayerStatus', { 
+      groupName: groupName,
+      group: groupName,
+      sheet: "Sched " + groupName,
+      forceRefresh: forceRefresh
+    });
+
+    if (res && res.success && Array.isArray(res.players)) {
+      // HERE: Normalization logic that evaluates "Check-In" column values
+      adminPlayersCache = res.players.map(player => {
+        const rawCheckInVal = player['Check-In'] ?? 
+                              player.checkIn ?? 
+                              player.isCheckedIn ?? 
+                              player.checkedIn ?? 
+                              player.status;
+
+        const checkedInStatus = Boolean(
+          rawCheckInVal === true || 
+          String(rawCheckInVal).toLowerCase() === 'yes' ||
+          String(rawCheckInVal).toLowerCase() === 'checked in' ||
+          String(rawCheckInVal).toLowerCase() === 'true' ||
+          String(rawCheckInVal).toLowerCase() === 'x'
+        );
+
+        return {
+          ...player,
+          isCheckedIn: checkedInStatus,
+          checkedIn: checkedInStatus
+        };
+      });
+
+      // Save updated roster to localStorage so it survives page reload
+      localStorage.setItem(storageKey, JSON.stringify(adminPlayersCache));
+
+      if (typeof filterAdminPlayers === 'function') {
+        filterAdminPlayers();
+      }
     } else {
-      alert('Failed to update check-in: ' + (res?.message || 'Error'));
-      btnEl.innerText = originalText;
-      btnEl.style.backgroundColor = originalBg;
+      adminPlayersCache = [];
+      if (container) {
+        container.innerHTML = `<i>${res?.message || 'No player data found for group.'}</i>`;
+      }
     }
   } catch (err) {
-    console.error('toggleAdminCheckIn error:', err);
-    alert('Network error updating check-in.');
-    btnEl.innerText = originalText;
-    btnEl.style.backgroundColor = originalBg;
-  } finally {
-    btnEl.disabled = false;
-    btnEl.style.opacity = "1";
+    console.error('loadAdminPlayerStatusCache error:', err);
+    adminPlayersCache = [];
+    if (container) {
+      container.innerHTML = '<i>Error loading player roster. Check console logs.</i>';
+    }
   }
 }
+
 
       
 </script>

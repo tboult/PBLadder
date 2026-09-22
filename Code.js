@@ -2414,6 +2414,61 @@ function ensurePlayerCheckedIn(sheetName, targetPlayer) {
 
 
 // 1. GET ADMIN PLAYER STATUS (Searches for Status/Active column, falls back to Col A)
+// Google Apps Script Snippet (backend)
+function getAdminPlayerStatus(e) {
+  var groupName = e.parameter.groupName || e.parameter.group;
+  var sheetName = "Sched " + groupName;
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
+  
+  if (!sheet) {
+    return ContentService.createTextOutput(JSON.stringify({
+      success: false, 
+      message: "Sheet " + sheetName + " not found."
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  var data = sheet.getDataRange().getValues();
+  var headers = data[0];
+  
+  // Find column indices specifically matching "Check-In"
+  var nameIdx = headers.indexOf("Player") !== -1 ? headers.indexOf("Player") : headers.indexOf("Name");
+  
+  var checkInIdx = headers.indexOf("Check-In");
+  if (checkInIdx === -1) {
+    // Fallbacks in case of slight header variations
+    checkInIdx = headers.indexOf("Checked In") !== -1 ? headers.indexOf("Checked In") : headers.indexOf("Status");
+  }
+
+  var players = [];
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    var playerName = row[nameIdx];
+    
+    if (playerName) {
+      var checkInVal = checkInIdx !== -1 ? String(row[checkInIdx]).trim().toUpperCase() : "";
+      
+      // Consider checked in if cell is "YES", "CHECKED IN", "TRUE", or non-empty indicator
+      var isCheckedIn = (
+        checkInVal === "YES" || 
+        checkInVal === "CHECKED IN" || 
+        checkInVal === "TRUE" || 
+        checkInVal === "X"
+      );
+
+      players.push({
+        name: playerName,
+        isCheckedIn: isCheckedIn,
+        checkedIn: isCheckedIn,
+        status: isCheckedIn ? "Checked In" : "Not Checked In"
+      });
+    }
+  }
+
+  return ContentService.createTextOutput(JSON.stringify({
+    success: true,
+    players: players
+  })).setMimeType(ContentService.MimeType.JSON);
+}
 function getAdminPlayerStatus(payload) {
   try {
     const group = payload.group || payload.groupName || "";
@@ -2512,7 +2567,7 @@ function getAdminPlayerStatus(payload) {
 
 // 2. TOGGLE PLAYER ACTIVE (Writes to the dynamically found Status column)
 function togglePlayerActive(payload) {
-  try {
+  try {s
     const group = payload.group || payload.groupName || "";
     const cleanGroup = String(group).replace(/^(Score|Sched)\s*/i, "").trim();
     
@@ -2551,10 +2606,10 @@ function togglePlayerActive(payload) {
         const cell = scoreSheet.getRange(r + 1, activeIdx + 1);
         
         // Write value
-        cell.setValue(newActiveState ? "Active" : "Inactive");
+        cell.setValue(newActiveState ? "ACTIVE" : "Inactive");
         
-        // Fill Google Sheet Cell background: Green (#d4edda) vs Yellow (#fff3cd)
-        cell.setBackground(newActiveState ? "#d4edda" : "#fff3cd");
+        // Fill Google Sheet Cell background: Green  vs Yellow 
+        cell.setBackground(newActiveState ? "#d4FF8a" : "#fff366");
         
         updated = true;
         break;
