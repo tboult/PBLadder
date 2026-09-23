@@ -312,5 +312,56 @@
         font-size: 1rem; 
         margin:0;
       }
+/* --- TAB CONTAINER --- */
+.nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px; /* Space between buttons so they don't blend together */
+  margin-bottom: 20px;
+  border-bottom: 3px solid #0d6efd; /* Strong grounding border for the tab bar */
+  padding-bottom: 4px;
+}
+
+/* --- INACTIVE TAB BUTTONS (LOOK LIKE BUTTONS) --- */
+.nav button {
+  background-color: #f1f3f5;
+  color: #212529;
+  border: 2px solid #0d6efd;
+  border-bottom: none; /* Connects smoothly to tab content */
+  border-radius: 10px 10px 0 0; /* Distinct top tab curve */
+  padding: 12px 20px;
+  font-size: 1.2rem;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 52px; /* Touch-friendly tap target for seniors */
+  transition: all 0.2s ease-in-out;
+  box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.05);
+}
+
+/* Hover State */
+.nav button:hover {
+  background-color: #e2e6ea;
+  color: #0b5ed7;
+}
+
+/* --- CURRENTLY SELECTED / ACTIVE TAB --- */
+.nav button.active {
+  background-color: #0d6efd !important; /* Solid vibrant primary blue */
+  color: #ffffff !important; /* High contrast white text */
+  font-weight: bold;
+  border: 3px solid #0a58ca;
+  border-bottom: 3px solid #0d6efd; /* Merges into the bar below */
+  box-shadow: 0 -4px 10px rgba(13, 110, 253, 0.3);
+  transform: translateY(-3px); /* Slightly raises active tab */
+  position: relative;
+  z-index: 2;
+}
+
+/* Active Indicator Symbol (Optional visual mark) */
+.nav button.active::after {
+  content: "  •"; /* Adds a distinct bullet mark to active text */
+  font-size: 1.4rem;
+  color: #ffc107; /* Bright yellow dot indicator */
+}
 
     </style>
