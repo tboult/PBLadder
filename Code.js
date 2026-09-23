@@ -1355,14 +1355,22 @@ function addNewUser(info) {
     }
   }
 
-  // 2. WRITE TO SHEET
+  // 2. WRITE TO SHEET & HIGHLIGHT ROW IN YELLOW
+  let targetRange;
+
   if (targetRowNumber > -1) {
     // Fill the found empty slot
-    targetSheet.getRange(targetRowNumber, 1, 1, newRow.length).setValues([newRow]);
+    targetRange = targetSheet.getRange(targetRowNumber, 1, 1, newRow.length);
+    targetRange.setValues([newRow]);
   } else {
     // Fallback append if no empty row exists
     targetSheet.appendRow(newRow);
+    const lastRow = targetSheet.getLastRow();
+    targetRange = targetSheet.getRange(lastRow, 1, 1, newRow.length);
   }
+
+  // Highlight the row yellow (#ffff00) for easy admin identification
+  targetRange.setBackground("#ffff00");
   
   return `✅ Success: Added ${info.first} ${info.last} (Inactive) to tab '${targetSheet.getName()}'.`;
 }

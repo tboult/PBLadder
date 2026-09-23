@@ -177,21 +177,29 @@
   </div>
 </div>
 
-  <!-- 4. ADD NEW PLAYER (ACCORDION - COPIED FROM ADMIN) -->
-  <details class="card" style="margin-top:1rem; cursor: pointer;">
-    <summary style="font-weight:bold; font-size:1.05rem; outline:none;">➕ Add New Player</summary>
-    <p> Note that this submits the informaton, app will not be active until registration is approved </p>
-    <div style="margin-top:0.75rem;">
-      <input type="text" id="frontRegFirst" placeholder="First Name" style="width:100%; margin-bottom:0.5rem; padding:0.5rem; box-sizing:border-box;">
-      <input type="text" id="frontRegLast" placeholder="Last Name" style="width:100%; margin-bottom:0.5rem; padding:0.5rem; box-sizing:border-box;">
-      <input type="tel" id="frontRegPhone" placeholder="Phone Number" style="width:100%; margin-bottom:0.5rem; padding:0.5rem; box-sizing:border-box;">
-      <input type="email" id="frontRegEmail" placeholder="Email" style="width:100%; margin-bottom:0.5rem; padding:0.5rem; box-sizing:border-box;">
-      <select id="frontRegGroup" onchange="onGroupChange('frontRegGroup')" style="width:100%; margin-bottom:0.5rem; padding:0.5rem; box-sizing:border-box;">
-        <option value="">-- Select Group --</option>
-      </select>
-      <button class="btn-main" style="margin-top:0.5rem; width:100%;" onclick="submitFrontPageRegistration()">Register New Player</button>
+
+<!-- 4. ADD NEW PLAYER (ACCORDION) -->
+<details class="card" style="margin-top:1rem; cursor: pointer;">
+  <summary style="font-weight:bold; font-size:1.15rem; outline:none; padding: 0.5rem 0;">➕ Add New Player</summary>
+  
+  <p style="font-size:1rem; color:#555; margin-top:0.5rem; line-height: 1.4;">
+    Note: The player will not be active in the app until registration is approved.
+  </p>
+
+  <div style="margin-top:0.75rem;">
+    <!-- GROUP ASSIGNMENT NOTE -->
+    <div style="background-color: #e7f1ff; border: 1px solid #b6d4fe; border-radius: 6px; padding: 12px; margin-bottom: 0.85rem; font-size: 1.05rem; color: #084298; line-height: 1.4;">
+      📌 <b>Group Assignment:</b> This player will be registered into the <b>Group selected at the top of the page</b>.
     </div>
-  </details>
+
+    <input type="text" id="frontRegFirst" placeholder="First Name" style="width:100%; margin-bottom:0.75rem; padding:0.75rem; font-size:1.1rem; box-sizing:border-box; border: 1px solid #ccc; border-radius: 6px;">
+    <input type="text" id="frontRegLast" placeholder="Last Name" style="width:100%; margin-bottom:0.75rem; padding:0.75rem; font-size:1.1rem; box-sizing:border-box; border: 1px solid #ccc; border-radius: 6px;">
+    <input type="tel" id="frontRegPhone" placeholder="Phone Number" style="width:100%; margin-bottom:0.75rem; padding:0.75rem; font-size:1.1rem; box-sizing:border-box; border: 1px solid #ccc; border-radius: 6px;">
+    <input type="email" id="frontRegEmail" placeholder="Email (Optional)" style="width:100%; margin-bottom:0.75rem; padding:0.75rem; font-size:1.1rem; box-sizing:border-box; border: 1px solid #ccc; border-radius: 6px;">
+    
+    <button class="btn-main" style="margin-top:0.5rem; width:100%; font-size:1.2rem; padding:12px; font-weight:bold; border-radius:6px; cursor:pointer;" onclick="submitUserRegistration()">Register New Player</button>
+  </div>
+</details>
 
   <!-- 5. FONT & CONTRAST (ACCORDION) -->
   <details class="card" style="margin-top:1rem; cursor: pointer;">
@@ -1263,6 +1271,93 @@ async function saveScores() {
 
 
 
+async function submitUserRegistration() {
+  // Helper to find the active non-empty value across duplicate input IDs
+  const getInputValue = (...ids) => {
+    for (const id of ids) {
+      const el = document.getElementById(id);
+      if (el && el.value && el.value.trim() !== '') {
+        return el.value.trim();
+      }
+    }
+    return '';
+  };
+
+  // 1. READ FIELD VALUES (Checks frontReg IDs first)
+  const first = getInputValue('frontRegFirst', 'regFirst');
+  const last = getInputValue('frontRegLast', 'regLast');
+  const phone = getInputValue('frontRegPhone', 'regPhone');
+  const email = getInputValue('frontRegEmail', 'regEmail');
+
+  // 2. READ GROUP FROM TOP SELECTOR OR SAVED LOCAL STORAGE
+  const topGroupSelect = document.getElementById('groupSelect') || 
+                         document.getElementById('groupDropdown') || 
+                         document.getElementById('adminGroupSelect');
+
+  const group = (typeof getSavedGroup === 'function' ? getSavedGroup() : '') || 
+                (topGroupSelect ? topGroupSelect.value : '');
+
+  // LOG VALUES TO CONSOLE FOR EASY DEBUGGING
+  console.log("🔍 Registration Attempt Values:", { first, last, phone, email, group });
+
+  // 3. VALIDATE GROUP SELECTION
+  if (!group) {
+    alert('⚠️ Please choose a Group at the top of the page before submitting registration.');
+    return;
+  }
+
+  // 4. VALIDATE REQUIRED USER FIELDS
+  if (!first || !last || !phone) {
+    let missing = [];
+    if (!first) missing.push("First Name");
+    if (!last) missing.push("Last Name");
+    if (!phone) missing.push("Phone Number");
+
+    alert(`⚠️ Please fill out: ${missing.join(', ')}`);
+    return;
+  }
+
+  const statusEl = document.getElementById('phoneStatus');
+  if (statusEl) statusEl.innerText = 'Submitting registration...';
+
+  try {
+    document.body.style.cursor = 'wait';
+
+    const res = await apiCall('addNewUser', { 
+      first, 
+      last, 
+      phone, 
+      email, 
+      group: group,
+      groupName: group,
+      sheet: "Sched " + group
+    });
+
+    if (res && (res.success || !res.error)) {
+      alert(`✅ Registration submitted for ${first} ${last}! You are registered as Pending in group '${group}'.`);
+
+      // Clear input fields
+      ['frontRegFirst', 'regFirst', 'frontRegLast', 'regLast', 'frontRegPhone', 'regPhone', 'frontRegEmail', 'regEmail'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+      });
+
+      if (typeof cancelRegistration === 'function') cancelRegistration();
+      if (statusEl) statusEl.innerText = '✅ Registration complete!';
+    } else {
+      const errMsg = (typeof res === 'string' ? res : res.message) || 'Error submitting registration';
+      alert('❌ Registration failed: ' + errMsg);
+      if (statusEl) statusEl.innerText = '❌ Registration failed: ' + errMsg;
+    }
+  } catch (err) {
+    console.error("Error submitting registration:", err);
+    alert('❌ Error submitting registration. Please check your network connection.');
+    if (statusEl) statusEl.innerText = '❌ Error submitting registration.';
+  } finally {
+    document.body.style.cursor = 'default';
+  }
+}
+
 async function toggleStatus() {
   if (!activeLookupPlayer) return;
   const statusEl = document.getElementById('phoneStatus');
@@ -1288,42 +1383,7 @@ async function toggleStatus() {
 }
 
 
-async function submitRegistration() {
-  const first = document.getElementById('regFirst').value.trim();
-  const last = document.getElementById('regLast').value.trim();
-  const phone = document.getElementById('regPhone').value.trim();
-  const email = document.getElementById('regEmail').value.trim();
-  const group = document.getElementById('regGroup').value;
 
-  if (!first || !last || !phone || !group) {
-    alert('Please fill out all required fields.');
-    return;
-  }
-
-  const statusEl = document.getElementById('phoneStatus');
-  if (statusEl) statusEl.innerText = 'Submitting registration...';
-
-  try {
-    const res = await apiCall('addNewUser', { 
-        first, 
-        last, 
-        phone, 
-        email, 
-        group: group,
-        groupName: group,
-        sheet: "Sched " + group
-    });
-    if (res && (res.success || !res.error)) {
-      alert('Registration submitted! You are now registered as Pending.');
-      cancelRegistration();
-      if (statusEl) statusEl.innerText = '✅ Registration complete!';
-    } else {
-      if (statusEl) statusEl.innerText = '❌ Registration failed: ' + (res.message || 'Error');
-    }
-  } catch (err) {
-    if (statusEl) statusEl.innerText = '❌ Error submitting registration.';
-  }
-}
 
 function cancelRegistration() {
   document.getElementById('registrationSection').style.display = 'none';
