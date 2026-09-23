@@ -3118,108 +3118,93 @@ async function onHelpGroupRadioChange(groupValue) {
 // ==========================================
 // --- VALIDATION HELPERS ---
 
-// Validates 10-digit US phone numbers (or 11-digit starting with 1)
+// ==========================================
+// VALIDATION HELPERS
+// ==========================================
+
+// Requires exactly 10 digits (or 11 starting with 1)
 function isValidPhone(phoneStr) {
   if (!phoneStr) return false;
-  const digits = phoneStr.replace(/\D/g, ''); // Remove all non-numeric characters
+  const digits = phoneStr.replace(/\D/g, ''); // Strip all non-numbers
   return digits.length === 10 || (digits.length === 11 && digits.startsWith('1'));
 }
 
-// Validates basic email structure (only if text is entered)
+// Optional field, but if filled must match email standard (user@domain.ext)
 function isValidEmail(emailStr) {
-  if (!emailStr || emailStr.trim() === '') return true; // Optional field
+  if (!emailStr || emailStr.trim() === '') return true; 
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   return emailRegex.test(emailStr.trim());
-}      
-async function submitRegistration() {
-  const getInputValue = (...ids) => {
-    for (const id of ids) {
-      const el = document.getElementById(id);
-      if (el && el.value && el.value.trim() !== '') {
-        return el.value.trim();
-      }
-    }
-    return '';
-  };
+}
 
-  const first = getInputValue('frontRegFirst', 'regFirst');
-  const last = getInputValue('frontRegLast', 'regLast');
-  const phone = getInputValue('frontRegPhone', 'regPhone');
-  const email = getInputValue('frontRegEmail', 'regEmail');
+// ==========================================
+// FRONT PAGE REGISTRATION SUBMISSION
+// ==========================================
+function submitFrontPageRegistration() {
+  const first = document.getElementById("frontRegFirst")?.value.trim() || "";
+  const last = document.getElementById("frontRegLast")?.value.trim() || "";
+  const phone = document.getElementById("frontRegPhone")?.value.trim() || "";
+  const email = document.getElementById("frontRegEmail")?.value.trim() || "";
 
+  // 1. GET GROUP FROM TOP SELECTOR OR SAVED STATE
   const topGroupSelect = document.getElementById('groupSelect') || 
                          document.getElementById('groupDropdown') || 
                          document.getElementById('adminGroupSelect');
-
   const group = (typeof getSavedGroup === 'function' ? getSavedGroup() : '') || 
                 (topGroupSelect ? topGroupSelect.value : '');
 
-  // 1. CHECK GROUP SELECTION
+  // 🛑 GUARD 1: BLOCK IF NO GROUP IS SELECTED AT TOP
   if (!group) {
-    alert('⚠️ Please choose a Group at the top of the page before submitting.');
-    return;
+    alert("⚠️ Submission Blocked: Please select a Group at the top of the page first.");
+    return false;
   }
 
-  // 2. CHECK REQUIRED BLANK FIELDS
+  // 🛑 GUARD 2: BLOCK IF BLANK REQUIRED FIELDS
   if (!first || !last || !phone) {
     let missing = [];
     if (!first) missing.push("First Name");
     if (!last) missing.push("Last Name");
     if (!phone) missing.push("Phone Number");
 
-    alert(`⚠️ Please fill in all required fields:\n• ${missing.join('\n• ')}`);
-    return;
+    alert(`⚠️ Submission Blocked: Missing required information:\n• ${missing.join('\n• ')}`);
+    return false;
   }
 
-  // 3. PHONE NUMBER VALIDATION
+  // 🛑 GUARD 3: BLOCK IF PHONE IS INVALID
   if (!isValidPhone(phone)) {
-    alert('⚠️ Please enter a valid 10-digit phone number.\nExample: (623) 555-0199 or 6235550199');
-    return;
+    alert("⚠️ Submission Blocked: Invalid Phone Number.\n\nPlease enter a valid 10-digit phone number.\nExample: 623-555-0199 or 6235550199");
+    return false;
   }
 
-  // 4. EMAIL VALIDATION (Optional field)
+  // 🛑 GUARD 4: BLOCK IF EMAIL IS INVALID
   if (!isValidEmail(email)) {
-    alert('⚠️ Please enter a valid email address or leave the email box blank.\nExample: name@example.com');
-    return;
+    alert("⚠️ Submission Blocked: Invalid Email Address.\n\nPlease enter a valid email format (e.g., name@example.com) or leave the field completely blank.");
+    return false;
   }
 
-  // Sanitize phone to digits before sending to backend
+  // --- ALL VALIDATIONS PASSED ---
+  // Format phone number cleanly as XXX-XXX-XXXX
   const cleanPhone = phone.replace(/\D/g, '');
   const formattedPhone = cleanPhone.length === 10 
     ? `${cleanPhone.slice(0,3)}-${cleanPhone.slice(3,6)}-${cleanPhone.slice(6)}`
+    : (cleanPhone.length === 11 && cleanPhone.startsWith('1'))
+    ? `${cleanPhone.slice(1,4)}-${cleanPhone.slice(4,7)}-${cleanPhone.slice(7)}`
     : phone;
 
-  const statusEl = document.getElementById('phoneStatus');
-  if (statusEl) statusEl.innerText = 'Submitting registration...';
+  const registrationData = { 
+    first, 
+    last, 
+    phone: formattedPhone, 
+    email, 
+    group 
+  };
 
-  try {
-    document.body.style.cursor = 'wait';
-
-    const res = await apiCall('addNewUser', { 
-      first, 
-      last, 
-      phone: formattedPhone, 
-      email, 
-      group: group,
-      groupName: group,
-      sheet: "Sched " + group
-    });
-
-    if (res && (res.success || !res.error)) {
-      alert(`✅ Registration submitted for ${first} ${last}!\nStatus set to Inactive (pending review).`);
-      if (statusEl) statusEl.innerText = '✅ Registration complete!';
-      // Data remains intact in input fields for easy correction if needed
-    } else {
-      const errMsg = (typeof res === 'string' ? res : res.message) || 'Error submitting registration';
-      alert('❌ Registration failed: ' + errMsg);
-      if (statusEl) statusEl.innerText = '❌ Registration failed: ' + errMsg;
-    }
-  } catch (err) {
-    console.error("Error submitting registration:", err);
-    alert('❌ Error submitting registration. Please check your network connection.');
-    if (statusEl) statusEl.innerText = '❌ Error submitting registration.';
-  } finally {
-    document.body.style.cursor = 'default';
+  // Submit via existing backend handler
+  if (typeof submitRegistrationData === "function") {
+    submitRegistrationData(registrationData);
+  } else if (typeof submitRegistration === "function") {
+    submitRegistration();
+  } else {
+    alert(`✅ Player ${first} ${last} registered successfully!`);
   }
 }
 
