@@ -991,6 +991,7 @@ function handleApiRequest(e) {
         result = getRankingsAndSchedData(payload.group || payload.groupName);
         break;
 
+      case 'getGroupPlayers':        
       case 'getAdminPlayersByGroup':
         result = getAdminPlayersByGroup(payload.group || payload.groupName);
         break;
