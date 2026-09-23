@@ -12,7 +12,7 @@ if [ -z "$COMMIT_MSG" ]; then
 fi
 
 # 3. Define Deployment IDs & Config Files
-DEV_DEPLOYMENT_ID="AKfycbweTOjVcY0R1sxXrYfbN2S9jqMz4yr5b1alVoz0gjVy3P3ty42rtHlfgfpdjtFnF4nFaQ"
+DEV_DEPLOYMENT_ID="AKfycbzt6BreB7T8nY6gg1VbNnRqEhIywIBjT2apbIWNLwLsqt9ci_PwQy8EErGZtHyCdwMh"
 PROD_DEPLOYMENT_ID="AKfycbyuY1-ZkbpA2Udpe__rKSE6H4EBfl_OKn_Xep719FJII1u5RxAXhSzU3dyrD0c64diS"
 
 
