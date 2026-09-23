@@ -1,4 +1,4 @@
-#!/bin/bash -e
+#!/bin/bash -e -x
 
 # 1. Capture arguments
 COMMIT_MSG="$1"
@@ -14,6 +14,7 @@ fi
 # 3. Define Deployment IDs & Config Files
 DEV_DEPLOYMENT_ID="AKfycbweTOjVcY0R1sxXrYfbN2S9jqMz4yr5b1alVoz0gjVy3P3ty42rtHlfgfpdjtFnF4nFaQ"
 PROD_DEPLOYMENT_ID="AKfycbyuY1-ZkbpA2Udpe__rKSE6H4EBfl_OKn_Xep719FJII1u5RxAXhSzU3dyrD0c64diS"
+
 
 if [ "$TARGET_ENV" = "prod" ]; then
     DEPLOYMENT_ID="$PROD_DEPLOYMENT_ID"
