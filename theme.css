@@ -1,8 +1,6 @@
 :root {
-  --primary-bg: #FFFF55;
-  --header-bg: #FF7755;
-  --header-title: #FFFFFF;  
-  --accent-color: #ffb74d;
-  --env-banner: "DEV ENVIRONMENT";
+  --primary-bg: #1b5e20;
+  --header-bg: #2e7d32;
+  --accent-color: #81c784;
+  --env-banner: "";
 }
- 
