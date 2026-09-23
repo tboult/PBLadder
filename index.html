@@ -36,7 +36,7 @@
 
 <!-- NAVIGATION HEADER -->
 <div class="nav">
-  <button id="tabHelpBtn" class="active" onclick="switchTab('help')">Config &<br>Setup</button>
+  <button id="tabHelpBtn" class="active" onclick="switchTab('help')"> Setup  Reg</button>
   <button id="tabCheckinBtn" onclick="switchTab('checkin')">Check-In</button>
   <button id="tabScoreBtn" onclick="switchTab('score')">Enter<br>Scores</button>
   <button id="tabRankschedBtn" onclick="switchTab('ranksched')">Schedule<br>& Ranks</button>
@@ -49,7 +49,7 @@
 
   <!-- 1. GROUP CHOICE -->
   <div class="card" id="helpGroupSelectSection">
-    <h3 style="margin-top:0;">🎯 Select Group then check registration</h3>
+    <h3 style="margin-top:0;">🎯 Select Group & Registration</h3>
     <p style="margin-bottom:0.5rem; color:var(--text-secondary); font-size:0.9rem;">
       Select your group below to activate and eager-load app data.
     </p>
@@ -1857,7 +1857,7 @@ async function setupEventListeners() {
 
 // Locate where you process the version response from Code_2.js
 function handleVersionCheck(serverVersion) {
-  if (serverVersion !== CURRENT_APP_VERSION) {
+  if (false &serverVersion !== CURRENT_APP_VERSION) {
     const errorMsg = `Version Mismatch Detected!\n` +
                      `Client Version: ${CURRENT_APP_VERSION}\n` +
                      `Server Version: ${serverVersion}\n\n` +

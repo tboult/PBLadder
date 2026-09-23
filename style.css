@@ -317,9 +317,9 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px; /* Space between buttons so they don't blend together */
-  margin-bottom: 20px;
-  border-bottom: 3px solid #0d6efd; /* Strong grounding border for the tab bar */
-  padding-bottom: 4px;
+  margin-bottom: 10px;
+  border-bottom: 2px solid #0d6efd; /* Strong grounding border for the tab bar */
+  padding-bottom: 2px;
 }
 
 /* --- INACTIVE TAB BUTTONS (LOOK LIKE BUTTONS) --- */
@@ -329,11 +329,11 @@
   border: 2px solid #0d6efd;
   border-bottom: none; /* Connects smoothly to tab content */
   border-radius: 10px 10px 0 0; /* Distinct top tab curve */
-  padding: 12px 20px;
-  font-size: 1.2rem;
+  padding: 9px 10px;
+  font-size: 1.rem;
   font-weight: 600;
   cursor: pointer;
-  min-height: 52px; /* Touch-friendly tap target for seniors */
+  min-height: 48px; /* Touch-friendly tap target for seniors */
   transition: all 0.2s ease-in-out;
   box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.05);
 }
