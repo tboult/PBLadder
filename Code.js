@@ -1316,23 +1316,57 @@ function addNewUser(info) {
   if (!info.first || !info.last || !info.phone || !info.group) {
     return "Error: First, Last, Phone, and Group are required.";
   }
+  
   const targetSheet = getScoreSheetByGroup(info.group);
   if (!targetSheet) return `Error: Target score tab for group '${info.group}' not found.`;
+  
   const data = targetSheet.getDataRange().getValues();
   const headers = data[0];
   const col = buildColMap(headers);
+  
   let newRow = new Array(headers.length).fill("");
   if (col.first !== undefined) newRow[col.first] = info.first.trim();
   if (col.last !== undefined) newRow[col.last] = info.last.trim();
   if (col.name !== undefined) newRow[col.name] = (info.first + " " + info.last).trim();
   if (col.phone !== undefined) newRow[col.phone] = info.phone.trim();
-  if (col.email !== undefined) newRow[col.email] = info.email.trim();
+  if (col.email !== undefined) newRow[col.email] = (info.email || "").trim();
   if (col.group !== undefined) newRow[col.group] = info.group.trim();
-  if (col.status !== undefined) newRow[col.status] = "ACTIVE";
   
-  targetSheet.appendRow(newRow);
-  return `✅ Success: Added ${info.first} ${info.last} to tab '${targetSheet.getName()}'.`;
+  // Set initial status to Inactive
+  if (col.status !== undefined) newRow[col.status] = "Inactive";
+
+  // 1. SEARCH FOR FIRST ROW WITHOUT NAME AND STATUS
+  let targetRowNumber = -1; // 1-based row number for Google Sheets
+
+  for (let i = 1; i < data.length; i++) { // Skip header row at index 0
+    const row = data[i];
+    
+    const nameVal = col.name !== undefined ? String(row[col.name] || "").trim() : "";
+    const firstVal = col.first !== undefined ? String(row[col.first] || "").trim() : "";
+    const statusVal = col.status !== undefined ? String(row[col.status] || "").trim() : "";
+
+    // Check if Name (or First Name) AND Status are empty
+    const hasNoName = nameVal === "" && firstVal === "";
+    const hasNoStatus = statusVal === "";
+
+    if (hasNoName && hasNoStatus) {
+      targetRowNumber = i + 1; // Array index 0 is Row 1 in Sheets
+      break; // Stop at the first empty row
+    }
+  }
+
+  // 2. WRITE TO SHEET
+  if (targetRowNumber > -1) {
+    // Fill the found empty slot
+    targetSheet.getRange(targetRowNumber, 1, 1, newRow.length).setValues([newRow]);
+  } else {
+    // Fallback append if no empty row exists
+    targetSheet.appendRow(newRow);
+  }
+  
+  return `✅ Success: Added ${info.first} ${info.last} (Inactive) to tab '${targetSheet.getName()}'.`;
 }
+
 
 function getSCPBLadderFolder() {
   const folderName = "SCPBLadder";

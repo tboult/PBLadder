@@ -2425,10 +2425,10 @@ function initAdminView(currentGroup) {
   // Clear any existing intervals
   if (adminPollingInterval) clearInterval(adminPollingInterval);
   
-  // Set polling for every 30 seconds
+  // Set polling for every 60 seconds
   adminPollingInterval = setInterval(() => {
     loadAdminPlayerData(currentGroup, true); 
-  }, 30000);
+  }, 60000);
 }
 
 // Call this when the Admin UI is closed or hidden
