@@ -3116,26 +3116,113 @@ async function onHelpGroupRadioChange(groupValue) {
 // ==========================================
 // 7. REGISTRATION SUBMISSION
 // ==========================================
-function submitFrontPageRegistration() {
-  const first = document.getElementById("frontRegFirst")?.value.trim();
-  const last = document.getElementById("frontRegLast")?.value.trim();
-  const phone = document.getElementById("frontRegPhone")?.value.trim();
-  const email = document.getElementById("frontRegEmail")?.value.trim();
-  const group = document.getElementById("frontRegGroup")?.value;
+// --- VALIDATION HELPERS ---
 
-  if (!first || !last || !phone) {
-    alert("Please fill in First Name, Last Name, and Phone Number.");
+// Validates 10-digit US phone numbers (or 11-digit starting with 1)
+function isValidPhone(phoneStr) {
+  if (!phoneStr) return false;
+  const digits = phoneStr.replace(/\D/g, ''); // Remove all non-numeric characters
+  return digits.length === 10 || (digits.length === 11 && digits.startsWith('1'));
+}
+
+// Validates basic email structure (only if text is entered)
+function isValidEmail(emailStr) {
+  if (!emailStr || emailStr.trim() === '') return true; // Optional field
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailRegex.test(emailStr.trim());
+}      
+async function submitRegistration() {
+  const getInputValue = (...ids) => {
+    for (const id of ids) {
+      const el = document.getElementById(id);
+      if (el && el.value && el.value.trim() !== '') {
+        return el.value.trim();
+      }
+    }
+    return '';
+  };
+
+  const first = getInputValue('frontRegFirst', 'regFirst');
+  const last = getInputValue('frontRegLast', 'regLast');
+  const phone = getInputValue('frontRegPhone', 'regPhone');
+  const email = getInputValue('frontRegEmail', 'regEmail');
+
+  const topGroupSelect = document.getElementById('groupSelect') || 
+                         document.getElementById('groupDropdown') || 
+                         document.getElementById('adminGroupSelect');
+
+  const group = (typeof getSavedGroup === 'function' ? getSavedGroup() : '') || 
+                (topGroupSelect ? topGroupSelect.value : '');
+
+  // 1. CHECK GROUP SELECTION
+  if (!group) {
+    alert('⚠️ Please choose a Group at the top of the page before submitting.');
     return;
   }
 
-  if (typeof submitRegistrationData === "function") {
-    submitRegistrationData({ first, last, phone, email, group });
-  } else if (typeof submitRegistration === "function") {
-    submitRegistration();
-  } else {
-    alert(`Player ${first} ${last} registered successfully!`);
+  // 2. CHECK REQUIRED BLANK FIELDS
+  if (!first || !last || !phone) {
+    let missing = [];
+    if (!first) missing.push("First Name");
+    if (!last) missing.push("Last Name");
+    if (!phone) missing.push("Phone Number");
+
+    alert(`⚠️ Please fill in all required fields:\n• ${missing.join('\n• ')}`);
+    return;
+  }
+
+  // 3. PHONE NUMBER VALIDATION
+  if (!isValidPhone(phone)) {
+    alert('⚠️ Please enter a valid 10-digit phone number.\nExample: (623) 555-0199 or 6235550199');
+    return;
+  }
+
+  // 4. EMAIL VALIDATION (Optional field)
+  if (!isValidEmail(email)) {
+    alert('⚠️ Please enter a valid email address or leave the email box blank.\nExample: name@example.com');
+    return;
+  }
+
+  // Sanitize phone to digits before sending to backend
+  const cleanPhone = phone.replace(/\D/g, '');
+  const formattedPhone = cleanPhone.length === 10 
+    ? `${cleanPhone.slice(0,3)}-${cleanPhone.slice(3,6)}-${cleanPhone.slice(6)}`
+    : phone;
+
+  const statusEl = document.getElementById('phoneStatus');
+  if (statusEl) statusEl.innerText = 'Submitting registration...';
+
+  try {
+    document.body.style.cursor = 'wait';
+
+    const res = await apiCall('addNewUser', { 
+      first, 
+      last, 
+      phone: formattedPhone, 
+      email, 
+      group: group,
+      groupName: group,
+      sheet: "Sched " + group
+    });
+
+    if (res && (res.success || !res.error)) {
+      alert(`✅ Registration submitted for ${first} ${last}!\nStatus set to Inactive (pending review).`);
+      if (statusEl) statusEl.innerText = '✅ Registration complete!';
+      // Data remains intact in input fields for easy correction if needed
+    } else {
+      const errMsg = (typeof res === 'string' ? res : res.message) || 'Error submitting registration';
+      alert('❌ Registration failed: ' + errMsg);
+      if (statusEl) statusEl.innerText = '❌ Registration failed: ' + errMsg;
+    }
+  } catch (err) {
+    console.error("Error submitting registration:", err);
+    alert('❌ Error submitting registration. Please check your network connection.');
+    if (statusEl) statusEl.innerText = '❌ Error submitting registration.';
+  } finally {
+    document.body.style.cursor = 'default';
   }
 }
+
 
 // ==========================================
 // 8. INITIALIZER ON DOM LOAD
