@@ -80,7 +80,7 @@
         <input type="tel" id="phoneInput" placeholder="e.g. 555-123-4567" style="flex: 1.2; min-width: 0; font-size: 1.1rem; padding: 0.75rem 0.5rem; border: 2px solid var(--input-border); border-radius: 0.5rem; box-sizing: border-box; text-align: center; margin: 0;">
         
         <button id="savePhoneBtn" class="btn-main" style="flex: 1; white-space: nowrap; font-size: 1.05rem; padding: 0.75rem 0.5rem; background-color: #ffc107; color: #000; font-weight: bold; border: none; border-radius: 0.5rem; cursor: pointer; transition: background-color 0.3s ease; margin: 0;" onclick="savePhoneToCache()">
-          Register
+          Check Registation
         </button>
       </div>
     </div>
@@ -2502,6 +2502,7 @@ async function savePhoneToCache() {
 }
 
 // 5. Load Player Status from Shared Roster Cache (Works before schedule generation)
+// Load Player Status from Shared Roster Cache with New Player Redirection
 async function loadPlayerStatusFromCache(phone) {
   const statusCard = document.getElementById("frontStatusCard");
   const statusDisplay = document.getElementById("frontStatusDisplay");
@@ -2527,17 +2528,20 @@ async function loadPlayerStatusFromCache(phone) {
     roster = await fetchGroupRoster(selectedGroup);
   }
 
-  // Match player by phone digits
+  // Search roster for phone match
   const found = roster.find(p => {
     const pPhone = normalizePhone(p.phone || p.cell || p.mobile || p.phoneNumber);
     return pPhone.length >= 7 && targetDigits.length >= 7 && pPhone.endsWith(targetDigits.slice(-7));
   });
 
   if (found) {
+    // ----------------------------------------------------
+    // CASE 1 & 2: PLAYER EXISTS ON ROSTER (ACTIVE or INACTIVE)
+    // ----------------------------------------------------
     const rawName = found.name || `${found.first || ''} ${found.last || ''}`.trim();
     const isActive = found.active === true || 
                      String(found.active).toLowerCase() === 'true' || 
-                     String(found.status).toLowerCase() === 'active';
+                     String(found.status).toUpperCase() === 'ACTIVE';
 
     window.activeLookupPlayer = {
       ...found,
@@ -2546,6 +2550,7 @@ async function loadPlayerStatusFromCache(phone) {
       group: selectedGroup,
       status: isActive ? "ACTIVE" : "INACTIVE",
       active: isActive,
+      existsOnRoster: true,
       checkedIn: found.checkedIn || found.isCheckedIn || false
     };
 
@@ -2562,17 +2567,55 @@ async function loadPlayerStatusFromCache(phone) {
       document.getElementById("welcomeName").textContent = rawName;
       document.getElementById("welcomeBanner").style.display = "block";
     }
+
   } else {
-    // Unregistered / Not on roster yet
+    // ----------------------------------------------------
+    // CASE 3: DOES NOT EXIST -> REDIRECT TO NEW PLAYER TAB
+    // ----------------------------------------------------
     window.activeLookupPlayer = {
       phone: phone,
       group: selectedGroup,
-      status: "INACTIVE",
-      active: false
+      status: "UNREGISTERED",
+      existsOnRoster: false
     };
-    updateFrontStatusBadge("INACTIVE");
+
+    statusDisplay.textContent = "NOT REGISTERED";
+    statusDisplay.style.backgroundColor = "#fff3cd";
+    statusDisplay.style.color = "#856404";
+    statusDisplay.style.border = "2px solid #ffebaa";
+
+    // Route user to Registration
+    redirectToRegistrationTab(phone, selectedGroup);
   }
 }
+
+// Helper to fill pre-populated values and switch tabs
+function redirectToRegistrationTab(phone, group) {
+  // 1. Populate phone input fields on registration forms
+  const regPhoneInput = document.getElementById("frontRegPhone") || document.getElementById("regPhone");
+  if (regPhoneInput) {
+    regPhoneInput.value = phone;
+  }
+
+  const regGroupInput = document.getElementById("frontRegGroup") || document.getElementById("regGroup");
+  if (regGroupInput && group) {
+    regGroupInput.value = group;
+  }
+
+  // 2. Reveal registration section or switch active tab UI
+  const regSection = document.getElementById("registrationSection");
+  if (regSection) {
+    regSection.style.display = "block";
+  }
+
+  // 3. Trigger tab button switch if tab switching function exists
+  if (typeof switchTab === "function") {
+    switchTab("registerTab"); // Replace 'registerTab' with your actual tab ID name
+  } else if (typeof openTab === "function") {
+    openTab("register");
+  }
+}
+
 
 // 6. Toggle Player Active/Inactive Status
 async function toggleStatusFromSetup() {
