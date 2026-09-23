@@ -112,24 +112,75 @@
     Shows/controls whether you are listed as active for upcoming play.
   </p>
 </div>
+</div>
 
 
-  <!-- 3. HOW TO USE (ACCORDION) -->
-  <details class="card" style="margin-top:1rem; cursor: pointer;">
-    <summary style="font-weight:bold; font-size:1.05rem; outline:none;">📖 How to Use</summary>
-    <div style="margin-top:0.75rem; font-size:0.95rem; line-height:1.4;">
-      <ol style="padding-left:1.25rem; margin-top:0.25rem;">
-        <li>Select your playing group and register your phone number above.</li>
-        <li>Go to <b>Check-In</b> to mark yourself present for current match play.</li>
-        <li>Use <b>Enter Scores</b> after games to record court match results.</li>
-        <li>Check <b>Schedule & Ranks</b> to view player rankings and court assignments.</li>
-      </ol>
-    </div>
-  </details>
+<!-- MAIN "HOW TO USE" ACCORDION CONTAINER -->
+<div style="max-width: 800px; margin: 0 auto; border: 2px solid #0d6efd; border-radius: 8px; overflow: hidden; font-size: 1.15rem;">
+  
+  <!-- TOP LEVEL TOGGLE BUTTON -->
+  <button type="button" 
+          onclick="const content = document.getElementById('mainHelpContent'); content.style.display = content.style.display === 'none' ? 'block' : 'none';"
+          style="width: 100%; text-align: left; background-color: #0d6efd; color: white; font-weight: bold; font-size: 1.35rem; padding: 16px 20px; border: none; cursor: pointer; display: flex; justify-content: space-between; align-items: center;">
+    <span>📖 How to Use</span>
+    <span style="font-size: 0.9rem; font-weight: normal;">▼ Tap to Open / Close</span>
+  </button>
+
+  <!-- TOP LEVEL CONTENT (HIDDEN BY DEFAULT) -->
+  <div id="mainHelpContent" style="display: none; padding: 16px; background-color: #f8f9fa;">
+
+    <!-- SUB-SECTION 1 -->
+    <details style="margin-bottom: 12px; border: 1px solid #6c757d; border-radius: 6px; overflow: hidden; background: #ffffff;">
+      <summary style="background-color: #e9ecef; color: #212529; font-weight: bold; font-size: 1.15rem; padding: 14px 16px; cursor: pointer; user-select: none;">
+        1️⃣ Setup & Status Check
+      </summary>
+      <div style="padding: 16px; line-height: 1.6;">
+        <p style="margin-top: 0;">Before play begins, verify your player profile:</p>
+        <ul style="padding-left: 24px; margin-bottom: 0;">
+          <li style="margin-bottom: 8px;">Enter your <b>Phone Number</b> on this tab so the app remembers you on future visits.</li>
+          <li>Verify that your <b>Group</b> (Mens, Womens, or Mixed) and <b>Status</b> (Active) are set correctly.</li>
+        </ul>
+      </div>
+    </details>
+
+    <!-- SUB-SECTION 2 -->
+    <details style="margin-bottom: 12px; border: 1px solid #856404; border-radius: 6px; overflow: hidden; background: #ffffff;">
+      <summary style="background-color: #fff3cd; color: #664d03; font-weight: bold; font-size: 1.15rem; padding: 14px 16px; cursor: pointer; user-select: none;">
+        2️⃣ Player Check-In Rules
+      </summary>
+      <div style="padding: 16px; color: #413203; line-height: 1.6;">
+        <p style="margin-top: 0;">On play days, head to the <b>Check-In</b> tab:</p>
+        <ul style="padding-left: 24px; margin-bottom: 0;">
+          <li style="margin-bottom: 8px;">📍 <b>Location Limit:</b> Check-in can <u>ONLY</u> be done on-site at <b>Marinette</b>.</li>
+          <li style="margin-bottom: 8px;">⏰ <b>Time Restriction:</b> Check-in opens strictly <b>AFTER 10:00 AM</b>.</li>
+          <li style="margin-bottom: 8px;">👥 <b>Checking In Others:</b> You may check in yourself as well as any other present players in your group.</li>
+          <li>⏳ <b>Court Assignment Delay:</b> Captains may wait until check-in completes at <b>10:50 AM</b> before assigning final courts.</li>
+        </ul>
+      </div>
+    </details>
+
+    <!-- SUB-SECTION 3 -->
+    <details style="border: 1px solid #087990; border-radius: 6px; overflow: hidden; background: #ffffff;">
+      <summary style="background-color: #cff4fc; color: #055160; font-weight: bold; font-size: 1.15rem; padding: 14px 16px; cursor: pointer; user-select: none;">
+        3️⃣ Court Assignments & Entering Scores
+      </summary>
+      <div style="padding: 16px; color: #043843; line-height: 1.6;">
+        <p style="margin-top: 0;">Once courts are scheduled, open the <b>Enter Scores</b> tab:</p>
+        <ul style="padding-left: 24px; margin-bottom: 0;">
+          <li style="margin-bottom: 8px;">Your phone number will automatically pull up your assigned <b>Court Number</b>, <b>Foursome</b>, and <b>3 Games</b>.</li>
+          <li style="margin-bottom: 8px;"><b>Court Not Showing Yet?</b> Tap the <b>"Recheck for Foursome Assignment"</b> button to fetch the latest schedule.</li>
+          <li>📝 <b>Submitting Scores:</b> Only <b>ONE player</b> from your foursome needs to enter and submit scores for the court.</li>
+        </ul>
+      </div>
+    </details>
+
+  </div>
+</div>
 
   <!-- 4. ADD NEW PLAYER (ACCORDION - COPIED FROM ADMIN) -->
   <details class="card" style="margin-top:1rem; cursor: pointer;">
     <summary style="font-weight:bold; font-size:1.05rem; outline:none;">➕ Add New Player</summary>
+    <p> Note that this submits the informaton, app will not be active until registration is approved </p>
     <div style="margin-top:0.75rem;">
       <input type="text" id="frontRegFirst" placeholder="First Name" style="width:100%; margin-bottom:0.5rem; padding:0.5rem; box-sizing:border-box;">
       <input type="text" id="frontRegLast" placeholder="Last Name" style="width:100%; margin-bottom:0.5rem; padding:0.5rem; box-sizing:border-box;">
@@ -343,7 +394,7 @@
 //  window.API_URL = "https://script.google.com/macros/s/AKfycbweTOjVcY0R1sxXrYfbN2S9jqMz4yr5b1alVoz0gjVy3P3ty42rtHlfgfpdjtFnF4nFaQ/exec";
   window.API_URL =CONFIG.apiUrl
   const API_URL = window.API_URL;
-  const CURRENT_APP_VERSION = "0.9.6";
+  const CURRENT_APP_VERSION = "0.9.7";
 
   const GROUP_COURT_MAP = {
       "Womens": [3,4,5,6,7,8,15,16,17,18,19,20],
@@ -718,25 +769,27 @@ document.addEventListener('visibilitychange', () => {
 
 function applyTextSize(size) {
   const html = document.documentElement;
-  if (size === 'large') {
-    html.style.fontSize = '125%';
-  } else if (size === 'huge') {
-    html.style.fontSize = '150%';
-  } else {
+  
+  if (size === 'huge') {
+    html.style.fontSize = '200';
+  } else if (size === 'normal') {
     html.style.fontSize = '100%';
+  } else {
+    // Default to 'large' for new visitors or unrecognized values
+    size = 'large';
+    html.style.fontSize = '150%';
   }
 
+  // Toggle active class on button indicators
   ['normal', 'large', 'huge'].forEach(s => {
     const btn = document.getElementById(`btn-size-${s}`);
     if (btn) {
-      if (s === size) btn.classList.add('active');
-      else btn.classList.remove('active');
+      btn.classList.toggle('active', s === size);
     }
   });
 
   localStorage.setItem('scpb_text_size', size);
 }
-
 function toggleContrast() {
   document.body.classList.toggle('high-contrast');
   const isHC = document.body.classList.contains('high-contrast');
@@ -749,7 +802,7 @@ function toggleContrast() {
 }
 
 function initAccessibility() {
-  const savedSize = localStorage.getItem('scpb_text_size') || 'normal';
+  const savedSize = localStorage.getItem('scpb_text_size') || 'large';
   applyTextSize(savedSize);
 
   const savedHC = localStorage.getItem('scpb_high_contrast');
@@ -938,138 +991,64 @@ async function handlePlayerRowClick(rowEl, identifier) {
 }
 
 
-async function lookupPhone() {
-  const phoneEl = document.getElementById('phoneInput');
-  const input = phoneEl ? phoneEl.value.trim() : '';
+async function lookupPhone(cachedPhone) {
+  const phoneInput = document.getElementById('phoneInput') || document.getElementById('scorePhoneInput');
+  const findBtn = document.getElementById('findFoursomeBtn');
 
-  if (!input) {
-    alert('Please enter a phone number.');
-    return;
+  let phone = cachedPhone || (phoneInput ? phoneInput.value : '');
+  phone = String(phone).replace(/\D/g, '');
+
+  if (!phone) return;
+
+  if (phoneInput) phoneInput.value = phone;
+
+  document.body.style.cursor = 'wait';
+  if (findBtn) {
+    findBtn.disabled = true;
+    findBtn.innerHTML = '⏳ Checking for assignment...';
   }
 
-  localStorage.setItem('scpb_saved_phone', input);
-  localStorage.setItem('saved_phone', input);
-
-  const savedGroup = localStorage.getItem('scpb_saved_group') || 
-                     localStorage.getItem('scpb_selected_group') || 
-                     (typeof getSavedGroup === 'function' ? getSavedGroup() : '');
-
-  if (!savedGroup) {
-    alert('No active group selected. Please select a group on the main/check-in screen first.');
-    return;
-  }
-
-  const statusEl = document.getElementById('phoneStatus');
-  const lookupResultEl = document.getElementById('lookupResult');
-  const regSectionEl = document.getElementById('registrationSection');
-
-  // Cache Check
-  const normInput = input.replace(/\D/g, '');
-  const cachedPhone = (typeof activeLookupPlayer !== 'undefined' && activeLookupPlayer?.phone) 
-    ? String(activeLookupPlayer.phone).replace(/\D/g, '') 
-    : '';
-  const cachedGroup = (typeof activeLookupPlayer !== 'undefined' && activeLookupPlayer) ? activeLookupPlayer.group : '';
-
-  if (typeof activeLookupPlayer !== 'undefined' && activeLookupPlayer && normInput.length >= 7 && cachedPhone.endsWith(normInput.slice(-7)) && cachedGroup === savedGroup) {
-    if (statusEl) statusEl.innerText = '';
-    if (regSectionEl) regSectionEl.style.display = 'none';
-    if (lookupResultEl) lookupResultEl.style.display = 'block';
-    
-    if (typeof renderLookupResult === 'function' && activeLookupFoursome) {
-      renderLookupResult(activeLookupPlayer, activeLookupFoursome);
-    }
-    return;
-  }
-
-  if (statusEl) statusEl.innerText = 'Searching for player...';
   try {
-    const res = await apiCall('findFoursomeByPhone', { 
-      phone: input, 
-      group: savedGroup,
-      groupName: savedGroup,
-      sheet: "Sched " + savedGroup
-    });     
+    const currentGroup = getSavedGroup();
+    const result = await apiCall('findFoursomeByPhone', { 
+      groupName: currentGroup, 
+      phone: phone 
+    });
 
-    // Support both res.success and res.found
-    if (res && (res.success || res.found)) {
-      // Extract foursome from res.foursome or res.courtFoursome
-      const foursomeList = res.foursome || res.courtFoursome || [];
-
-      // Normalize player structure (supports object or string response from backend)
-      let playerObj = {};
-      if (typeof res.player === 'object' && res.player !== null) {
-        playerObj = { ...res.player };
-      } else {
-        const rawName = String(res.player || input).trim();
-        const parts = rawName.split(/\s+/);
-        playerObj = {
-          name: rawName,
-          first: parts[0] || '',
-          last: parts.slice(1).join(' ') || '',
-          phone: input,
-          court: res.court || 'N/A',
-          group: res.group || savedGroup,
-          status: res.status || 'Active'
-        };
-      }
-
-      // Ensure group & court are populated on the player object
-      if (!playerObj.group) playerObj.group = res.group || savedGroup;
-      if (!playerObj.court) playerObj.court = res.court || 'N/A';
-
-      activeLookupPlayer = playerObj;
-      activeLookupFoursome = foursomeList;
-
-      // Save user values to localStorage for check-in and UI persistence
-      if (playerObj.first) localStorage.setItem('scpb_saved_first_name', playerObj.first);
-      if (playerObj.name) {
-        localStorage.setItem('scpb_saved_player_name', playerObj.name);
-        localStorage.setItem('scpb_saved_name', playerObj.name);
-      }
-      if (playerObj.group) localStorage.setItem('scpb_saved_group', playerObj.group);
-
-      // Safe banner update
-      if (typeof updateWelcomeBanner === 'function') {
-        try { updateWelcomeBanner(); } catch (bErr) { console.warn('Banner update error:', bErr); }
-      }
+    // Check for success AND valid foursome array
+    if (result && (result.success || result.found) && Array.isArray(result.foursome) && result.foursome.length > 0) {
       
-      // Schedule not yet published
-      if (res.scheduleReady === false) {
-        if (statusEl) {
-          statusEl.innerHTML = `<div class="card" style="background:#fff3cd; color:#856404; font-weight:bold; text-align:center; padding: 0.75rem;">
-            ⏳ Schedule not yet ready for this week.
-          </div>`;
-        }
-        if (lookupResultEl) lookupResultEl.style.display = 'none';
-        if (regSectionEl) regSectionEl.style.display = 'none';
-        return;
-      }
+      // Normalize player: convert string player to object with court/group
+      const playerObj = (typeof result.player === 'object' && result.player !== null) 
+        ? result.player 
+        : { 
+            name: result.player || 'Player', 
+            court: result.court || 'Unassigned', 
+            group: result.group || currentGroup 
+          };
 
-      // Schedule ready
-      if (statusEl) statusEl.innerText = '';
-      if (regSectionEl) regSectionEl.style.display = 'none';
-      if (lookupResultEl) lookupResultEl.style.display = 'block';
+      // Ensure court and group are attached
+      if (!playerObj.court && result.court) playerObj.court = result.court;
+      if (!playerObj.group && result.group) playerObj.group = result.group;
 
-      if (typeof renderLookupResult === 'function') {
-        renderLookupResult(playerObj, foursomeList);
-      }
+      renderLookupResult(playerObj, result.foursome);
     } else {
-      // Player phone not found in roster
-      activeLookupPlayer = null;
-      activeLookupFoursome = null;
-
-      if (statusEl) statusEl.innerText = '';
-      if (lookupResultEl) lookupResultEl.style.display = 'none';
-      if (regSectionEl) regSectionEl.style.display = 'block';
-      
-      const regPhoneEl = document.getElementById('regPhone');
-      if (regPhoneEl) regPhoneEl.value = input;
+      renderLookupResult(null, []);
     }
   } catch (err) {
-    console.error('lookupPhone failed:', err);
-    if (statusEl) statusEl.innerText = '❌ Error looking up phone number: ' + (err.message || 'Server error');
+    console.error("Error during foursome lookup:", err);
+    renderLookupResult(null, []);
+  } finally {
+    document.body.style.cursor = 'default';
+    if (findBtn) {
+      findBtn.disabled = false;
+      findBtn.innerHTML = 'Recheck for Foursome Assignment';
+    }
   }
 }
+
+
+
 
 function renderLookupResult(player, foursome) { 
   activeLookupPlayer = player || {};
@@ -1084,8 +1063,10 @@ function renderLookupResult(player, foursome) {
   let displayName = '';
   if (typeof player === 'string') {
     displayName = player;
-  } else {
+  } else if (player) {
     displayName = `${player.first || ''} ${player.last || ''}`.trim() || player.name || 'Unknown';
+  } else {
+    displayName = 'Unknown';
   }
 
   const nameDisp = document.getElementById('pNameDisplay');
@@ -1093,12 +1074,12 @@ function renderLookupResult(player, foursome) {
   const courtDisp = document.getElementById('pCourtDisplay');
 
   if (nameDisp) nameDisp.innerText = displayName;
-  if (groupDisp) groupDisp.innerText = player.group || 'N/A';
-  if (courtDisp) courtDisp.innerText = player.court || 'N/A';
+  if (groupDisp) groupDisp.innerText = (player && player.group) || (typeof getSavedGroup === 'function' ? getSavedGroup() : 'N/A');
+  if (courtDisp) courtDisp.innerText = (player && player.court) || 'N/A';
 
   const badge = document.getElementById('pStatusDisplay');
   if (badge) {
-    const isActive = (player.status || 'active').toLowerCase() === 'active';
+    const isActive = ((player && player.status) || 'active').toLowerCase() === 'active';
     badge.innerText = isActive ? 'Active' : 'Inactive';
     badge.className = isActive ? 'status-badge status-active' : 'status-badge status-inactive';
   }
@@ -1116,42 +1097,95 @@ function renderLookupResult(player, foursome) {
     const p4 = getPName(activeFoursome[3]);
 
     scoreContainer.innerHTML = `
-      <div class="card" style="margin-bottom:0.75rem;">
-        <p style="margin:0 0 0.4rem 0;"><b>Court Foursome:</b></p>
-        <ul style="padding-left:1.2rem; margin:0;">
-          <li>P1: ${p1}</li>
-          <li>P2: ${p2}</li>
-          <li>P3: ${p3}</li>
-          <li>P4: ${p4}</li>
-        </ul>
+      <!-- FOURSOME ROSTER SUMMARY CARD -->
+      <div style="margin-bottom: 1.25rem; padding: 1rem; background-color: #f8f9fa; border: 2px solid #0d6efd; border-radius: 10px;">
+        <p style="margin: 0 0 0.5rem 0; font-size: 1.2rem; color: #0d6efd;"><b>🎾 Assigned Foursome:</b></p>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 1.15rem; font-weight: 600; color: #212529;">
+          <div>P1: ${p1}</div>
+          <div>P2: ${p2}</div>
+          <div>P3: ${p3}</div>
+          <div>P4: ${p4}</div>
+        </div>
       </div>
 
-      <!-- Game 1: P1 & P4 vs P2 & P3 -->
-      <div style="margin-top:0.5rem; font-weight:bold; font-size:0.95rem;">Game 1: <br> ${p1} & ${p4} <br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;vs&nbsp;&nbsp; ${p2} & ${p3}</div>
-      <div class="score-grid">
-        <input type="number" min="0" max="15" id="sc1_p1" placeholder="P1&P4">
-        vs 
-        <input type="number" min="0" max="15" id="sc1_p2" placeholder="P2&P3">
+      <!-- GAME 1 CARD -->
+      <div style="background: #ffffff; border: 2px solid #0d6efd; border-radius: 10px; padding: 16px; margin-bottom: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.08);">
+        <div style="font-size: 1.3rem; font-weight: bold; color: #0d6efd; border-bottom: 1px solid #dee2e6; padding-bottom: 8px; margin-bottom: 12px;">
+          🏆 Game 1
+        </div>
+        <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;">
+          <!-- Team A -->
+          <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
+            <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p1} & ${p4}</div>
+            <input type="number" min="0" max="15" id="sc1_p1" placeholder="Score" 
+                   style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
+          </div>
+
+          <div style="font-size: 1.3rem; font-weight: bold; color: #6c757d;">VS</div>
+
+          <!-- Team B -->
+          <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
+            <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p2} & ${p3}</div>
+            <input type="number" min="0" max="15" id="sc1_p2" placeholder="Score" 
+                   style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
+          </div>
+        </div>
       </div>
 
-      <!-- Game 2: P1 & P3 vs P2 & P4 -->
-      <div style="margin-top:0.75rem; font-weight:bold; font-size:0.95rem;">Game 2: <br> ${p1} & ${p3} <br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;vs&nbsp;&nbsp; ${p2} & ${p4}</div>
-      <div class="score-grid">
-        <input type="number" min="0" max="15" id="sc2_p1" placeholder="P1&P3">
-        vs 
-        <input type="number" min="0" max="15" id="sc2_p2" placeholder="P2&P4">
+      <!-- GAME 2 CARD -->
+      <div style="background: #ffffff; border: 2px solid #0d6efd; border-radius: 10px; padding: 16px; margin-bottom: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.08);">
+        <div style="font-size: 1.3rem; font-weight: bold; color: #0d6efd; border-bottom: 1px solid #dee2e6; padding-bottom: 8px; margin-bottom: 12px;">
+          🏆 Game 2
+        </div>
+        <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;">
+          <!-- Team A -->
+          <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
+            <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p1} & ${p3}</div>
+            <input type="number" min="0" max="15" id="sc2_p1" placeholder="Score" 
+                   style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
+          </div>
+
+          <div style="font-size: 1.3rem; font-weight: bold; color: #6c757d;">VS</div>
+
+          <!-- Team B -->
+          <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
+            <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p2} & ${p4}</div>
+            <input type="number" min="0" max="15" id="sc2_p2" placeholder="Score" 
+                   style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
+          </div>
+        </div>
       </div>
 
-      <!-- Game 3: P1 & P2 vs P3 & P4 -->
-      <div style="margin-top:0.75rem; font-weight:bold; font-size:0.95rem;">Game 3:<br> ${p1} & ${p2} <br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;vs&nbsp;&nbsp; ${p3} & ${p4}</div>
-      <div class="score-grid">
-        <input type="number" min="0" max="15" id="sc3_p1" placeholder="P1 & P2">
-        vs 
-        <input type="number" min="0" max="15" id="sc3_p2" placeholder="P3 & P4">
+      <!-- GAME 3 CARD -->
+      <div style="background: #ffffff; border: 2px solid #0d6efd; border-radius: 10px; padding: 16px; margin-bottom: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.08);">
+        <div style="font-size: 1.3rem; font-weight: bold; color: #0d6efd; border-bottom: 1px solid #dee2e6; padding-bottom: 8px; margin-bottom: 12px;">
+          🏆 Game 3
+        </div>
+        <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;">
+          <!-- Team A -->
+          <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
+            <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p1} & ${p2}</div>
+            <input type="number" min="0" max="15" id="sc3_p1" placeholder="Score" 
+                   style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
+          </div>
+
+          <div style="font-size: 1.3rem; font-weight: bold; color: #6c757d;">VS</div>
+
+          <!-- Team B -->
+          <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
+            <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p3} & ${p4}</div>
+            <input type="number" min="0" max="15" id="sc3_p2" placeholder="Score" 
+                   style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
+          </div>
+        </div>
       </div>
     `;
   } else {
-    scoreContainer.innerHTML = '<i>No active 4-player court match assignment found.</i>';
+    scoreContainer.innerHTML = `
+      <div style="background-color: #fff3cd; color: #664d03; border: 1px solid #ffe69c; font-size: 1.15rem; padding: 15px; border-radius: 8px; margin-top: 1rem;">
+        ⚠️ No active 4-player court match assignment found.
+      </div>
+    `;
   }
 }
 
@@ -1599,11 +1633,12 @@ function refreshActiveTabData() {
     loadRankingsAndSched();
   } else if (activeTab.id === 'adminTab') {
     loadAdminTabData(currentGroup);
-  } else if (activeTab.id === 'scoresTab' || activeTab.id === 'enterScoresTab') {
+  } else if (activeTab.id === 'scoreTab' || activeTab.id === 'scoresTab' || activeTab.id === 'enterScoresTab') {
     // Automatically load saved phone and check for foursome on tab switch
     const savedPhone = localStorage.getItem('scpb_saved_phone');
     if (savedPhone) {
-      const phoneInput = document.getElementById('phoneInput');
+      // Look for the score tab's phone input field
+      const phoneInput = document.getElementById('phoneInput') || document.getElementById('scorePhoneInput');
       if (phoneInput) phoneInput.value = savedPhone;
       lookupPhone();
     }
@@ -2667,6 +2702,7 @@ function redirectToRegistrationTab(phone, group) {
 }
 
 
+
 // 6. Toggle Player Active/Inactive Status with Hourglass & Instant UI Update
 // Renders the Badge as Green (Active) or Red (Inactive)
 function updateFrontStatusBadge(status) {
@@ -2697,6 +2733,228 @@ function showStatusLoading(message) {
   badge.style.color = "#000000";
   }
   
+// ==========================================
+// 1. ACCESSIBILITY / TEXT SIZING HANDLER
+// ==========================================
+const sizeRatios = { 
+  normal: '100%',   // ~16px baseline
+  large:  '125%',   // ~20px
+  huge:   '150%'    // ~24px
+};
+
+function applyTextSize(size) {
+  const targetSize = sizeRatios[size] || '100%';
+  // Target root html element so rem/em scaling cascades across all elements
+  document.documentElement.style.fontSize = targetSize; 
+  
+  // Update active state on correct button IDs
+  ['btn-size-normal', 'btn-size-large', 'btn-size-huge'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) btn.classList.remove('active');
+  });
+  
+  const activeBtn = document.getElementById('btn-size-' + size);
+  if (activeBtn) activeBtn.classList.add('active');
+  
+  localStorage.setItem('pwa-text-size', size);
+}
+
+// ==========================================
+// 2. MASTER VIEW STATE MANAGER
+// ==========================================
+function setAppViewState(isRegistered, phone = "") {
+  const statusCard = document.getElementById("frontStatusCard");
+  const regCard = document.getElementById("newPlayerRegForm") || document.getElementById("phoneSetupCard");
+  const phoneInput = document.getElementById("phoneInput");
+  const badge = document.getElementById("frontStatusDisplay");
+
+  if (phoneInput && phone) {
+    phoneInput.value = phone;
+  }
+
+  // Always show status card wrapper
+  if (statusCard) statusCard.style.display = "block";
+
+  if (isRegistered) {
+    // Registered User: Hide registration form
+    if (regCard) regCard.style.display = "none";
+  } else {
+    // Unregistered / Unknown User: Reveal registration form
+    if (regCard) regCard.style.display = "block";
+    
+    // Set neutral or "NOT REGISTERED" badge if not actively looking up
+    if (badge && badge.textContent !== "⏳ LOOKING UP...") {
+      badge.textContent = phone ? "NOT REGISTERED" : "ENTER PHONE";
+      badge.className = phone ? "badge bg-warning text-dark" : "badge bg-light text-dark";
+      badge.style.setProperty("background-color", phone ? "#ffc107" : "#f8f9fa", "important");
+      badge.style.setProperty("color", phone ? "#000000" : "#6c757d", "important");
+      badge.style.border = phone ? "none" : "2px solid #dee2e6";
+    }
+  }
+}
+
+// ==========================================
+// 3. UI BADGE & BUTTON HELPERS
+// ==========================================
+function setSaveButtonState(isSaved) {
+  const saveBtn = document.getElementById("savePhoneBtn");
+  if (!saveBtn) return;
+
+  if (isSaved) {
+    saveBtn.style.backgroundColor = "#2d6a4f";
+    saveBtn.style.color = "#ffffff";
+    saveBtn.innerHTML = "✓ Registered";
+  } else {
+    saveBtn.style.backgroundColor = "#ffc107";
+    saveBtn.style.color = "#000000";
+    saveBtn.innerHTML = "Register";
+  }
+}
+
+function updateFrontStatusBadge(status) {
+  const badge = document.getElementById("frontStatusDisplay");
+  if (!badge) return;
+
+  const isActive = String(status).trim().toUpperCase() === "ACTIVE";
+
+  badge.textContent = isActive ? "Active" : "Inactive";
+  badge.className = isActive ? "badge bg-success" : "badge bg-danger";
+  badge.style.setProperty("background-color", isActive ? "#198754" : "#dc3545", "important");
+  badge.style.setProperty("color", "#ffffff", "important");
+  badge.style.border = "none";
+}
+
+function showStatusLoading(message) {
+  const badge = document.getElementById("frontStatusDisplay");
+  if (!badge) return;
+
+  badge.textContent = message || "⏳ UPDATING...";
+  badge.className = "badge bg-warning text-dark";
+  badge.style.setProperty("background-color", "#ffc107", "important");
+  badge.style.setProperty("color", "#000000", "important");
+  badge.style.border = "none";
+}
+
+// ==========================================
+// 4. PHONE & STATUS CACHE FUNCTIONS
+// ==========================================
+async function savePhoneToCache() {
+  const phoneInput = document.getElementById("phoneInput");
+  const phone = phoneInput ? phoneInput.value.trim() : "";
+
+  if (!phone) {
+    if (phoneInput) phoneInput.focus();
+    return;
+  }
+
+  localStorage.setItem("userPhone", phone);
+  localStorage.setItem("scpb_saved_phone", phone);
+  localStorage.setItem("saved_phone", phone);
+
+  setSaveButtonState(true);
+  await loadPlayerStatusFromCache(phone);
+}
+
+async function loadPlayerStatusFromCache(phone) {
+  const statusCard = document.getElementById("frontStatusCard");
+  const statusDisplay = document.getElementById("frontStatusDisplay");
+
+  if (!statusCard || !statusDisplay) return;
+
+  const selectedGroup = document.querySelector('input[name="helpGroupRadio"]:checked')?.value || 
+                        localStorage.getItem('scpb_saved_group') || 
+                        localStorage.getItem('scpb_selected_group') || '';
+
+  const cleanPhone = typeof normalizePhone === "function" ? normalizePhone(phone) : phone.replace(/\D/g, "");
+  if (!cleanPhone || cleanPhone.length < 7) {
+    setAppViewState(false, phone);
+    return;
+  }
+
+  showStatusLoading("⏳ LOOKING UP...");
+
+  let roster = window.appPlayersCache;
+  if (!Array.isArray(roster) || roster.length === 0 || (roster[0] && roster[0].group !== selectedGroup)) {
+    if (typeof fetchGroupRoster === "function") {
+      roster = await fetchGroupRoster(selectedGroup);
+    }
+  }
+
+  const found = Array.isArray(roster) ? roster.find(p => {
+    const pPhone = typeof normalizePhone === "function" 
+      ? normalizePhone(p.phone || p.cell || p.mobile || p.phoneNumber) 
+      : (p.phone || p.cell || p.mobile || p.phoneNumber || "").replace(/\D/g, "");
+    return pPhone.length >= 7 && cleanPhone.length >= 7 && pPhone.endsWith(cleanPhone.slice(-7));
+  }) : null;
+
+  if (found) {
+    const rawName = found.name || `${found.first || ''} ${found.last || ''}`.trim();
+    const isActive = found.active === true || 
+                     String(found.active).toLowerCase() === 'true' || 
+                     String(found.status).toUpperCase() === 'ACTIVE';
+
+    window.activeLookupPlayer = {
+      ...found,
+      name: rawName,
+      phone: phone,
+      group: selectedGroup,
+      status: isActive ? "ACTIVE" : "INACTIVE",
+      active: isActive,
+      existsOnRoster: true,
+      checkedIn: found.checkedIn || found.isCheckedIn || false
+    };
+
+    if (found.first) localStorage.setItem('scpb_saved_first_name', found.first);
+    if (rawName) {
+      localStorage.setItem('scpb_saved_player_name', rawName);
+      localStorage.setItem('scpb_saved_name', rawName);
+    }
+
+    setAppViewState(true, phone);
+    updateFrontStatusBadge(isActive ? "ACTIVE" : "INACTIVE");
+
+    if (rawName && document.getElementById("welcomeName")) {
+      document.getElementById("welcomeName").textContent = rawName;
+      const welcomeBanner = document.getElementById("welcomeBanner");
+      if (welcomeBanner) welcomeBanner.style.display = "block";
+    }
+
+  } else {
+    window.activeLookupPlayer = {
+      phone: phone,
+      group: selectedGroup,
+      status: "UNREGISTERED",
+      existsOnRoster: false
+    };
+
+    setAppViewState(false, phone);
+    redirectToRegistrationTab(phone, selectedGroup);
+  }
+}
+
+function redirectToRegistrationTab(phone, group) {
+  const regPhoneInput = document.getElementById("frontRegPhone") || document.getElementById("regPhone");
+  if (regPhoneInput) regPhoneInput.value = phone;
+
+  const regGroupInput = document.getElementById("frontRegGroup") || document.getElementById("regGroup");
+  if (regGroupInput && group) regGroupInput.value = group;
+
+  const regSection = document.getElementById("registrationSection");
+  if (regSection) regSection.style.display = "block";
+
+  if (typeof switchTab === "function") {
+    switchTab("registerTab");
+  } else if (typeof openTab === "function") {
+    openTab("register");
+  }
+}
+
+// ==========================================
+// 5. TOGGLE PLAYER STATUS (Fixed Logic & Sync)
+// ==========================================
+// ==========================================
+// 5. TOGGLE PLAYER STATUS (Direct API & Sheet Sync)
+// ==========================================
 async function toggleStatusFromSetup() {
   const phone = localStorage.getItem("userPhone") || 
                 localStorage.getItem("scpb_saved_phone") || 
@@ -2704,77 +2962,97 @@ async function toggleStatusFromSetup() {
   const selectedGroup = document.querySelector('input[name="helpGroupRadio"]:checked')?.value || 
                         localStorage.getItem('scpb_saved_group') || '';
 
-  if (!phone || normalizePhone(phone).length < 7) {
+  const cleanPhone = typeof normalizePhone === "function" ? normalizePhone(phone) : phone.replace(/\D/g, "");
+
+  if (!cleanPhone || cleanPhone.length < 7) {
     alert("Please enter a valid phone number first.");
     return;
   }
 
-  // 1. Show Hourglass Loading state
+  if (!selectedGroup) {
+    alert("Please select a group first.");
+    return;
+  }
+
   showStatusLoading("⏳ UPDATING...");
 
-  // Calculate intended toggled status
-  const currentStatus = window.activeLookupPlayer?.status || document.getElementById("frontStatusDisplay")?.textContent.trim();
-  const currentIsActive = String(currentStatus).toUpperCase() === "ACTIVE";
-  const newIsActive = !currentIsActive;
-  const newStatusText = newIsActive ? "ACTIVE" : "INACTIVE";
-
-  if (!window.activeLookupPlayer) {
-    window.activeLookupPlayer = {
-      phone: phone,
-      group: selectedGroup,
-      status: currentStatus,
-      active: currentIsActive
-    };
-  }
-
-  // 2. Invoke toggleStatus API handler
   try {
-    if (typeof toggleStatus === "function") {
-      await toggleStatus();
+    // Make exact backend API call with required 'sheet' tab name
+    const res = await apiCall('toggleUnifiedActiveStatus', {
+      phone: cleanPhone,
+      groupName: selectedGroup,
+      group: selectedGroup,
+      sheet: "Sched " + selectedGroup
+    });
+
+    if (res && res.success) {
+      const newStatus = res.newStatus || "ACTIVE";
+      const isActive = String(newStatus).toUpperCase() === "ACTIVE";
+
+      // 1. Update activeLookupPlayer global object
+      if (!window.activeLookupPlayer) window.activeLookupPlayer = {};
+      window.activeLookupPlayer.phone = cleanPhone;
+      window.activeLookupPlayer.group = selectedGroup;
+      window.activeLookupPlayer.status = newStatus;
+      window.activeLookupPlayer.active = isActive;
+
+      // 2. Sync change with local memory cache
+      if (Array.isArray(window.appPlayersCache)) {
+        const cachedPlayer = window.appPlayersCache.find(p => {
+          const pPhone = typeof normalizePhone === "function" 
+            ? normalizePhone(p.phone || p.cell || p.mobile || "") 
+            : (p.phone || "").replace(/\D/g, "");
+          return pPhone.length >= 7 && pPhone.endsWith(cleanPhone.slice(-7));
+        });
+
+        if (cachedPlayer) {
+          cachedPlayer.status = newStatus;
+          cachedPlayer.active = isActive;
+        }
+      }
+
+      // 3. Update setup UI status badge
+      updateFrontStatusBadge(newStatus);
+
+      if (typeof filterAdminPlayers === "function" && document.getElementById("adminPlayerStatusList")) {
+        filterAdminPlayers();
+      }
+    } else {
+      throw new Error(res?.message || "Server returned failure response");
     }
+
   } catch (err) {
-    console.error("Failed to toggle status:", err);
-  }
+    console.error("Failed to toggle status on Sheet:", err);
+    alert("Failed to update status on Google Sheet. Please try again.");
 
-  // 3. Guarantee local activeLookupPlayer state is updated
-  window.activeLookupPlayer.status = newStatusText;
-  window.activeLookupPlayer.active = newIsActive;
-
-  // 4. Synchronize local roster cache entry
-  const targetDigits = normalizePhone(phone);
-  const cachedPlayer = window.appPlayersCache.find(p => {
-    const pPhone = normalizePhone(p.phone || p.cell || p.mobile || p.phoneNumber);
-    return pPhone.length >= 7 && pPhone.endsWith(targetDigits.slice(-7));
-  });
-
-  if (cachedPlayer) {
-    cachedPlayer.active = newIsActive;
-    cachedPlayer.status = newIsActive ? "Active" : "Inactive";
-  }
-
-  // 5. Render updated status badge
-  updateFrontStatusBadge(newStatusText);
-
-  // 6. Refresh Admin list if present
-  if (typeof filterAdminPlayers === "function" && document.getElementById("adminPlayerStatusList")) {
-    filterAdminPlayers();
+    // Revert UI badge to previous state
+    const prevStatus = window.activeLookupPlayer?.status || "INACTIVE";
+    updateFrontStatusBadge(prevStatus);
   }
 }
 
-// 7. Group Selection Listener to Reload Roster Cache
+// ==========================================
+// 6. GROUP RADIO CHANGE LISTENER
+// ==========================================
 async function onHelpGroupRadioChange(groupValue) {
   localStorage.setItem("scpb_saved_group", groupValue);
   localStorage.setItem("scpb_selected_group", groupValue);
-  
-  await fetchGroupRoster(groupValue);
 
-  const phone = localStorage.getItem("userPhone") || document.getElementById("phoneInput")?.value.trim();
-  if (phone && normalizePhone(phone).length >= 7) {
+  if (typeof fetchGroupRoster === "function") {
+    await fetchGroupRoster(groupValue);
+  }
+
+  const phone = localStorage.getItem("userPhone") || document.getElementById("phoneInput")?.value.trim() || "";
+  const cleanPhone = typeof normalizePhone === "function" ? normalizePhone(phone) : phone.replace(/\D/g, "");
+
+  if (cleanPhone.length >= 7) {
     await loadPlayerStatusFromCache(phone);
   }
 }
 
-// 8. Submit Front-Page Registration
+// ==========================================
+// 7. REGISTRATION SUBMISSION
+// ==========================================
 function submitFrontPageRegistration() {
   const first = document.getElementById("frontRegFirst")?.value.trim();
   const last = document.getElementById("frontRegLast")?.value.trim();
@@ -2796,17 +3074,24 @@ function submitFrontPageRegistration() {
   }
 }
 
-// 9. Initializer on DOM Load with Instant Phone Lookup Debounce
+// ==========================================
+// 8. INITIALIZER ON DOM LOAD
+// ==========================================
 document.addEventListener("DOMContentLoaded", async function () {
+  // Restore saved text size or default to normal
+  const savedSize = localStorage.getItem('pwa-text-size') || 'normal';
+  applyTextSize(savedSize);
+
   const cachedPhone = localStorage.getItem("userPhone") || localStorage.getItem("scpb_saved_phone");
   const cachedGroup = localStorage.getItem("scpb_saved_group") || localStorage.getItem("scpb_selected_group");
   const phoneInput = document.getElementById("phoneInput");
 
-  // Load cached group roster on startup
   if (cachedGroup) {
     const radio = document.querySelector(`input[name="helpGroupRadio"][value="${cachedGroup}"]`);
     if (radio) radio.checked = true;
-    await fetchGroupRoster(cachedGroup);
+    if (typeof fetchGroupRoster === "function") {
+      await fetchGroupRoster(cachedGroup);
+    }
   }
 
   if (phoneInput) {
@@ -2816,14 +3101,14 @@ document.addEventListener("DOMContentLoaded", async function () {
       await loadPlayerStatusFromCache(cachedPhone);
     } else {
       setSaveButtonState(false);
+      setAppViewState(false);
     }
 
-    // Instant Phone Lookup on input change (Debounced 300ms)
     let phoneDebounceTimer = null;
     phoneInput.addEventListener("input", function () {
       setSaveButtonState(false);
       const rawPhone = phoneInput.value.trim();
-      const digits = normalizePhone(rawPhone);
+      const digits = typeof normalizePhone === "function" ? normalizePhone(rawPhone) : rawPhone.replace(/\D/g, "");
 
       if (phoneDebounceTimer) clearTimeout(phoneDebounceTimer);
 
@@ -2833,18 +3118,12 @@ document.addEventListener("DOMContentLoaded", async function () {
           loadPlayerStatusFromCache(rawPhone);
         }, 300);
       } else {
-        const statusDisplay = document.getElementById("frontStatusDisplay");
-        if (statusDisplay) {
-          statusDisplay.textContent = "ENTER PHONE";
-          statusDisplay.style.backgroundColor = "#f8f9fa";
-          statusDisplay.style.color = "#6c757d";
-          statusDisplay.style.border = "2px solid #dee2e6";
-        }
+        setAppViewState(false, rawPhone);
       }
     });
   }
-  });
-
+});
+      
   </script>
   </body>
 </html>
@@ -2852,4 +3131,5 @@ document.addEventListener("DOMContentLoaded", async function () {
 
       
 
-      
+     
+ 
