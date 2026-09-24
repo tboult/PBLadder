@@ -3453,19 +3453,26 @@ document.addEventListener("DOMContentLoaded", async function () {
   }
 });
 
-function setEnvironmentTheme(env) {
-  const themeLink = document.getElementById('theme-stylesheet');
-  if (env === 'dev') {
-    themeLink.href = 'devtheme.css';
-  } else {
-    themeLink.href = 'prodtheme.css';
-  }
-}
 
-// Example usage: trigger swap based on hostname detection
-if (window.location.hostname === 'localhost' || window.location.hostname.includes('dev')) {
-  setEnvironmentTheme('dev');
-}  
+  (function loadTheme() {
+    const themeLink = document.getElementById('theme-stylesheet');
+    const hostname = window.location.hostname;
+
+    // Check if domain is local or explicitly a dev environment
+    const isDev = hostname === 'localhost' || 
+                  hostname === '127.0.0.1' || 
+                  hostname.includes('dev') || 
+                  hostname.includes('staging');
+
+    const targetTheme = isDev ? 'devtheme.css' : 'prodtheme.css';
+
+    console.log(`[Theme Switcher] Host: "${hostname}" | Loading: ${targetTheme}`);
+    
+    if (themeLink) {
+      themeLink.href = targetTheme;
+    }
+  })();
+
       
   </script>
   </body>
