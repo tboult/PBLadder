@@ -25,7 +25,7 @@
 
   <div id="globalLoader" class="global-loader" style="display: flex;">
     <span class="loading-spinner"></span>
-    <span id="globalLoaderText">Loading app...</span>
+    <span id="globalLoaderText">Loading data...</span>
   </div>
 
   <!-- TOP WELCOME BANNER -->
@@ -475,7 +475,8 @@ function updateGlobalLoaderStatus() {
 
   if (isInitialLoading) {
     loaderText.innerText = "Loading app...";
-    loader.style.display = "flex";
+      loader.style.display = "flex";
+      isInitialLoading = false;      
   } else if (isProcessingQueue || apiQueue.length > 0) {
     const pending = apiQueue.length;
     loaderText.innerText = pending > 0 ? `Syncing (${pending + 1})...` : "Syncing...";
@@ -520,7 +521,6 @@ async function processApiQueue() {
   if (isProcessingQueue || apiQueue.length === 0) return;
   isProcessingQueue = true;
 
-  // [CHANGE]: Guard function execution so missing/renamed helper functions won't throw an unhandled exception and freeze the queue.
   if (typeof updateGlobalLoaderStatus === 'function') updateGlobalLoaderStatus();
 
   const { action, payload, resolve, reject } = apiQueue.shift();
@@ -1687,19 +1687,32 @@ function loadSavedPhone() {
     phoneInput.value = savedPhone;
   }
 }
+
 // 1. Run after DOM is ready
 document.addEventListener('DOMContentLoaded', function() {
-  setTimeout(loadSavedPhone, 100); // 100ms delay ensures async renders finish first
+  setTimeout(function() {
+    // Load local cached phone number
+    if (typeof loadSavedPhone === 'function') {
+      loadSavedPhone();
+    }
+
+    // 🚀 Hide loading overlay immediately so the app UI is visible
+    const overlay = document.getElementById('globalLoader');
+    if (overlay) {
+      overlay.style.display = 'none';
+      // Or overlay.remove(); if you want to completely destroy the DOM element
+    }
+  }, 1000); 
 });
 
 // 2. Add to your active tab refresh logic so it stays populated when switching tabs
 if (typeof refreshActiveTabData === 'function') {
   const oldRefresh = refreshActiveTabData;
-  refreshActiveTabData = function() {
-    oldRefresh();
-    loadSavedPhone();
+  refreshActiveTabData = async function() {
+    await oldRefresh();
   };
-}
+}  
+
 
 
 async function triggerAutoCheckIn() {
@@ -2296,8 +2309,9 @@ async function refreshActiveTabData() {
   const currentGroup = typeof getSavedGroup === 'function' ? getSavedGroup() : null;
 
   if (!currentGroup) return;
-
-  if (activeTab === 'checkin' || activeTab === 'admin') {
+    if (typeof updateGlobalLoaderStatus === 'function') updateGlobalLoaderStatus();
+    if (activeTab === 'checkin' || activeTab === 'admin') {
+        if (typeof triggerAutoCheckIn === 'function') await triggerAutoCheckIn();       
     if (typeof loadUnifiedRosterData === 'function') {
       await loadUnifiedRosterData(currentGroup);
     }
@@ -2305,7 +2319,14 @@ async function refreshActiveTabData() {
     if (typeof loadRankingsAndSched === 'function') {
       await loadRankingsAndSched();
     }
+  } else if (activeTab === 'scoreTab' || activeTab === 'score' || activeTab === 'phone') {
+      // If you also have a lookup function for court assignments:
+      if (typeof lookupPhone === 'function') {
+          await lookupPhone();
+      }
+      if (typeof triggerAutoCheckIn === 'function') await triggerAutoCheckIn();             
   }
+    if (typeof updateGlobalLoaderStatus === 'function') updateGlobalLoaderStatus();
 }
 
 
@@ -2477,6 +2498,7 @@ function savePhoneToCache() {
     // 3. Display profile / check-in view
     console.log('Found player:', player);
     showCheckInView(player);
+    if (typeof updateGlobalLoaderStatus === 'function') updateGlobalLoaderStatus();
 
   } else {
     // ==========================================
@@ -2498,6 +2520,7 @@ function savePhoneToCache() {
     console.log('Not registered in group. Directing to registration...');
     redirectToRegistrationTab(phone, selectedGroup);
   }
+    if (typeof updateGlobalLoaderStatus === 'function') updateGlobalLoaderStatus();    
 }
 
 
