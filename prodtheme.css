@@ -1,0 +1,84 @@
+/* ==========================================================================
+   PRODUCTION THEME (Pickleball App - High-Contrast Outdoor & Senior Ready)
+   ========================================================================== */
+
+:root {
+  /* --- BRAND & HEADER (Athletic Court Blue) --- */
+  --header-bg: #0f2b48;          /* Deep navy court blue for glare-free outdoor reading */
+  --header-title: #ffffff;       /* Pure white title for high contrast (>12:1 ratio) */
+  --header-border: #0284c7;      /* Vibrant court-line blue border */
+  --accent-color: #84cc16;       /* Optic pickleball green/yellow for spinners & indicators */
+  --env-banner: "";              /* Empty string suppresses the DEV banner in production */
+
+  /* --- APP BACKGROUND & TYPOGRAPHY --- */
+  --bg-color: #f1f5f9;          /* Anti-glare soft slate background */
+  --text-color: #0f172a;        /* Near-black text for sharp legibility in sunlight */
+
+  /* --- PRIMARY ACTION BUTTONS ("Good State") --- */
+  --primary-bg: #15803d;        /* High-visibility court green for confirmation actions */
+  --btn-main-bg: #1d4ed8;       /* Deep royal blue for primary navigation actions */
+  --btn-main-text: #ffffff;     /* Stark white button text */
+  --btn-sub-bg: #334155;        /* Dark slate for secondary controls */
+  --btn-sub-text: #ffffff;
+  --btn-danger-bg: #b91c1c;     /* High-contrast alert red */
+  --btn-danger-text: #ffffff;
+
+  /* --- NAVIGATION & TABS --- */
+  --nav-bg: #cbd5e1;            /* Distinct tab container background */
+  --nav-text: #0f172a;          /* Bold dark tab label text */
+  --nav-active-bg: #1e40af;     /* Deep royal blue active tab */
+  --nav-active-text: #ffffff;   /* Pure white active tab text */
+
+  /* --- CARDS & INPUTS --- */
+  --card-bg: #ffffff;           /* Crisp white container background */
+  --card-border: #64748b;       /* Dark, thick borders for easy outdoor segment separation */
+  --input-bg: #ffffff;
+  --input-border: #475569;      /* Dark input borders visible in bright sunlight */
+
+  /* --- LISTS, COURTS & STATUS INDICATORS --- */
+  --row-border: #94a3b8;       /* High-visibility row divider */
+  --row-hover: #e2e8f0;
+  --row-checked-bg: #dcfce7;    /* Status: Checked-in player green tint */
+
+  /* Court Sections */
+  --court-header-bg: #dbeafe;   /* Light blue court header background */
+  --court-header-text: #1e3a8a; /* Deep navy court title text */
+  --bye-header-bg: #fef3c7;     /* High-contrast yellow for Bye / Waiting courts */
+  --bye-header-text: #78350f;   /* Dark amber text for readability */
+
+  --focus-ring: #f59e0b;        /* High-visibility gold ring for screen readers/focus */
+}
+
+/* ==========================================================================
+   ACCESSIBILITY: HIGH-CONTRAST OVERRIDE MODE
+   ========================================================================== */
+body.high-contrast {
+  --bg-color: #000000;
+  --text-color: #ffffff;
+  --header-bg: #000000;
+  --header-title: #ffff00;      /* Optic Yellow text on pure black */
+  --header-border: #ffff00;
+  --primary-bg: #ffff00;
+  --btn-main-bg: #ffff00;
+  --btn-main-text: #000000;
+  --btn-sub-bg: #ffffff;
+  --btn-sub-text: #000000;
+  --btn-danger-bg: #ff3333;
+  --btn-danger-text: #000000;
+  --nav-bg: #1a1a1a;
+  --nav-text: #ffffff;
+  --nav-active-bg: #ffff00;
+  --nav-active-text: #000000;
+  --card-bg: #000000;
+  --card-border: #ffff00;
+  --input-border: #ffff00;
+  --input-bg: #000000;
+  --row-border: #555555;
+  --row-hover: #222222;
+  --row-checked-bg: #15803d;
+  --court-header-bg: #ffff00;
+  --court-header-text: #000000;
+  --bye-header-bg: #ff8c00;
+  --bye-header-text: #000000;
+  --focus-ring: #ffffff;
+}
