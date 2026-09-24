@@ -1023,6 +1023,7 @@ async function lookupPhone(cachedPhone) {
       // Ensure court and group are attached
       if (!playerObj.court && result.court) playerObj.court = result.court;
       if (!playerObj.group && result.group) playerObj.group = result.group;
+    console.log("foursome foursome lookup:", result.foursome);
 
       renderLookupResult(playerObj, result.foursome);
     } else {
@@ -1045,7 +1046,7 @@ async function lookupPhone(cachedPhone) {
 
 function renderLookupResult(player, foursome) { 
   activeLookupPlayer = player || {};
-  activeLookupFoursomeactiveLookupFoursome = foursome || [];
+  activeLookupFoursome = foursome || [];
 
   const regEl = document.getElementById('registrationSection');
   const resultEl = document.getElementById('lookupResult');
@@ -2307,6 +2308,7 @@ async function refreshActiveTabData() {
   }
 }
 
+
 /**
  * 3. VERSION CHECK FIX (Fixed Bitwise Syntax Error)
  */
@@ -3047,6 +3049,51 @@ document.addEventListener("DOMContentLoaded", async function () {
     themeLink.href = targetTheme;
   }
 })();      
+
+
+async function loadRankingsAndSched() {
+  const groupSelect = document.getElementById('groupViewerSelect');
+  const group = (groupSelect && groupSelect.value) ? groupSelect.value : (typeof getSavedGroup === 'function' ? getSavedGroup() : '');
+  
+  const statusEl = document.getElementById('viewerStatus');
+  const contentEl = document.getElementById('viewerContent');
+
+  if (!group) {
+    if (statusEl) statusEl.innerText = 'Please select a group.';
+    return;
+  }
+
+  if (statusEl) statusEl.innerHTML = '<span class="loading-spinner"></span>Loading schedule & standings...';
+
+  try {
+    const res = await apiCall('getRankingsAndSchedData', { group: group });
+    
+    // Clear loading status
+    if (statusEl) statusEl.innerText = '';
+
+    // Extract the HTML string returned by backend (handling optional wrapper objects)
+    let htmlContent = '';
+    if (typeof res === 'string') {
+      htmlContent = res;
+    } else if (res && res.html) {
+      htmlContent = res.html;
+    } else if (res && res.data && res.data.html) {
+      htmlContent = res.data.html;
+    } else {
+      htmlContent = '<i>No data returned for ' + group + '.</i>';
+    }
+
+    // Render the server-built tables directly into the container
+    if (contentEl) contentEl.innerHTML = htmlContent;
+
+  } catch (e) {
+    console.error("Error loading schedule & standings:", e);
+    if (statusEl) statusEl.innerText = e.message || "Network error loading data.";
+  }
+}
+
+ 
+
   </script>
   </body>
 </html>
