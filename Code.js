@@ -843,7 +843,16 @@ function webExportSchedulePdf(groupName) {
 }
 
 function getInitialAppData(phone) {
-  return { version: getAppVersion(), groups: GROUPS, sheets: SCHEDULE_TABS };
+  // Determine default group or extract from phone/params
+  var defaultGroup = GROUPS[0] || "Mens";
+  
+  return { 
+    version: getAppVersion(), 
+    groups: GROUPS, 
+    sheets: SCHEDULE_TABS,
+    // Add the player roster here so frontend gets it instantly
+    checkInPlayers: getAdminPlayersByGroup({ group: defaultGroup }) 
+  };
 }
 
 function doGet(e) { return handleApiRequest(e); }

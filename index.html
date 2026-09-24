@@ -182,7 +182,8 @@
 
 
 <!-- 4. ADD NEW PLAYER (ACCORDION) -->
-<details class="card" style="margin-top:1rem; cursor: pointer;">
+<!-- 4. ADD NEW PLAYER (ACCORDION) -->
+<details id="registrationAccordion" class="card" style="margin-top:1rem; cursor: pointer;">
   <summary style="font-weight:bold; font-size:1.15rem; outline:none; padding: 0.5rem 0;">➕ Register New Player</summary>
   
   <p style="font-size:1rem; color:#555; margin-top:0.5rem; line-height: 1.4;">
@@ -203,6 +204,7 @@
     <button class="btn-main" style="margin-top:0.5rem; width:100%; font-size:1.2rem; padding:12px; font-weight:bold; border-radius:6px; cursor:pointer;" onclick="submitFrontPageRegistration()">Register New Player</button>
   </div>
 </details>
+
 
   <!-- 5. FONT & CONTRAST (ACCORDION) -->
   <details class="card" style="margin-top:1rem; cursor: pointer;">
@@ -794,29 +796,7 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
-function applyTextSize(size) {
-  const html = document.documentElement;
-  
-  if (size === 'huge') {
-    html.style.fontSize = '200';
-  } else if (size === 'normal') {
-    html.style.fontSize = '100%';
-  } else {
-    // Default to 'large' for new visitors or unrecognized values
-    size = 'large';
-    html.style.fontSize = '150%';
-  }
 
-  // Toggle active class on button indicators
-  ['normal', 'large', 'huge'].forEach(s => {
-    const btn = document.getElementById(`btn-size-${s}`);
-    if (btn) {
-      btn.classList.toggle('active', s === size);
-    }
-  });
-
-  localStorage.setItem('scpb_text_size', size);
-}
 function toggleContrast() {
   document.body.classList.toggle('high-contrast');
   const isHC = document.body.classList.contains('high-contrast');
@@ -1939,39 +1919,50 @@ function processAndSortPlayers(players) {
 // Single startup payload fetch
 async function setupEventListeners() {
   initAccessibility();
-  loadFromCache(); // 1. Instantly display cached data from localStorage
+  loadFromCache(); // 1. Display cached localStorage instantly
 
-  const savedGroup = getSavedGroup();
+  const savedGroup = getSavedGroup() || "Mens";
   const savedPhone = (activeLookupPlayer && activeLookupPlayer.phone) || localStorage.getItem('scpb_saved_phone') || '';
 
   try {
+    // 2. Fire BOTH backend requests simultaneously in parallel
+    const [initData, rosterData] = await Promise.all([
+      apiCall('getInitialAppData', {
+        groupName: savedGroup,
+        sheet: savedGroup ? "Sched " + savedGroup : "",
+        phone: savedPhone,
+        playerId: savedPhone
+      }),
+      apiCall('getAdminPlayersByGroup', {
+        group: savedGroup,
+        groupName: savedGroup
+      })
+    ]);
 
-    // 2. Single batch API call to fetch all startup data in 1 network round-trip
-    const initData = await apiCall('getInitialAppData', {
-      groupName: savedGroup,
-      sheet: savedGroup ? "Sched " + savedGroup : "",
-      phone: savedPhone,
-      playerId: savedPhone
-      
-    });
-
+    // Handle App Metadata
     if (initData) {
-      // Populate dropdowns with fresh metadata
       if (initData.sheets) populateSheets(initData.sheets);
       if (initData.groups) populateGroups(initData.groups);
+      handleVersionCheck(initData.version);
+    }
 
-      // Render check-in players if returned in initial payload
-      if (initData.checkInPlayers && Array.isArray(initData.checkInPlayers)) {
-        checkInPlayersCache = processAndSortPlayers(initData.checkInPlayers);
-        renderCheckInPlayers(checkInPlayersCache);
+    // Handle Player Roster & Seed Cache
+    const players = rosterData?.players || rosterData?.roster || [];
+    if (Array.isArray(players) && players.length > 0) {
+      const sortedPlayers = processAndSortPlayers(players);
+      
+      // Seed all shared memory caches
+      checkInPlayersCache = sortedPlayers;
+      window.appPlayersCache = sortedPlayers;
+      if (typeof adminPlayersCache !== 'undefined') {
+        adminPlayersCache = sortedPlayers;
       }
 
-      // Check version matching
-        handleVersionCheck(initData.version)
-        return;
-      }
+      renderCheckInPlayers(checkInPlayersCache);
+    }
+
   } catch (err) {
-    console.warn("Initial metadata sync failed, running on cached data:", err);
+    console.warn("Initial sync failed, using cached data:", err);
   } finally {
     isInitialLoading = false;
     updateGlobalLoaderStatus();
@@ -1981,7 +1972,8 @@ async function setupEventListeners() {
 
     startCheckInAutoRefresh();
   }
-}  
+}
+  
 
 // Locate where you process the version response from Code_2.js
 function handleVersionCheck(serverVersion) {
@@ -2676,14 +2668,25 @@ async function loadUnifiedRosterData(groupName, forceRefresh = false) {
 
 
 // Fetch group roster into shared cache
-async function fetchGroupRoster(group) {
+// Fetch group roster into shared cache (Cache-First)
+async function fetchGroupRoster(group, forceRefresh = false) {
   if (!group) return [];
-  
+
+  // 1. CHECK IN-MEMORY CACHE FIRST (If not forcing a refresh)
+  if (!forceRefresh && Array.isArray(window.appPlayersCache) && window.appPlayersCache.length > 0) {
+    // Verify the cached roster matches the requested group
+    const firstPlayerGroup = window.appPlayersCache[0]?.group || window.appPlayersCache[0]?.sheet;
+    if (!firstPlayerGroup || firstPlayerGroup.toLowerCase() === group.toLowerCase()) {
+      return window.appPlayersCache;
+    }
+  }
+
+  // 2. FETCH FROM NETWORK ONLY IF CACHE MISS OR FORCED REFRESH
   try {
     if (typeof apiCall === "function") {
       const res = await apiCall("getAdminPlayersByGroup", { group: group, groupName: group });
       const roster = res?.players || res?.roster || (Array.isArray(res) ? res : []);
-      
+
       if (Array.isArray(roster) && roster.length > 0) {
         window.appPlayersCache = roster;
         if (typeof adminPlayersCache !== "undefined") {
@@ -2693,169 +2696,72 @@ async function fetchGroupRoster(group) {
       }
     }
   } catch (err) {
-    console.warn("Roster fetch fallback:", err);
+    console.warn("Roster fetch network error, using fallback:", err);
   }
-  
+
+  // 3. FALLBACK TO ANY EXISTING CACHE IF NETWORK FAILS
   if (typeof adminPlayersCache !== "undefined" && Array.isArray(adminPlayersCache)) {
     window.appPlayersCache = adminPlayersCache;
   }
-  
+
   return window.appPlayersCache || [];
 }
 
-// 2. Set Register Button Appearance (Yellow = Unregistered, Green = Registered)
-function setSaveButtonState(isSaved) {
-  const saveBtn = document.getElementById("savePhoneBtn");
-  if (!saveBtn) return;
 
-  if (isSaved) {
-    saveBtn.style.backgroundColor = "#2d6a4f"; // Green
-    saveBtn.style.color = "#ffffff";
-    saveBtn.innerHTML = "✓ Registered";
-  } else {
-    saveBtn.style.backgroundColor = "#ffc107"; // Yellow
-    saveBtn.style.color = "#000000";
-    saveBtn.innerHTML = "Register";
-  }
-}
 
-// 3. Update Status Badge Styling (ACTIVE / INACTIVE)
-function updateFrontStatusBadge(status) {
-  const badge = document.getElementById("frontStatusDisplay");
-  if (!badge) return;
 
-  const isActive = String(status).trim().toUpperCase() === "ACTIVE";
 
-  // Text update
-  badge.textContent = isActive ? "Active" : "Inactive";
 
-  // Bootstrap classes fallback
-  badge.className = isActive ? "badge bg-success" : "badge bg-danger";
 
-  // Forced inline color overrides preserving layout properties
-  if (isActive) {
-    badge.style.setProperty("background-color", "#198754", "important");
-    badge.style.setProperty("color", "#ffffff", "important");
-  } else {
-    badge.style.setProperty("background-color", "#dc3545", "important");
-    badge.style.setProperty("color", "#ffffff", "important");
-  }
-}
-
-function showStatusLoading(message) {
-  const badge = document.getElementById("frontStatusDisplay");
-  if (!badge) return;
-
-  badge.textContent = message || "⏳ UPDATING...";
-  badge.className = "badge bg-warning text-dark";
-  badge.style.setProperty("background-color", "#ffc107", "important");
-  badge.style.setProperty("color", "#000000", "important");
-  }
 
   
 // 4. Save Phone Number to LocalStorage & Load Status
-async function savePhoneToCache() {
+function savePhoneToCache() {
   const phoneInput = document.getElementById("phoneInput");
+  const savePhoneBtn = document.getElementById("savePhoneBtn");
+  
+  // Grab selected radio button group (Womens, Mixed, Mens)
+  const selectedRadio = document.querySelector('input[name="helpGroupRadio"]:checked');
+  const selectedGroup = selectedRadio ? selectedRadio.value : "";
+  
   const phone = phoneInput ? phoneInput.value.trim() : "";
 
   if (!phone) {
-    if (phoneInput) phoneInput.focus();
+    alert("Please enter a phone number.");
     return;
   }
 
-  localStorage.setItem("userPhone", phone);
-  localStorage.setItem("scpb_saved_phone", phone);
-  localStorage.setItem("saved_phone", phone);
+  // 🔍 Replace 'checkPlayerExists(phone)' with your actual roster lookup check/API call
+  const isRegistered = checkPlayerExists(phone, selectedGroup); 
 
-  setSaveButtonState(true);
-  await loadPlayerStatusFromCache(phone);
-}
+  if (!isRegistered) {
+    // ==========================================
+    // ❌ FAILURE STATE: RED / "Must register"
+    // ==========================================
+    savePhoneBtn.style.backgroundColor = "#d90429"; // Red (use #ffc107 for Yellow)
+    savePhoneBtn.style.color = "#ffffff";
+    savePhoneBtn.textContent = "Must register";
 
-// 5. Load Player Status from Shared Roster Cache
-async function loadPlayerStatusFromCache(phone) {
-  const statusCard = document.getElementById("frontStatusCard");
-  const statusDisplay = document.getElementById("frontStatusDisplay");
-
-  if (!statusCard || !statusDisplay) return;
-
-  statusCard.style.display = "block";
-
-  const selectedGroup = document.querySelector('input[name="helpGroupRadio"]:checked')?.value || 
-                        localStorage.getItem('scpb_saved_group') || 
-                        localStorage.getItem('scpb_selected_group') || '';
-
-  const targetDigits = normalizePhone(phone);
-  if (!targetDigits || targetDigits.length < 7) {
-    statusDisplay.textContent = "ENTER PHONE";
-    statusDisplay.style.backgroundColor = "#f8f9fa";
-    statusDisplay.style.color = "#6c757d";
-    statusDisplay.style.border = "2px solid #dee2e6";
-    return;
-  }
-
-  // Show Hourglass Loading Indicator
-  showStatusLoading("⏳ LOOKING UP...");
-
-  // Retrieve or refresh group roster
-  let roster = window.appPlayersCache;
-  if (!Array.isArray(roster) || roster.length === 0 || (roster[0] && roster[0].group !== selectedGroup)) {
-    roster = await fetchGroupRoster(selectedGroup);
-  }
-
-  // Search roster for phone match
-  const found = roster.find(p => {
-    const pPhone = normalizePhone(p.phone || p.cell || p.mobile || p.phoneNumber);
-    return pPhone.length >= 7 && targetDigits.length >= 7 && pPhone.endsWith(targetDigits.slice(-7));
-  });
-
-  if (found) {
-    // PLAYER EXISTS
-    const rawName = found.name || `${found.first || ''} ${found.last || ''}`.trim();
-    const isActive = found.active === true || 
-                     String(found.active).toLowerCase() === 'true' || 
-                     String(found.status).toUpperCase() === 'ACTIVE';
-
-    window.activeLookupPlayer = {
-      ...found,
-      name: rawName,
-      phone: phone,
-      group: selectedGroup,
-      status: isActive ? "ACTIVE" : "INACTIVE",
-      active: isActive,
-      existsOnRoster: true,
-      checkedIn: found.checkedIn || found.isCheckedIn || false
+    // Re-bind click handler so pressing "Must register" opens the accordion
+    savePhoneBtn.onclick = function () {
+      redirectToRegistrationTab(phone, selectedGroup);
     };
-
-    if (found.first) localStorage.setItem('scpb_saved_first_name', found.first);
-    if (rawName) {
-      localStorage.setItem('scpb_saved_player_name', rawName);
-      localStorage.setItem('scpb_saved_name', rawName);
-    }
-
-    updateFrontStatusBadge(isActive ? "ACTIVE" : "INACTIVE");
-
-    if (rawName && document.getElementById("welcomeName")) {
-      document.getElementById("welcomeName").textContent = rawName;
-      document.getElementById("welcomeBanner").style.display = "block";
-    }
 
   } else {
-    // UNREGISTERED / NOT FOUND
-    window.activeLookupPlayer = {
-      phone: phone,
-      group: selectedGroup,
-      status: "UNREGISTERED",
-      existsOnRoster: false
-    };
+    // ==========================================
+    // ✅ SUCCESS STATE: GREEN / "Registered ✓"
+    // ==========================================
+    savePhoneBtn.style.backgroundColor = "#2d6a4f"; // Green
+    savePhoneBtn.style.color = "#ffffff";
+    savePhoneBtn.textContent = "Registered ✓";
 
-    statusDisplay.textContent = "NOT REGISTERED";
-    statusDisplay.style.backgroundColor = "#fff3cd";
-    statusDisplay.style.color = "#856404";
-    statusDisplay.style.border = "2px solid #ffebaa";
+    // Restore original click handler in case they search another number later
+    savePhoneBtn.onclick = savePhoneToCache;
 
-    redirectToRegistrationTab(phone, selectedGroup);
+    // Continue with your standard cache/status display logic...
   }
 }
+
 
 // Helper to fill pre-populated values and switch tabs
 function redirectToRegistrationTab(phone, group) {
@@ -2883,60 +2789,37 @@ function redirectToRegistrationTab(phone, group) {
 
 
 
-// 6. Toggle Player Active/Inactive Status with Hourglass & Instant UI Update
-// Renders the Badge as Green (Active) or Red (Inactive)
-function updateFrontStatusBadge(status) {
-  const badge = document.getElementById("frontStatusDisplay");
-  if (!badge) return;
 
-  const isActive = String(status).trim().toUpperCase() === "ACTIVE";
 
-  // Force exact text change
-  badge.textContent = isActive ? "Active" : "Inactive";
 
-  // Update Bootstrap classes
-  badge.className = isActive ? "badge bg-success" : "badge bg-danger";
-
-  // Direct style overrides to guarantee color changes even if custom CSS blocks Bootstrap classes
-  badge.style.backgroundColor = isActive ? "#198754" : "#dc3545"; 
-  badge.style.color = "#ffffff";
-}
-
-// Temporary loading state
-function showStatusLoading(message) {
-  const badge = document.getElementById("frontStatusDisplay");
-  if (!badge) return;
-
-  badge.textContent = message || "⏳ UPDATING...";
-  badge.className = "badge bg-warning text-dark";
-  badge.style.backgroundColor = "#ffc107";
-  badge.style.color = "#000000";
-  }
   
 // ==========================================
 // 1. ACCESSIBILITY / TEXT SIZING HANDLER
 // ==========================================
 const sizeRatios = { 
-  normal: '100%',   // ~16px baseline
-  large:  '125%',   // ~20px
-  huge:   '150%'    // ~24px
+  normal: '100%',   // Baseline (~16px)
+  large:  '125%',   // Medium scale (~20px)
+  huge:   '150%'    // Accessibility scale (~24px)
 };
 
 function applyTextSize(size) {
-  const targetSize = sizeRatios[size] || '100%';
-  // Target root html element so rem/em scaling cascades across all elements
+  // 1. Fall back to 'large' if size is missing or unrecognized
+  const validSize = sizeRatios[size] ? size : 'large';
+  const targetSize = sizeRatios[validSize];
+
+  // 2. Set root element font-size for rem scaling cascade
   document.documentElement.style.fontSize = targetSize; 
-  
-  // Update active state on correct button IDs
-  ['btn-size-normal', 'btn-size-large', 'btn-size-huge'].forEach(id => {
-    const btn = document.getElementById(id);
-    if (btn) btn.classList.remove('active');
+
+  // 3. Update active state on button indicators (btn-size-normal, btn-size-large, btn-size-huge)
+  ['normal', 'large', 'huge'].forEach(s => {
+    const btn = document.getElementById(`btn-size-${s}`);
+    if (btn) {
+      btn.classList.toggle('active', s === validSize);
+    }
   });
-  
-  const activeBtn = document.getElementById('btn-size-' + size);
-  if (activeBtn) activeBtn.classList.add('active');
-  
-  localStorage.setItem('pwa-text-size', size);
+
+  // 4. Persist in localStorage (matches initAccessibility)
+  localStorage.setItem('scpb_text_size', validSize);
 }
 
 // ==========================================
@@ -3015,25 +2898,6 @@ function showStatusLoading(message) {
   badge.style.border = "none";
 }
 
-// ==========================================
-// 4. PHONE & STATUS CACHE FUNCTIONS
-// ==========================================
-async function savePhoneToCache() {
-  const phoneInput = document.getElementById("phoneInput");
-  const phone = phoneInput ? phoneInput.value.trim() : "";
-
-  if (!phone) {
-    if (phoneInput) phoneInput.focus();
-    return;
-  }
-
-  localStorage.setItem("userPhone", phone);
-  localStorage.setItem("scpb_saved_phone", phone);
-  localStorage.setItem("saved_phone", phone);
-
-  setSaveButtonState(true);
-  await loadPlayerStatusFromCache(phone);
-}
 
 async function loadPlayerStatusFromCache(phone) {
   const statusCard = document.getElementById("frontStatusCard");
@@ -3112,26 +2976,7 @@ async function loadPlayerStatusFromCache(phone) {
   }
 }
 
-function redirectToRegistrationTab(phone, group) {
-  const regPhoneInput = document.getElementById("frontRegPhone") || document.getElementById("regPhone");
-  if (regPhoneInput) regPhoneInput.value = phone;
 
-  const regGroupInput = document.getElementById("frontRegGroup") || document.getElementById("regGroup");
-  if (regGroupInput && group) regGroupInput.value = group;
-
-  const regSection = document.getElementById("registrationSection");
-  if (regSection) regSection.style.display = "block";
-
-  if (typeof switchTab === "function") {
-    switchTab("registerTab");
-  } else if (typeof openTab === "function") {
-    openTab("register");
-  }
-}
-
-// ==========================================
-// 5. TOGGLE PLAYER STATUS (Fixed Logic & Sync)
-// ==========================================
 // ==========================================
 // 5. TOGGLE PLAYER STATUS (Direct API & Sheet Sync)
 // ==========================================
@@ -3230,28 +3075,6 @@ async function onHelpGroupRadioChange(groupValue) {
   }
 }
 
-// ==========================================
-// 7. REGISTRATION SUBMISSION
-// ==========================================
-// --- VALIDATION HELPERS ---
-
-// ==========================================
-// VALIDATION HELPERS
-// ==========================================
-
-// Requires exactly 10 digits (or 11 starting with 1)
-function isValidPhone(phoneStr) {
-  if (!phoneStr) return false;
-  const digits = phoneStr.replace(/\D/g, ''); // Strip all non-numbers
-  return digits.length === 10 || (digits.length === 11 && digits.startsWith('1'));
-}
-
-// Optional field, but if filled must match email standard (user@domain.ext)
-function isValidEmail(emailStr) {
-  if (!emailStr || emailStr.trim() === '') return true; 
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  return emailRegex.test(emailStr.trim());
-}
 
 // ==========================================
 // FRONT PAGE REGISTRATION SUBMISSION
