@@ -2859,21 +2859,27 @@ async function loadPlayerStatusFromCache(phone) {
 
 // Helper to fill pre-populated values and switch tabs
 function redirectToRegistrationTab(phone, group) {
+  // 1. Populate values into inputs
   const regPhoneInput = document.getElementById("frontRegPhone") || document.getElementById("regPhone");
   if (regPhoneInput) regPhoneInput.value = phone;
 
   const regGroupInput = document.getElementById("frontRegGroup") || document.getElementById("regGroup");
   if (regGroupInput && group) regGroupInput.value = group;
 
+  // 2. Ensure parent section (if wrapped in one) is visible
   const regSection = document.getElementById("registrationSection");
   if (regSection) regSection.style.display = "block";
 
-  if (typeof switchTab === "function") {
-    switchTab("registerTab");
-  } else if (typeof openTab === "function") {
-    openTab("register");
+  // 3. Open the <details> accordion programmatically
+  const regAccordion = document.getElementById("registrationAccordion") || 
+                       (regSection ? regSection.querySelector("details") : document.querySelector("details.card"));
+
+  if (regAccordion) {
+    regAccordion.open = true; // Opens the native HTML accordion
+    regAccordion.scrollIntoView({ behavior: "smooth", block: "center" }); // Focuses screen on the form
   }
 }
+
 
 
 

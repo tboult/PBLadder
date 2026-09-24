@@ -1,84 +1,67 @@
 /* ==========================================================================
-   PRODUCTION THEME (Pickleball App - High-Contrast Outdoor & Senior Ready)
+   ENVIRONMENT THEME VARIABLES
    ========================================================================== */
 
+/* --- DEV ENVIRONMENT VERSION --- */
 :root {
-  /* --- BRAND & HEADER (Athletic Court Blue) --- */
-  --header-bg: #0f2b48;          /* Deep navy court blue for glare-free outdoor reading */
-  --header-title: #ffffff;       /* Pure white title for high contrast (>12:1 ratio) */
-  --header-border: #0284c7;      /* Vibrant court-line blue border */
-  --accent-color: #84cc16;       /* Optic pickleball green/yellow for spinners & indicators */
-  --env-banner: "";              /* Empty string suppresses the DEV banner in production */
+  --primary-bg: #ffff55;
+  --header-bg: #ffAAFF;
+  --header-title: #ffffff;
+  --header-border: #d9534f;
+  --accent-color: #ffb74d;
+  --env-banner: "DEV ENVIRONMENT";
 
-  /* --- APP BACKGROUND & TYPOGRAPHY --- */
-  --bg-color: #f1f5f9;          /* Anti-glare soft slate background */
-  --text-color: #0f172a;        /* Near-black text for sharp legibility in sunlight */
-
-  /* --- PRIMARY ACTION BUTTONS ("Good State") --- */
-  --primary-bg: #15803d;        /* High-visibility court green for confirmation actions */
-  --btn-main-bg: #1d4ed8;       /* Deep royal blue for primary navigation actions */
-  --btn-main-text: #ffffff;     /* Stark white button text */
-  --btn-sub-bg: #334155;        /* Dark slate for secondary controls */
-  --btn-sub-text: #ffffff;
-  --btn-danger-bg: #b91c1c;     /* High-contrast alert red */
-  --btn-danger-text: #ffffff;
-
-  /* --- NAVIGATION & TABS --- */
-  --nav-bg: #cbd5e1;            /* Distinct tab container background */
-  --nav-text: #0f172a;          /* Bold dark tab label text */
-  --nav-active-bg: #1e40af;     /* Deep royal blue active tab */
-  --nav-active-text: #ffffff;   /* Pure white active tab text */
-
-  /* --- CARDS & INPUTS --- */
-  --card-bg: #ffffff;           /* Crisp white container background */
-  --card-border: #64748b;       /* Dark, thick borders for easy outdoor segment separation */
+  --bg-color: #f4f6f8;
+  --text-color: #212529;
+  --nav-bg: #e9ecef;
+  --nav-text: #495057;
+  --nav-active-bg: #0d6efd;
+  --nav-active-text: #ffffff;
+  --card-bg: #ffffff;
+  --card-border: rgba(0, 0, 0, 0.08);
+  --input-border: #ced4da;
   --input-bg: #ffffff;
-  --input-border: #475569;      /* Dark input borders visible in bright sunlight */
-
-  /* --- LISTS, COURTS & STATUS INDICATORS --- */
-  --row-border: #94a3b8;       /* High-visibility row divider */
-  --row-hover: #e2e8f0;
-  --row-checked-bg: #dcfce7;    /* Status: Checked-in player green tint */
-
-  /* Court Sections */
-  --court-header-bg: #dbeafe;   /* Light blue court header background */
-  --court-header-text: #1e3a8a; /* Deep navy court title text */
-  --bye-header-bg: #fef3c7;     /* High-contrast yellow for Bye / Waiting courts */
-  --bye-header-text: #78350f;   /* Dark amber text for readability */
-
-  --focus-ring: #f59e0b;        /* High-visibility gold ring for screen readers/focus */
+  --btn-main-bg: #2d6a4f;
+  --btn-main-text: #ffffff;
+  --btn-sub-bg: #6c757d;
+  --btn-sub-text: #ffffff;
+  --btn-danger-bg: #d90429;
+  --btn-danger-text: #ffffff;
+  --row-border: #f1f3f5;
+  --row-hover: #e9ecef;
+  --row-checked-bg: #d8f3dc;
+  --court-header-bg: #e8f5e9;
+  --court-header-text: #1b4332;
+  --bye-header-bg: #fff3bf;
+  --bye-header-text: #856404;
+  --focus-ring: #ffbf47;
 }
 
-/* ==========================================================================
-   ACCESSIBILITY: HIGH-CONTRAST OVERRIDE MODE
-   ========================================================================== */
+/* --- ACCESSIBILITY HIGH CONTRAST OVERRIDE --- */
 body.high-contrast {
   --bg-color: #000000;
   --text-color: #ffffff;
-  --header-bg: #000000;
-  --header-title: #ffff00;      /* Optic Yellow text on pure black */
-  --header-border: #ffff00;
-  --primary-bg: #ffff00;
-  --btn-main-bg: #ffff00;
-  --btn-main-text: #000000;
-  --btn-sub-bg: #ffffff;
-  --btn-sub-text: #000000;
-  --btn-danger-bg: #ff3333;
-  --btn-danger-text: #000000;
+  --header-bg: #ffff00;
+  --header-title: #000000;
+  --header-border: #ffffff;
   --nav-bg: #1a1a1a;
   --nav-text: #ffffff;
   --nav-active-bg: #ffff00;
   --nav-active-text: #000000;
-  --card-bg: #000000;
+  --card-bg: #1a1a1a;
   --card-border: #ffff00;
   --input-border: #ffff00;
   --input-bg: #000000;
-  --row-border: #555555;
-  --row-hover: #222222;
-  --row-checked-bg: #15803d;
+  --btn-main-bg: #ffff00;
+  --btn-main-text: #000000;
+  --btn-sub-bg: #ffffff;
+  --btn-sub-text: #000000;
+  --btn-danger-bg: #ff4d4d;
+  --btn-danger-text: #000000;
+  --row-border: #333333;
+  --row-hover: #333300;
+  --row-checked-bg: #333300;
   --court-header-bg: #ffff00;
   --court-header-text: #000000;
-  --bye-header-bg: #ff8c00;
-  --bye-header-text: #000000;
   --focus-ring: #ffffff;
 }
