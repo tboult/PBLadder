@@ -498,24 +498,24 @@ async function apiCall(action, payload = {}) {
     return Promise.reject(new Error("API action cannot be empty"));
   }
 
-  // 1. Log every initiated call and its payload
   console.log(`🚀 [API Call Initiated] "${action}"`, {
     payload,
     time: new Date().toLocaleTimeString()
   });
 
-  // 2. Log when a call is deduplicated/cached
+  // [CHANGE]: Return an explicit success/registered structure on cache hits.
+  // Previously, returning { players: checkInPlayersCache } lacked 'success: true', causing loadUnifiedRosterData to evaluate 'res.success' as undefined and clear the UI.
   if (action === 'getUnifiedRoster' && apiQueue.some(q => q.action === 'getUnifiedRoster' && JSON.stringify(q.payload) === JSON.stringify(payload))) {
     console.log(`⚡ [API Cache Hit] Deduplicating "${action}", returning cached players.`, checkInPlayersCache);
-    return Promise.resolve({ players: checkInPlayersCache });
+    return Promise.resolve({ success: true, registered: true, players: checkInPlayersCache || [] });
   }
+
   const result = await new Promise((resolve, reject) => {
     apiQueue.push({ action, payload, resolve, reject });
     if (!isProcessingQueue) processApiQueue();
   });
 
-  // 1. Log every  result and time
-  console.log(`✅ [API result] "${result}"`, {
+  console.log(`✅ [API result] "${action}"`, {
     result,
     time: new Date().toLocaleTimeString()
   });
@@ -526,7 +526,9 @@ async function apiCall(action, payload = {}) {
 async function processApiQueue() {
   if (isProcessingQueue || apiQueue.length === 0) return;
   isProcessingQueue = true;
-  updateGlobalLoaderStatus();
+
+  // [CHANGE]: Guard function execution so missing/renamed helper functions won't throw an unhandled exception and freeze the queue.
+  if (typeof updateGlobalLoaderStatus === 'function') updateGlobalLoaderStatus();
 
   const { action, payload, resolve, reject } = apiQueue.shift();
   const endpoint = window.API_URL || (typeof API_URL !== 'undefined' ? API_URL : null);
@@ -534,7 +536,6 @@ async function processApiQueue() {
   const targetSheet = payload.sheet || payload.sheetName || payload.scoreSheetName || "N/A";
   const targetGroup = payload.groupName || payload.group || "N/A";
 
-  // 1. Log network dispatch
   console.log(`📡 [API Dispatch] Sending "${action}" to server...`, {
     action,
     group: targetGroup,
@@ -543,11 +544,14 @@ async function processApiQueue() {
   });
 
   if (!endpoint) {
-    const err = new Error("API_URL is not configured.");
-    console.error(`❌ [API Error] ${err.message}`);
-    resolve({ success: false, registered: false, error: err.message });
+    const errMessage = "API_URL is not configured.";
+    console.error(`❌ [API Error] ${errMessage}`);
+    resolve({ success: false, registered: false, error: errMessage });
+
+    // [CHANGE]: Safely unlock queue state and re-trigger queue processing if API_URL is missing.
     isProcessingQueue = false;
-    updateGlobalLoaderStatus();
+    if (typeof updateGlobalLoaderStatus === 'function') updateGlobalLoaderStatus();
+    if (apiQueue.length > 0) processApiQueue();
     return;
   }
 
@@ -564,11 +568,10 @@ async function processApiQueue() {
     try {
       data = JSON.parse(rawText);
     } catch (parseErr) {
-      // Intercept raw HTML returned by Google Apps Script crashes
+      // [CHANGE]: Intercept HTML responses from Google Apps Script (which occur on unhandled script exceptions).
+      // Returning standard JSON prevents UI parsing exceptions from stalling future requests.
       if (rawText.includes("<!DOCTYPE") || rawText.includes("<html")) {
-        console.warn(`⚠️ [API Intercepted HTML Error] Action "${action}" returned HTML (likely unregistered phone/sheet error).`);
-        
-        // Resolve with an unregistered fallback object instead of crashing
+        console.warn(`⚠️ [API Intercepted HTML Error] Action "${action}" returned HTML.`);
         resolve({
           success: false,
           registered: false,
@@ -587,10 +590,23 @@ async function processApiQueue() {
       return;
     }
 
-    // 2. Handle parsed JSON responses
+    // [CHANGE]: Standardize response unwrapping logic.
+    // If the backend returns 'data.data', unwrap it while explicitly injecting 'success: true' and 'registered: true' 
+    // to guarantee properties exist on caller functions.
     if (data && (data.status === "success" || data.success === true)) {
       console.log(`✅ [API Success] "${action}":`, data.data || data);
-      resolve(data.data || data);
+      let unwrapped = (data.data !== undefined) ? data.data : data;
+
+      if (typeof unwrapped === 'object' && unwrapped !== null && !Array.isArray(unwrapped)) {
+        if (unwrapped.success === undefined) unwrapped.success = true;
+        if (unwrapped.registered === undefined) unwrapped.registered = true;
+        resolve(unwrapped);
+      } else if (Array.isArray(unwrapped)) {
+        // [CHANGE]: If the backend returned a plain array, wrap it into a standardized object format.
+        resolve({ success: true, registered: true, players: unwrapped, data: unwrapped });
+      } else {
+        resolve({ success: true, registered: true, data: unwrapped });
+      }
     } else if (data && (data.status === "error" || data.registered === false)) {
       console.warn(`⚠️ [API Backend Unregistered/Error] "${action}":`, data.message || 'Not registered', data);
       resolve({
@@ -604,11 +620,11 @@ async function processApiQueue() {
     }
   } catch (err) {
     console.error(`❌ [API Request Failed] Action "${action}" failed:`, err);
-    // Resolve clean error payload so caller code can catch and route to setup
     resolve({ success: false, registered: false, error: err.message });
   } finally {
+    // [CHANGE]: Guarantees that processing flags are reset and loader state is updated regardless of network outcomes.
     isProcessingQueue = false;
-    updateGlobalLoaderStatus();
+    if (typeof updateGlobalLoaderStatus === 'function') updateGlobalLoaderStatus();
     if (apiQueue.length > 0) {
       processApiQueue();
     }
@@ -1603,54 +1619,103 @@ function loadCheckInPlayers(groupName, forceRefresh = true) {
 }
 
 
+async function switchTab(tabId) {
+  try {
+    // [CHANGE 1]: Safely evaluate getSavedGroup() in case helper isn't loaded or throws an exception
+    let currentGroup = null;
+    if (typeof getSavedGroup === 'function') {
+      try {
+        currentGroup = getSavedGroup();
+      } catch (grpErr) {
+        console.warn("⚠️ [switchTab] Could not retrieve saved group:", grpErr);
+      }
+    }
 
-function switchTab(tabId) {
-  const currentGroup = getSavedGroup();
+    if (!currentGroup && tabId !== 'help') {
+      alert('Please select a group in "Config & Setup" before proceeding.');
+      tabId = 'help';
+    }
 
-  if (!currentGroup && tabId !== 'help') {
-    alert('Please select a group in "Config & Setup" before proceeding.');
-    tabId = 'help';
-  }
+    localStorage.setItem('activeTab', tabId);
 
-  localStorage.setItem('activeTab', tabId);
+    const tabMap = {
+      'help': 'helpTab',
+      'checkin': 'checkinTab',
+      'score': 'scoreTab',
+      'phone': 'scoreTab',
+      'enterscore': 'scoreTab',
+      'ranksched': 'rankschedTab',
+      'admin': 'adminTab'
+    };
 
-  const tabMap = {
-    'help': 'helpTab',
-    'checkin': 'checkinTab',
-    'score': 'scoreTab',
-    'phone': 'scoreTab',
-    'enterscore': 'scoreTab',
-    'ranksched': 'rankschedTab',
-    'admin': 'adminTab'
-  };
+    const btnMap = {
+      'help': 'tabHelpBtn',
+      'checkin': 'tabCheckinBtn',
+      'score': 'tabScoreBtn',
+      'phone': 'tabScoreBtn',
+      'enterscore': 'tabScoreBtn',
+      'ranksched': 'tabRankschedBtn',
+      'admin': 'tabAdminBtn'
+    };
 
-  const btnMap = {
-    'help': 'tabHelpBtn',
-    'checkin': 'tabCheckinBtn',
-    'score': 'tabScoreBtn',
-    'phone': 'tabScoreBtn',
-    'enterscore': 'tabScoreBtn',
-    'ranksched': 'tabRankschedBtn',
-    'admin': 'tabAdminBtn'
-  };
+    // [CHANGE 2]: Clear active classes AND remove any leftover inline 'style.display = "none"' 
+    // from prior error handlers across all tab containers
+    document.querySelectorAll('.tab-content').forEach(el => {
+      el.classList.remove('active');
+      if (el.style.display === 'none') {
+        el.style.display = ''; // Reset inline override so CSS class rules control layout
+      }
+    });
 
-  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-  document.querySelectorAll('.nav button').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.nav button').forEach(el => el.classList.remove('active'));
 
-  const targetId = tabMap[tabId] || (tabId + 'Tab');
-  const activeContent = document.getElementById(targetId);
-  if (activeContent) activeContent.classList.add('active');
+    const targetId = tabMap[tabId] || (tabId + 'Tab');
+    const activeContent = document.getElementById(targetId);
 
-  const btnId = btnMap[tabId];
-  if (btnId) {
-    const activeBtn = document.getElementById(btnId);
-    if (activeBtn) activeBtn.classList.add('active');
-  }
+    // [CHANGE 3]: Activate and force display block on target container BEFORE triggering network fetches
+    if (activeContent) {
+      activeContent.classList.add('active');
+      activeContent.style.display = 'block'; // Ensures container is visible regardless of previous state
+    } else {
+      console.warn(`⚠️ [switchTab] Target content element #${targetId} not found in DOM.`);
+    }
 
-  if (typeof refreshActiveTabData === 'function') {
-    refreshActiveTabData();
+    const btnId = btnMap[tabId];
+    if (btnId) {
+      const activeBtn = document.getElementById(btnId);
+      if (activeBtn) activeBtn.classList.add('active');
+    }
+
+    // [CHANGE 4]: Isolated Async Try/Catch for refreshActiveTabData()
+    // If backend data fetching or rendering throws an error, it is caught here locally.
+    // This guarantees the active tab container remains visible on screen instead of crashing the tab switch.
+    if (typeof refreshActiveTabData === 'function') {
+      try {
+        await refreshActiveTabData();
+      } catch (dataErr) {
+        console.error(`❌ [switchTab Data Error] Failed updating data for tab "${tabId}":`, dataErr);
+        
+        // Show an inline warning banner inside the tab instead of leaving it blank or hiding it
+        if (activeContent && typeof showContainerError === 'function') {
+          showContainerError(targetId, 'Could not refresh tab data. Displaying cached view.');
+        }
+      }
+    }
+
+  } catch (err) {
+    console.error(`❌ [switchTab Critical Error] Exception during transition to "${tabId}":`, err);
+
+    // [CHANGE 5]: Emergency Fallback Recovery
+    // In case of a high-level JS crash, force the fallback container to stay visible on screen
+    const fallbackId = tabMap[tabId] || (tabId + 'Tab');
+    const fallbackEl = document.getElementById(fallbackId) || document.getElementById('helpTab');
+    if (fallbackEl) {
+      fallbackEl.classList.add('active');
+      fallbackEl.style.display = 'block';
+    }
   }
 }
+
 
 
 const HARDCODED_GROUPS = ['Womens', 'Mixed', 'Mens'];
@@ -2517,44 +2582,12 @@ function loadAdminPlayerData(group, isBackgroundPoll = false) {
     .handleApiRequest({ action: 'getUnifiedRoster', group: group });
 }
 
-// Replace all check-in/admin loaders with this one universal loader
-async function loadUnifiedRosterData(groupName, forceRefresh = false) {
-  const targetGroup = groupName || document.getElementById('sheetSelect')?.value || document.getElementById('adminGlobalGroupSelect')?.value || getSavedGroup();
+
   
-  if (!targetGroup) return;
-
-  const playerListEl = document.getElementById('playerList');
-  const adminListEl = document.getElementById('adminPlayerStatusList');
-  
-  if (playerListEl) playerListEl.innerHTML = '<span class="loading-spinner"></span> Loading players...';
-  if (adminListEl) adminListEl.innerHTML = '<span class="loading-spinner"></span> Loading roster...';
-
-  try {
-    const res = await apiCall('getUnifiedRoster', { 
-      groupName: targetGroup.trim(),
-      forceRefresh: forceRefresh 
-    });
-
-    if (res && res.success && res.players) {
-      // Route data to whichever view is currently active in the DOM
-      if (document.getElementById('checkInStatus')) {
-        renderCheckInPlayers(processAndSortPlayers(res.players));
-      }
-      if (document.getElementById('adminGlobalGroupSelect')) {
-        adminPlayersCache = res.players; // Keep this variable alive for your filterAdminPlayers function
-        filterAdminPlayers();
-      }
-    } else {
-      if (playerListEl) playerListEl.innerHTML = '<i>No data found.</i>';
-      if (adminListEl) adminListEl.innerHTML = '<i>No data found.</i>';
-    }
-  } catch (err) {
-    console.error("Unified load error:", err);
-  }
-}  
 // ====================================================
 // UNIFIED ROSTER CACHE & PLAYER STATUS HELPERS
 // ====================================================
+
 
 // Single source of truth for group player roster
 window.appPlayersCache = window.appPlayersCache || [];
@@ -2564,7 +2597,85 @@ function normalizePhone(phone) {
   return String(phone || '').replace(/\D/g, '');
 }
 
-// 1. Fetch group roster into shared cache
+
+async function loadUnifiedRosterData(groupName, forceRefresh = false) {
+  const targetGroup = groupName || document.getElementById('sheetSelect')?.value || document.getElementById('adminGlobalGroupSelect')?.value || (typeof getSavedGroup === 'function' ? getSavedGroup() : null);
+
+  if (!targetGroup) return;
+
+  const playerListEl = document.getElementById('playerList');
+  const adminListEl = document.getElementById('adminPlayerStatusList');
+
+  // [CHANGE]: Show non-destructive overlays over existing content instead of setting innerHTML = ""
+  if (playerListEl) showElementOverlay('playerList', 'Updating players...');
+  if (adminListEl) showElementOverlay('adminPlayerStatusList', 'Updating roster...');
+
+  try {
+    const res = await apiCall('getUnifiedRoster', { 
+      groupName: targetGroup.trim(),
+      forceRefresh: forceRefresh 
+    });
+
+    // Extract players array safely
+    let extractedPlayers = null;
+    if (Array.isArray(res)) {
+      extractedPlayers = res;
+    } else if (res && Array.isArray(res.players)) {
+      extractedPlayers = res.players;
+    } else if (res && res.data && Array.isArray(res.data.players)) {
+      extractedPlayers = res.data.players;
+    } else if (res && Array.isArray(res.data)) {
+      extractedPlayers = res.data;
+    }
+
+    // [CHANGE]: ATOMIC SWAP - Render content into an offscreen string/fragment first.
+    // Only update innerHTML AFTER verification succeeds.
+    if (extractedPlayers && extractedPlayers.length > 0) {
+      if (typeof checkInPlayersCache !== 'undefined') {
+        checkInPlayersCache = extractedPlayers;
+      }
+
+      if (document.getElementById('checkInStatus') && typeof renderCheckInPlayers === 'function') {
+        const sortedPlayers = typeof processAndSortPlayers === 'function' ? processAndSortPlayers(extractedPlayers) : extractedPlayers;
+        
+        // Wipe old content ONLY now that new data is validated and ready to swap
+        if (playerListEl) playerListEl.innerHTML = '';
+        renderCheckInPlayers(sortedPlayers);
+      }
+
+      if (document.getElementById('adminGlobalGroupSelect')) {
+        if (typeof adminPlayersCache !== 'undefined') {
+          adminPlayersCache = extractedPlayers;
+        }
+        if (typeof filterAdminPlayers === 'function') {
+          if (adminListEl) adminListEl.innerHTML = '';
+          filterAdminPlayers();
+        }
+      }
+    } else {
+      // Unregistered or empty payload handling without wiping the view structure
+      const msg = (res && res.registered === false) 
+        ? "Selected group is not registered yet. Please complete setup above." 
+        : "No roster data available for this group.";
+
+      if (playerListEl) showContainerError('playerList', msg);
+      if (adminListEl) showContainerError('adminPlayerStatusList', msg);
+    }
+  } catch (err) {
+    console.error("Unified load error:", err);
+    // [CHANGE]: Preserve whatever DOM existed before and show an alert banner
+    if (playerListEl) showContainerError('playerList', 'Failed to update roster. Displaying cached data.');
+    if (adminListEl) showContainerError('adminPlayerStatusList', 'Failed to update roster. Displaying cached data.');
+  } finally {
+    // [CHANGE]: Always remove overlays in finally block to ensure UI never freezes
+    if (playerListEl) hideElementOverlay('playerList');
+    if (adminListEl) hideElementOverlay('adminPlayerStatusList');
+  }
+}
+
+
+
+// Fetch group roster into shared cache
 async function fetchGroupRoster(group) {
   if (!group) return [];
   

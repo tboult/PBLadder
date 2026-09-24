@@ -364,4 +364,35 @@
   color: #ffc107; /* Bright yellow dot indicator */
 }
 
+/* Add this to your stylesheet to enable non-destructive loading overlays */
+.container-overlay-wrapper {
+  position: relative;
+  min-height: 100px; /* Prevents container collapse while loading */
+}
+
+.loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.75); /* Semi-transparent background keeps existing UI visible */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  backdrop-filter: blur(2px);
+  border-radius: 8px;
+}
+
+.error-banner {
+  padding: 10px 14px;
+  margin: 8px 0;
+  background-color: #fde8e8;
+  border: 1px solid #f8b4b4;
+  color: #9b1c1c;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
     </style>
