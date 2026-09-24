@@ -1,4 +1,4 @@
-const CACHE_NAME = 'scpb-ladder-v20260923184713';
+const CACHE_NAME = 'scpb-ladder-v20260923184756';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
