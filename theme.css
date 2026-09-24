@@ -1,8 +1,67 @@
+/* ==========================================================================
+   ENVIRONMENT THEME VARIABLES
+   ========================================================================== */
+
+/* --- DEV ENVIRONMENT VERSION --- */
 :root {
-  --primary-bg: #FFFF55;
-  --header-bg: #FF7755;
-  --header-title: #FFFFFF;  
+  --primary-bg: #ffff55;
+  --header-bg: #ffAAFF;
+  --header-title: #ffffff;
+  --header-border: #d9534f;
   --accent-color: #ffb74d;
   --env-banner: "DEV ENVIRONMENT";
+
+  --bg-color: #f4f6f8;
+  --text-color: #212529;
+  --nav-bg: #e9ecef;
+  --nav-text: #495057;
+  --nav-active-bg: #0d6efd;
+  --nav-active-text: #ffffff;
+  --card-bg: #ffffff;
+  --card-border: rgba(0, 0, 0, 0.08);
+  --input-border: #ced4da;
+  --input-bg: #ffffff;
+  --btn-main-bg: #2d6a4f;
+  --btn-main-text: #ffffff;
+  --btn-sub-bg: #6c757d;
+  --btn-sub-text: #ffffff;
+  --btn-danger-bg: #d90429;
+  --btn-danger-text: #ffffff;
+  --row-border: #f1f3f5;
+  --row-hover: #e9ecef;
+  --row-checked-bg: #d8f3dc;
+  --court-header-bg: #e8f5e9;
+  --court-header-text: #1b4332;
+  --bye-header-bg: #fff3bf;
+  --bye-header-text: #856404;
+  --focus-ring: #ffbf47;
 }
- 
+
+/* --- ACCESSIBILITY HIGH CONTRAST OVERRIDE --- */
+body.high-contrast {
+  --bg-color: #000000;
+  --text-color: #ffffff;
+  --header-bg: #ffff00;
+  --header-title: #000000;
+  --header-border: #ffffff;
+  --nav-bg: #1a1a1a;
+  --nav-text: #ffffff;
+  --nav-active-bg: #ffff00;
+  --nav-active-text: #000000;
+  --card-bg: #1a1a1a;
+  --card-border: #ffff00;
+  --input-border: #ffff00;
+  --input-bg: #000000;
+  --btn-main-bg: #ffff00;
+  --btn-main-text: #000000;
+  --btn-sub-bg: #ffffff;
+  --btn-sub-text: #000000;
+  --btn-danger-bg: #ff4d4d;
+  --btn-danger-text: #000000;
+  --row-border: #333333;
+  --row-hover: #333300;
+  --row-checked-bg: #333300;
+  --court-header-bg: #ffff00;
+  --court-header-text: #000000;
+  --focus-ring: #ffffff;
+}

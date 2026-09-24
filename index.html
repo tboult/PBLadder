@@ -17,7 +17,7 @@
     <link rel="apple-touch-icon" href="https://raw.githubusercontent.com/tboult/RR/refs/heads/main/SunLadder.png">
     <link rel="icon" type="image/png" sizes="192x192" href="https://raw.githubusercontent.com/tboult/RR/refs/heads/main/SunLadder.png">
     <link rel="stylesheet" href="style.css">
-    <link rel="stylesheet" href="theme.css">    
+    <link rel="stylesheet" href="theme.css" id="theme-stylesheet">
   </head>
   <body>
 
@@ -3452,6 +3452,20 @@ document.addEventListener("DOMContentLoaded", async function () {
     });
   }
 });
+
+function setEnvironmentTheme(env) {
+  const themeLink = document.getElementById('theme-stylesheet');
+  if (env === 'dev') {
+    themeLink.href = 'devtheme.css';
+  } else {
+    themeLink.href = 'prodtheme.css';
+  }
+}
+
+// Example usage: trigger swap based on hostname detection
+if (window.location.hostname === 'localhost' || window.location.hostname.includes('dev')) {
+  setEnvironmentTheme('dev');
+}  
       
   </script>
   </body>
