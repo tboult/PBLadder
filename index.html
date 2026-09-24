@@ -19,386 +19,377 @@
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="theme.css" id="theme-stylesheet">
   </head>
-  <body>
+<body>
 
+  <h2 class="header-title" id="mainHeader" onpointerdown="handleSecretTap(event)">🥒 SCPB Ladder 🥒</h2>
 
-
-    <h2 class="header-title" id="mainHeader" onpointerdown="handleSecretTap(event)">🥒 SCPB Ladder 🥒</h2>
-
-<div id="globalLoader" class="global-loader" style="display: flex;">
-      <span class="loading-spinner"></span>
-      <span id="globalLoaderText">Loading app...</span>
-    </div>
-<!-- TOP WELCOME BANNER -->
-<div id="welcomeBanner" style="display: none; background: var(--bg-color, #f0f4f8); border: 1px solid var(--input-border, #ccc); border-radius: 8px; padding: 0.5rem 1rem; margin-bottom: 0.5rem; text-align: center; font-size: 1.05rem; font-weight: 500;">
-  👋 Welcome, <b id="welcomeName">Player</b>!
-</div>
-
-<!-- NAVIGATION HEADER -->
-<div class="nav">
-  <button id="tabHelpBtn" class="active" onclick="switchTab('help')"> Register & Help</button>
-  <button id="tabCheckinBtn" onclick="switchTab('checkin')">Check-In</button>
-  <button id="tabScoreBtn" onclick="switchTab('score')">Enter<br>Scores</button>
-  <button id="tabRankschedBtn" onclick="switchTab('ranksched')">Schedule<br>& Ranks</button>
-  <button id="tabAdminBtn" style="display:none; background:var(--btn-danger-bg); color:var(--btn-danger-text);" onclick="switchTab('admin')">Admin</button>
-</div>
-
-
-<!-- TAB 1: CONFIG & SETUP -->
-<div id="helpTab" class="tab-content active">
-
-  <!-- 1. GROUP CHOICE -->
-  <div class="card" id="helpGroupSelectSection">
-    <h3 style="margin-top:0;">🎯 Select Group & Registration</h3>
-    <p style="margin-bottom:0.5rem; color:var(--text-secondary); font-size:0.9rem;">
-      Select your group below to activate and eager-load app data.
-    </p>
-    <div id="helpGroupRadioContainer" style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem;">
-      <label style="display:flex; align-items:center; gap:0.5rem; font-size:1.1rem; padding:0.5rem 0.75rem; border:2px solid var(--input-border); border-radius:0.5rem; background:var(--input-bg); cursor:pointer;">
-        <input type="radio" name="helpGroupRadio" value="Womens" onchange="onHelpGroupRadioChange(this.value)" style="width:20px; height:20px; margin:0; cursor:pointer;">
-        <b>Womens</b>
-      </label>
-      <label style="display:flex; align-items:center; gap:0.5rem; font-size:1.1rem; padding:0.5rem 0.75rem; border:2px solid var(--input-border); border-radius:0.5rem; background:var(--input-bg); cursor:pointer;">
-        <input type="radio" name="helpGroupRadio" value="Mixed" onchange="onHelpGroupRadioChange(this.value)" style="width:20px; height:20px; margin:0; cursor:pointer;">
-        <b>Mixed</b>
-      </label>
-      <label style="display:flex; align-items:center; gap:0.5rem; font-size:1.1rem; padding:0.5rem 0.75rem; border:2px solid var(--input-border); border-radius:0.5rem; background:var(--input-bg); cursor:pointer;">
-        <input type="radio" name="helpGroupRadio" value="Mens" onchange="onHelpGroupRadioChange(this.value)" style="width:20px; height:20px; margin:0; cursor:pointer;">
-        <b>Mens</b>
-      </label>
-    </div>
+  <div id="globalLoader" class="global-loader" style="display: flex;">
+    <span class="loading-spinner"></span>
+    <span id="globalLoaderText">Loading app...</span>
   </div>
 
-  <!-- 2. PHONE NUMBER & SHEET ROSTER STATUS (SIDE-BY-SIDE FLEX) -->
-  <div class="card" style="margin-top: 1rem;">
-    <div id="phoneEntrySection">
-      <label style="font-size: 1rem;"><b>Enter Phone and check registration:</b></label>
-      
-      <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem; margin-bottom: 0.75rem; align-items: center;">
-        <input type="tel" id="phoneInput" placeholder="e.g. 555-123-4567" style="flex: 1.2; min-width: 0; font-size: 1.1rem; padding: 0.75rem 0.5rem; border: 2px solid var(--input-border); border-radius: 0.5rem; box-sizing: border-box; text-align: center; margin: 0;">
+  <!-- TOP WELCOME BANNER -->
+  <div id="welcomeBanner" style="display: none; background: var(--bg-color, #f0f4f8); border: 1px solid var(--input-border, #ccc); border-radius: 8px; padding: 0.5rem 1rem; margin-bottom: 0.5rem; text-align: center; font-size: 1.05rem; font-weight: 500;">
+    👋 Welcome, <b id="welcomeName">Player</b>!
+  </div>
+
+  <!-- NAVIGATION HEADER -->
+  <div class="nav">
+    <button id="tabHelpBtn" class="active" onclick="switchTab('help')"> Register & Help</button>
+    <button id="tabCheckinBtn" onclick="switchTab('checkin')">Check-In</button>
+    <button id="tabScoreBtn" onclick="switchTab('score')">Enter<br>Scores</button>
+    <button id="tabRankschedBtn" onclick="switchTab('ranksched')">Schedule<br>& Ranks</button>
+    <button id="tabAdminBtn" style="display:none; background:var(--btn-danger-bg); color:var(--btn-danger-text);" onclick="switchTab('admin')">Admin</button>
+  </div>
+
+
+  <!-- TAB 1: CONFIG & SETUP (SINGLE SOURCE OF TRUTH FOR GROUPS) -->
+  <div id="helpTab" class="tab-content active">
+
+    <!-- 1. GROUP CHOICE -->
+    <div class="card" id="helpGroupSelectSection">
+      <h3 style="margin-top:0;">🎯 Select Group & Registration</h3>
+      <p style="margin-bottom:0.5rem; color:var(--text-secondary); font-size:0.9rem;">
+        Select your group below to activate and eager-load app data.
+      </p>
+      <div id="helpGroupRadioContainer" style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem;">
+        <label style="display:flex; align-items:center; gap:0.5rem; font-size:1.1rem; padding:0.5rem 0.75rem; border:2px solid var(--input-border); border-radius:0.5rem; background:var(--input-bg); cursor:pointer;">
+          <input type="radio" name="helpGroupRadio" value="Womens" onchange="onHelpGroupRadioChange(this.value)" style="width:20px; height:20px; margin:0; cursor:pointer;">
+          <b>Womens</b>
+        </label>
+        <label style="display:flex; align-items:center; gap:0.5rem; font-size:1.1rem; padding:0.5rem 0.75rem; border:2px solid var(--input-border); border-radius:0.5rem; background:var(--input-bg); cursor:pointer;">
+          <input type="radio" name="helpGroupRadio" value="Mixed" onchange="onHelpGroupRadioChange(this.value)" style="width:20px; height:20px; margin:0; cursor:pointer;">
+          <b>Mixed</b>
+        </label>
+        <label style="display:flex; align-items:center; gap:0.5rem; font-size:1.1rem; padding:0.5rem 0.75rem; border:2px solid var(--input-border); border-radius:0.5rem; background:var(--input-bg); cursor:pointer;">
+          <input type="radio" name="helpGroupRadio" value="Mens" onchange="onHelpGroupRadioChange(this.value)" style="width:20px; height:20px; margin:0; cursor:pointer;">
+          <b>Mens</b>
+        </label>
+      </div>
+    </div>
+
+    <!-- 2. PHONE NUMBER & SHEET ROSTER STATUS (SIDE-BY-SIDE FLEX) -->
+    <div class="card" style="margin-top: 1rem;">
+      <div id="phoneEntrySection">
+        <label style="font-size: 1rem;"><b>Enter Phone and check registration:</b></label>
         
-        <button id="savePhoneBtn" class="btn-main" style="flex: 1; white-space: nowrap; font-size: 1.05rem; padding: 0.75rem 0.5rem; background-color: #ffc107; color: #000; font-weight: bold; border: none; border-radius: 0.5rem; cursor: pointer; transition: background-color 0.3s ease; margin: 0;" onclick="savePhoneToCache()">
-          Check Registation
-        </button>
-      </div>
-    </div>
-
-<!-- SHEET STATUS BADGE & TOGGLE -->
-<div id="frontStatusCard" class="card" style="background: var(--bg-color); margin-top: 0.75rem; padding: 0.75rem;">
-  <div class="d-flex align-items-center gap-2 my-1" style="width: 100% !important;">
-    <span class="fw-bold" style="font-size: 1.1rem !important; margin-right: 4px;">Status:</span>
-
-    <!-- Active/Inactive Display (40% Width & Larger Font) -->
-    <span 
-      id="frontStatusDisplay" 
-      class="badge bg-success" 
-      style="width: 40% !important; flex: 0 0 40% !important; font-size: 1.15rem !important; padding: 0.5rem 0 !important; text-align: center !important; display: inline-block !important;"
-    >
-      Active
-    </span>
-
-    <!-- Solid Gray Toggle Button (25% Width) -->
-    <button 
-      type="button" 
-      class="btn btn-secondary" 
-      style="width: 25% !important; flex: 0 0 25% !important; font-size: 0.95rem !important; padding: 0.45rem 0.2rem !important; white-space: nowrap !important; text-align: center !important; background-color: #6c757d !important; border-color: #6c757d !important; color: #ffffff !important;" 
-      onclick="toggleStatusFromSetup()"
-    >
-      Toggle Status
-    </button>
-  </div>
-
-  <p style="margin: 0.5rem 0 0 0; font-size: 0.85rem; color: var(--text-secondary, #666);">
-    Shows/controls if you are active for upcoming play.
-  </p>
-  <p style="margin: 0.5rem 0 0 0; font-size: 1.5rem; color: var(--text-secondary, #666);">
-    NOTE: Data in app is in demo mode with a mix of data from last year and fake data I use for testing. It wil showing ranking but not all is correct/real but at least you can explore how the app works.  Noting is offical and nothing you do, except registraion and active/inactive status, will be saved when app goes live Sept 28. NOTHING SHOULD EVER ASK for CC-numbers, this is all free.  <a href="mailto:terry.boult@gmail.com ">Send Email</a> with comments/issues.  
-  </p>
-</div>
-</div>
-
-
-<!-- MAIN "HOW TO USE" ACCORDION CONTAINER -->
-<div style="max-width: 800px; margin: 0 auto; border: 2px solid #0d6efd; border-radius: 8px; overflow: hidden; font-size: 1.15rem;">
-  
-  <!-- TOP LEVEL TOGGLE BUTTON -->
-  <button type="button" 
-          onclick="const content = document.getElementById('mainHelpContent'); content.style.display = content.style.display === 'none' ? 'block' : 'none';"
-          style="width: 100%; text-align: left; background-color: #0d6efd; color: white; font-weight: bold; font-size: 1.35rem; padding: 16px 20px; border: none; cursor: pointer; display: flex; justify-content: space-between; align-items: center;">
-    <span>📖 How to Use</span>
-    <span style="font-size: 0.9rem; font-weight: normal;">▼ Tap to Open / Close</span>
-  </button>
-
-  <!-- TOP LEVEL CONTENT (HIDDEN BY DEFAULT) -->
-  <div id="mainHelpContent" style="display: none; padding: 16px; background-color: #f8f9fa;">
-
-    <!-- SUB-SECTION 1 -->
-    <details style="margin-bottom: 12px; border: 1px solid #6c757d; border-radius: 6px; overflow: hidden; background: #ffffff;">
-      <summary style="background-color: #e9ecef; color: #212529; font-weight: bold; font-size: 1.15rem; padding: 14px 16px; cursor: pointer; user-select: none;">
-        1️⃣ Setup & Status Check
-      </summary>
-      <div style="padding: 16px; line-height: 1.6;">
-        <p style="margin-top: 0;">Before play begins, verify your player profile:</p>
-        <ul style="padding-left: 24px; margin-bottom: 0;">
-          <li style="margin-bottom: 8px;">Enter your <b>Phone Number</b> on this tab so the app remembers you on future visits.</li>
-          <li>Verify that your <b>Group</b> (Mens, Womens, or Mixed) and <b>Status</b> (Active) are set correctly.</li>
-        </ul>
-      </div>
-    </details>
-
-    <!-- SUB-SECTION 2 -->
-    <details style="margin-bottom: 12px; border: 1px solid #856404; border-radius: 6px; overflow: hidden; background: #ffffff;">
-      <summary style="background-color: #fff3cd; color: #664d03; font-weight: bold; font-size: 1.15rem; padding: 14px 16px; cursor: pointer; user-select: none;">
-        2️⃣ Player Check-In Rules
-      </summary>
-      <div style="padding: 16px; color: #413203; line-height: 1.6;">
-        <p style="margin-top: 0;">On play days, head to the <b>Check-In</b> tab:</p>
-        <ul style="padding-left: 24px; margin-bottom: 0;">
-          <li style="margin-bottom: 8px;">📍 <b>Location Limit:</b> Check-in can <u>ONLY</u> be done on-site at <b>Marinette</b>.</li>
-          <li style="margin-bottom: 8px;">⏰ <b>Time Restriction:</b> Check-in opens strictly <b>AFTER 10:00 AM</b>.</li>
-          <li style="margin-bottom: 8px;">👥 <b>Checking In Others:</b> You may check in yourself as well as any other present players in your group.</li>
-          <li>⏳ <b>Court Assignment Delay:</b> Captains may wait until check-in completes at <b>10:50 AM</b> before assigning final courts.</li>
-        </ul>
-      </div>
-    </details>
-
-    <!-- SUB-SECTION 3 -->
-    <details style="border: 1px solid #087990; border-radius: 6px; overflow: hidden; background: #ffffff;">
-      <summary style="background-color: #cff4fc; color: #055160; font-weight: bold; font-size: 1.15rem; padding: 14px 16px; cursor: pointer; user-select: none;">
-        3️⃣ Court Assignments & Entering Scores
-      </summary>
-      <div style="padding: 16px; color: #043843; line-height: 1.6;">
-        <p style="margin-top: 0;">Once courts are scheduled, open the <b>Enter Scores</b> tab:</p>
-        <ul style="padding-left: 24px; margin-bottom: 0;">
-          <li style="margin-bottom: 8px;">Your phone number will automatically pull up your assigned <b>Court Number</b>, <b>Foursome</b>, and <b>3 Games</b>.</li>
-          <li style="margin-bottom: 8px;"><b>Court Not Showing Yet?</b> Tap the <b>"Recheck for Foursome Assignment"</b> button to fetch the latest schedule.</li>
-          <li>📝 <b>Submitting Scores:</b> Only <b>ONE player</b> from your foursome needs to enter and submit scores for the court.</li>
-        </ul>
-      </div>
-    </details>
-
-  </div>
-</div>
-
-
-<!-- 4. ADD NEW PLAYER (ACCORDION) -->
-<!-- 4. ADD NEW PLAYER (ACCORDION) -->
-<details id="registrationAccordion" class="card" style="margin-top:1rem; cursor: pointer;">
-  <summary style="font-weight:bold; font-size:1.15rem; outline:none; padding: 0.5rem 0;">➕ Register New Player</summary>
-  
-  <p style="font-size:1rem; color:#555; margin-top:0.5rem; line-height: 1.4;">
-    Note: The player will not be active by default. Must activate to play.  New players start at bottom of ladder. 
-  </p>
-
-  <div style="margin-top:0.75rem;">
-    <!-- GROUP ASSIGNMENT NOTE -->
-    <div style="background-color: #e7f1ff; border: 1px solid #b6d4fe; border-radius: 6px; padding: 12px; margin-bottom: 0.85rem; font-size: 1.05rem; color: #084298; line-height: 1.4;">
-      📌 <b>Group Assignment:</b> This player will be registered into the <b>Group selected at the top of the page</b>.
-    </div>
-
-    <input type="text" id="frontRegFirst" placeholder="First Name" style="width:100%; margin-bottom:0.75rem; padding:0.75rem; font-size:1.1rem; box-sizing:border-box; border: 1px solid #ccc; border-radius: 6px;">
-    <input type="text" id="frontRegLast" placeholder="Last Name" style="width:100%; margin-bottom:0.75rem; padding:0.75rem; font-size:1.1rem; box-sizing:border-box; border: 1px solid #ccc; border-radius: 6px;">
-    <input type="tel" id="frontRegPhone" placeholder="Phone Number" style="width:100%; margin-bottom:0.75rem; padding:0.75rem; font-size:1.1rem; box-sizing:border-box; border: 1px solid #ccc; border-radius: 6px;">
-    <input type="email" id="frontRegEmail" placeholder="Email (Optional)" style="width:100%; margin-bottom:0.75rem; padding:0.75rem; font-size:1.1rem; box-sizing:border-box; border: 1px solid #ccc; border-radius: 6px;">
-    
-    <button class="btn-main" style="margin-top:0.5rem; width:100%; font-size:1.2rem; padding:12px; font-weight:bold; border-radius:6px; cursor:pointer;" onclick="submitFrontPageRegistration()">Register New Player</button>
-  </div>
-</details>
-
-
-  <!-- 5. FONT & CONTRAST (ACCORDION) -->
-  <details class="card" style="margin-top:1rem; cursor: pointer;">
-    <summary style="font-weight:bold; font-size:1.05rem; outline:none;">🎨 Font & Contrast Settings</summary>
-    <div class="access-panel" style="margin-top:0.75rem;">
-      <div style="display:flex; gap:0.5rem; width:100%;">
-        <button id="btn-size-normal" class="active" onclick="applyTextSize('normal')">Normal</button>
-        <button id="btn-size-large" onclick="applyTextSize('large')">Large</button>
-        <button id="btn-size-huge" onclick="applyTextSize('huge')">HUGE</button>
-      </div>
-      <button id="btn-contrast-toggle" style="margin-top:0.5rem; width:100%;" onclick="toggleContrast()">High Contrast</button>
-    </div>
-  </details>
-
-  <!-- 6. INSTALL & APP RESET (ACCORDION) -->
-  <details class="card" style="margin-top:1rem; cursor: pointer;">
-    <summary style="font-weight:bold; font-size:1.05rem; outline:none;">📱 Install & Cache Reset</summary>
-    <div style="margin-top:0.75rem;">
-      <p>You can add this app directly to your home screen for easy access!</p>
-      <b>iPhone (Safari):</b>
-      <ol style="margin-top:0.25rem; font-size:1rem;">
-        <li>Tap the <b>Share</b> icon at the bottom of the screen (square with an up arrow).</li>
-        <li>Scroll down and tap <b>Add to Home Screen</b>.</li>
-      </ol>
-      <b>Android (Chrome):</b>
-      <ol style="margin-top:0.25rem; font-size:1rem;">
-        <li>Tap the <b>3 dots</b> (menu) in the top right.</li>
-        <li>Tap <b>Add to Home screen</b>.</li>
-      </ol>
-
-      <hr style="margin: 1rem 0; border: none; border-top: 1px solid var(--input-border, #ccc);">
-
-      <button id="forceRefreshBtn" onclick="forceRefresh()" title="Clear browser cache and reload fresh data" style="padding: 10px; cursor: pointer; width:100%; margin-bottom: 0.5rem;">
-        <h3>🔄 Clean Cache & Refresh Data</h3>
-      </button>
-
-      <div class="help-section" style="margin-top: 0.5rem; text-align: center;">
-        <p style="font-size: 0.9em; color: #666; margin-bottom: 0.5rem;">Not seeing recent app updates or icons?</p>
-        <button onclick="forceResetApp()" style="background-color: #d9534f; color: white; border: none; padding: 10px 16px; border-radius: 6px; font-weight: bold; cursor: pointer; width: 100%;">
-          🔄 Reset & Hard Refresh App
-        </button>
-      </div>
-    </div>
-  </details>
-
-</div>
-
-
-<!-- TAB 2: CHECK-IN SYSTEM -->
-<div id="checkinTab" class="tab-content">
-  <label><b>Select Group:</b></label>
-  <select id="sheetSelect" onchange="onGroupChange('sheetSelect')">
-    <option value="">-- Choose Group --</option>
-  </select>
-  <div id="checkInStatus" class="status-msg" style="margin-top:0.25rem; margin-bottom:0.5rem;"></div>
-  <div id="playerList"><i>Select a group above...</i></div>
-</div>
-
-
-<!-- TAB 3: ENTER SCORES -->
-<div id="scoreTab" class="tab-content">
-  <h3 style="margin-top:0;">📝 Enter Court Scores</h3>
-<!-- Inside the Enter Scores tab form -->
-<button type="button" id="findFoursomeBtn" class="btn btn-primary" onclick="lookupPhone()">
-  Recheck for Foursome Assignment
-</button>
-
-
-  <div id="lookupResult">
-    <div class="card" style="background: var(--bg-color);">
-      <h4 style="margin:0 0 0.25rem 0;" id="pNameDisplay"></h4>
-      <p style="margin:0.25rem 0; font-size:1rem;">Group: <b id="pGroupDisplay"></b> | Court: <b id="pCourtDisplay"></b></p>
-      <p style="margin:0.25rem 0 0 0; font-size:1rem;">Status: <span id="pStatusDisplay" class="status-badge"></span></p>
-      <!-- TOGGLE BUTTON REMOVED FROM THIS TAB -->
-    </div>
-
-    <div id="scoreEntrySection" style="margin-top: 0.75rem;">
-      <h4 style="margin: 0.75rem 0 0.25rem 0;">Submit Court Scores</h4>
-      <div id="scoreInputsContainer"></div>
-      <button class="btn-main" style="margin-top:0.75rem;" onclick="saveScores()">Submit Scores</button>
-    </div>
-  </div>
-
-  <!-- REGISTRATION FORM -->
-  <div id="registrationSection" class="card" style="display:none; margin-top: 1rem;">
-    <h4 style="margin:0 0 0.75rem 0;">New Player Registration</h4>
-    <input type="text" id="regFirst" placeholder="First Name">
-    <input type="text" id="regLast" placeholder="Last Name">
-    <input type="tel" id="regPhone" placeholder="Phone Number">
-    <input type="email" id="regEmail" placeholder="Email">
-    <select id="regGroup" onchange="onGroupChange('regGroup')"><option value="">-- Select Group --</option></select>
-    <button class="btn-main" style="margin-top:0.5rem;" onclick="submitRegistration()">Register Player</button>
-    <button class="btn-sub" style="margin-top:0.5rem;" onclick="cancelRegistration()">Cancel</button>
-  </div>
-
-  <div id="phoneStatus" class="status-msg" style="margin-top:0.5rem;"></div>
-</div>
-
-
-<!-- TAB 4: RANKINGS & SCHEDULE VIEWER -->
-<div id="rankschedTab" class="tab-content">
-  <label><b>Select Group:</b></label>
-  <select id="groupViewerSelect" onchange="onGroupChange('groupViewerSelect')">
-    <option value="">-- Choose Group --</option>
-  </select>
-  <div id="viewerContent" style="margin-top: 0.75rem;"></div>
-  <div id="viewerStatus" class="status-msg"></div>
-</div>
-
-
-<!-- TAB 5: ADMIN -->
-<div id="adminTab" class="tab-content">
-  <div class="card">
-    <h3 style="margin-top:0; color:var(--btn-danger-bg);">⚙️ Admin Controls</h3>
-
-    <div id="adminStatus" class="status-msg"></div>
-    <div class="card" style="margin-bottom:1rem; background: var(--bg-color);">
-      <label><b>Select Admin Target Group:</b></label>
-      <select id="adminGlobalGroupSelect" onchange="onAdminGlobalGroupChange()" style="width: 100%; padding: 0.5rem; margin-top: 0.25rem; font-weight: bold;">
-        <option value="">-- Select Group --</option>
-      </select>
-    </div>
-
-    <!-- 1. Court Selection -->
-    <details open class="card" style="margin-bottom:1rem; background: var(--bg-color); cursor: pointer;">
-      <summary style="font-weight:bold; font-size:1.05rem; outline:none;">🏟️ 1. Court Selection</summary>
-      <div style="margin-top: 0.75rem;">
-        <label style="font-size:0.95rem; font-weight:bold;">Select Courts to Use:</label>
-        <div id="admin-court-list" class="court-list" style="margin-top: 0.5rem;">
-          <i style="grid-column: 1 / -1; text-align: center; color: #666;">Select a group above to load courts...</i>
+        <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem; margin-bottom: 0.75rem; align-items: center;">
+          <input type="tel" id="phoneInput" placeholder="e.g. 555-123-4567" style="flex: 1.2; min-width: 0; font-size: 1.1rem; padding: 0.75rem 0.5rem; border: 2px solid var(--input-border); border-radius: 0.5rem; box-sizing: border-box; text-align: center; margin: 0;">
+          
+          <button id="savePhoneBtn" class="btn-main" style="flex: 1; white-space: nowrap; font-size: 1.05rem; padding: 0.75rem 0.5rem; background-color: #ffc107; color: #000; font-weight: bold; border: none; border-radius: 0.5rem; cursor: pointer; transition: background-color 0.3s ease; margin: 0;" onclick="savePhoneToCache()">
+            Check Registration
+          </button>
         </div>
       </div>
-    </details>
 
-    <!-- 2. Combined Roster Manager -->
-    <details class="card" style="margin-bottom:1rem; background: var(--bg-color); cursor: pointer;">
-      <summary style="font-weight:bold; font-size:1.05rem; outline:none;">
-        👥 2. Player Roster & Check-In Manager
-      </summary>
-      <div style="margin-top:0.75rem;" onclick="event.stopPropagation();">
-        <input 
-          type="text" 
-          id="adminPlayerSearch" 
-          oninput="filterAdminPlayers()" 
-          placeholder="🔍 Search name or phone..." 
-          style="width: 100%; padding: 0.5rem; margin-bottom: 0.75rem; border-radius: 0.25rem; border: 1px solid #ccc; box-sizing: border-box;"
-        >
+      <!-- SHEET STATUS BADGE & TOGGLE -->
+      <div id="frontStatusCard" class="card" style="background: var(--bg-color); margin-top: 0.75rem; padding: 0.75rem;">
+        <div class="d-flex align-items-center gap-2 my-1" style="width: 100% !important;">
+          <span class="fw-bold" style="font-size: 1.1rem !important; margin-right: 4px;">Status:</span>
 
-        <div 
-          id="adminPlayerStatusList" 
-          style="margin-top:0.25rem; max-height:60vh; overflow-y:auto; border-radius:0.5rem; border:2px solid var(--row-border); padding:0.5rem; background:#fff;"
-        >
-          <i>Type in the search box above to display players...</i>
+          <span 
+            id="frontStatusDisplay" 
+            class="badge bg-success" 
+            style="width: 40% !important; flex: 0 0 40% !important; font-size: 1.15rem !important; padding: 0.5rem 0 !important; text-align: center !important; display: inline-block !important;"
+          >
+            Active
+          </span>
+
+          <button 
+            type="button" 
+            class="btn btn-secondary" 
+            style="width: 25% !important; flex: 0 0 25% !important; font-size: 0.95rem !important; padding: 0.45rem 0.2rem !important; white-space: nowrap !important; text-align: center !important; background-color: #6c757d !important; border-color: #6c757d !important; color: #ffffff !important;" 
+            onclick="toggleStatusFromSetup()"
+          >
+            Toggle Status
+          </button>
         </div>
-      </div>
-    </details>
 
-    <!-- 3. Reschedule with Checked-In Players -->
-    <div class="card" style="margin-bottom:1rem; background: var(--bg-color); padding: 1rem; border-radius: 0.5rem;">
-      <label style="font-size:0.95rem; font-weight:bold;">Schedule generation:</label>
-      <button id="reschedCheckedInBtn" class="btn-main" style="margin-top:0.5rem; margin-bottom:0.5rem; width:100%;" onclick="runRescheduleCheckedIn()">
-        🔄 (Re)Schedule Checked-In Only
-      </button>
-      <button id="reschedActiveBtn" class="btn-sub" style="margin-top:0.5rem; margin-bottom:0.5rem; background-color: #2d6a4f; color: white; width:100%;" onclick="runRescheduleActive()">
-        ⚡ Schedule All Active
-      </button>
+        <p style="margin: 0.5rem 0 0 0; font-size: 0.85rem; color: var(--text-secondary, #666);">
+          Shows/controls if you are active for upcoming play.
+        </p>
+        <p style="margin: 0.5rem 0 0 0; font-size: 1.5rem; color: var(--text-secondary, #666);">
+          NOTE: Data in app is in demo mode with a mix of data from last year and fake data I use for testing. It will show ranking but not all is correct/real but at least you can explore how the app works. Nothing is official and nothing you do, except registration and active/inactive status, will be saved when app goes live Sept 28. NOTHING SHOULD EVER ASK for CC-numbers, this is all free. <a href="mailto:terry.boult@gmail.com">Send Email</a> with comments/issues.  
+        </p>
+      </div>
     </div>
 
-    <!-- 5. Additional Tools & Scoring -->
-    <details class="card" style="margin-bottom:1rem; background: var(--bg-color); cursor: pointer;">
-      <summary style="font-weight:bold; font-size:1.05rem; outline:none;">🛠️ 5. Additional Admin Actions & Standings</summary>
-      <div style="margin-top:0.75rem; display:flex; flex-direction:column; gap:0.5rem;">
-        <button onclick="runAdmin('sortActivePlayersForSheet')">Sort Active Players</button>
-        <button onclick="runAdmin('processWeeklyScoresForSheet', { weekCol: 'W10', shift: true })">Process Weekly Standings (Shift)</button>
-        <button onclick="runAdmin('processWeeklyScoresForSheet', { weekCol: 'W10', shift: false })">Correct Scores (No Shift)</button>
-        <button onclick="runAdmin('webExportSchedulePdf')">Export Schedule PDF</button>
-      </div>
-    </details>
 
-    <!-- 6. Add New Player (Retained in Admin) -->
-    <details class="card" style="margin-bottom:1rem; background: var(--bg-color); cursor: pointer;">
-      <summary style="font-weight:bold; font-size:1.05rem; outline:none;">➕ 6. Add New Player</summary>
+    <!-- MAIN "HOW TO USE" ACCORDION CONTAINER -->
+    <div style="max-width: 800px; margin: 0 auto; border: 2px solid #0d6efd; border-radius: 8px; overflow: hidden; font-size: 1.15rem; margin-top: 1rem;">
+      <button type="button" 
+              onclick="const content = document.getElementById('mainHelpContent'); content.style.display = content.style.display === 'none' ? 'block' : 'none';"
+              style="width: 100%; text-align: left; background-color: #0d6efd; color: white; font-weight: bold; font-size: 1.35rem; padding: 16px 20px; border: none; cursor: pointer; display: flex; justify-content: space-between; align-items: center;">
+        <span>📖 How to Use</span>
+        <span style="font-size: 0.9rem; font-weight: normal;">▼ Tap to Open / Close</span>
+      </button>
+
+      <div id="mainHelpContent" style="display: none; padding: 16px; background-color: #f8f9fa;">
+        <details style="margin-bottom: 12px; border: 1px solid #6c757d; border-radius: 6px; overflow: hidden; background: #ffffff;">
+          <summary style="background-color: #e9ecef; color: #212529; font-weight: bold; font-size: 1.15rem; padding: 14px 16px; cursor: pointer; user-select: none;">
+            1️⃣ Setup & Status Check
+          </summary>
+          <div style="padding: 16px; line-height: 1.6;">
+            <p style="margin-top: 0;">Before play begins, verify your player profile:</p>
+            <ul style="padding-left: 24px; margin-bottom: 0;">
+              <li style="margin-bottom: 8px;">Enter your <b>Phone Number</b> on this tab so the app remembers you on future visits.</li>
+              <li>Verify that your <b>Group</b> (Mens, Womens, or Mixed) and <b>Status</b> (Active) are set correctly.</li>
+            </ul>
+          </div>
+        </details>
+
+        <details style="margin-bottom: 12px; border: 1px solid #856404; border-radius: 6px; overflow: hidden; background: #ffffff;">
+          <summary style="background-color: #fff3cd; color: #664d03; font-weight: bold; font-size: 1.15rem; padding: 14px 16px; cursor: pointer; user-select: none;">
+            2️⃣ Player Check-In Rules
+          </summary>
+          <div style="padding: 16px; color: #413203; line-height: 1.6;">
+            <p style="margin-top: 0;">On play days, head to the <b>Check-In</b> tab:</p>
+            <ul style="padding-left: 24px; margin-bottom: 0;">
+              <li style="margin-bottom: 8px;">📍 <b>Location Limit:</b> Check-in can <u>ONLY</u> be done on-site at <b>Marinette</b>.</li>
+              <li style="margin-bottom: 8px;">⏰ <b>Time Restriction:</b> Check-in opens strictly <b>AFTER 10:00 AM</b>.</li>
+              <li style="margin-bottom: 8px;">👥 <b>Checking In Others:</b> You may check in yourself as well as any other present players in your group.</li>
+              <li>⏳ <b>Court Assignment Delay:</b> Captains may wait until check-in completes at <b>10:50 AM</b> before assigning final courts.</li>
+            </ul>
+          </div>
+        </details>
+
+        <details style="border: 1px solid #087990; border-radius: 6px; overflow: hidden; background: #ffffff;">
+          <summary style="background-color: #cff4fc; color: #055160; font-weight: bold; font-size: 1.15rem; padding: 14px 16px; cursor: pointer; user-select: none;">
+            3️⃣ Court Assignments & Entering Scores
+          </summary>
+          <div style="padding: 16px; color: #043843; line-height: 1.6;">
+            <p style="margin-top: 0;">Once courts are scheduled, open the <b>Enter Scores</b> tab:</p>
+            <ul style="padding-left: 24px; margin-bottom: 0;">
+              <li style="margin-bottom: 8px;">Your phone number will automatically pull up your assigned <b>Court Number</b>, <b>Foursome</b>, and <b>3 Games</b>.</li>
+              <li style="margin-bottom: 8px;"><b>Court Not Showing Yet?</b> Tap the <b>"Recheck for Foursome Assignment"</b> button to fetch the latest schedule.</li>
+              <li>📝 <b>Submitting Scores:</b> Only <b>ONE player</b> from your foursome needs to enter and submit scores for the court.</li>
+            </ul>
+          </div>
+        </details>
+      </div>
+    </div>
+
+
+    <!-- 4. ADD NEW PLAYER (ACCORDION) -->
+    <details id="registrationAccordion" class="card" style="margin-top:1rem; cursor: pointer;">
+      <summary style="font-weight:bold; font-size:1.15rem; outline:none; padding: 0.5rem 0;">➕ Register New Player</summary>
+      
+      <p style="font-size:1rem; color:#555; margin-top:0.5rem; line-height: 1.4;">
+        Note: The player will not be active by default. Must activate to play. New players start at bottom of ladder. 
+      </p>
+
       <div style="margin-top:0.75rem;">
-        <input type="text" id="adminRegFirst" placeholder="First Name" style="width:100%; margin-bottom:0.5rem; padding:0.5rem; box-sizing:border-box;">
-        <input type="text" id="adminRegLast" placeholder="Last Name" style="width:100%; margin-bottom:0.5rem; padding:0.5rem; box-sizing:border-box;">
-        <input type="tel" id="adminRegPhone" placeholder="Phone Number" style="width:100%; margin-bottom:0.5rem; padding:0.5rem; box-sizing:border-box;">
-        <input type="email" id="adminRegEmail" placeholder="Email" style="width:100%; margin-bottom:0.5rem; padding:0.5rem; box-sizing:border-box;">
-        <button class="btn-main" style="margin-top:0.5rem; width:100%;" onclick="submitAdminRegistration()">Add Pending Player</button>
+        <div style="background-color: #e7f1ff; border: 1px solid #b6d4fe; border-radius: 6px; padding: 12px; margin-bottom: 0.85rem; font-size: 1.05rem; color: #084298; line-height: 1.4;">
+          📌 <b>Group Assignment:</b> This player will be registered into: <b class="active-group-label" style="text-decoration: underline;">--</b>
+        </div>
+
+        <input type="text" id="frontRegFirst" placeholder="First Name" style="width:100%; margin-bottom:0.75rem; padding:0.75rem; font-size:1.1rem; box-sizing:border-box; border: 1px solid #ccc; border-radius: 6px;">
+        <input type="text" id="frontRegLast" placeholder="Last Name" style="width:100%; margin-bottom:0.75rem; padding:0.75rem; font-size:1.1rem; box-sizing:border-box; border: 1px solid #ccc; border-radius: 6px;">
+        <input type="tel" id="frontRegPhone" placeholder="Phone Number" style="width:100%; margin-bottom:0.75rem; padding:0.75rem; font-size:1.1rem; box-sizing:border-box; border: 1px solid #ccc; border-radius: 6px;">
+        <input type="email" id="frontRegEmail" placeholder="Email (Optional)" style="width:100%; margin-bottom:0.75rem; padding:0.75rem; font-size:1.1rem; box-sizing:border-box; border: 1px solid #ccc; border-radius: 6px;">
+        
+        <button class="btn-main" style="margin-top:0.5rem; width:100%; font-size:1.2rem; padding:12px; font-weight:bold; border-radius:6px; cursor:pointer;" onclick="submitFrontPageRegistration()">Register New Player</button>
       </div>
     </details>
 
-    <!-- 7. Edit Sheet Link -->
-    <a id="adminSheetLink" href="#" target="_blank" class="btn-main" style="display:block; padding:0.75rem; margin-top:1.5rem; border-radius:0.5rem; text-align:center;">📝 Edit Score Data Sheet for Group</a>
 
+    <!-- 5. FONT & CONTRAST (ACCORDION) -->
+    <details class="card" style="margin-top:1rem; cursor: pointer;">
+      <summary style="font-weight:bold; font-size:1.05rem; outline:none;">🎨 Font & Contrast Settings</summary>
+      <div class="access-panel" style="margin-top:0.75rem;">
+        <div style="display:flex; gap:0.5rem; width:100%;">
+          <button id="btn-size-normal" class="active" onclick="applyTextSize('normal')">Normal</button>
+          <button id="btn-size-large" onclick="applyTextSize('large')">Large</button>
+          <button id="btn-size-huge" onclick="applyTextSize('huge')">HUGE</button>
+        </div>
+        <button id="btn-contrast-toggle" style="margin-top:0.5rem; width:100%;" onclick="toggleContrast()">High Contrast</button>
+      </div>
+    </details>
+
+    <!-- 6. INSTALL & APP RESET (ACCORDION) -->
+    <details class="card" style="margin-top:1rem; cursor: pointer;">
+      <summary style="font-weight:bold; font-size:1.05rem; outline:none;">📱 Install & Cache Reset</summary>
+      <div style="margin-top:0.75rem;">
+        <p>You can add this app directly to your home screen for easy access!</p>
+        <b>iPhone (Safari):</b>
+        <ol style="margin-top:0.25rem; font-size:1rem;">
+          <li>Tap the <b>Share</b> icon at the bottom of the screen (square with an up arrow).</li>
+          <li>Scroll down and tap <b>Add to Home Screen</b>.</li>
+        </ol>
+        <b>Android (Chrome):</b>
+        <ol style="margin-top:0.25rem; font-size:1rem;">
+          <li>Tap the <b>3 dots</b> (menu) in the top right.</li>
+          <li>Tap <b>Add to Home screen</b>.</li>
+        </ol>
+
+        <hr style="margin: 1rem 0; border: none; border-top: 1px solid var(--input-border, #ccc);">
+
+        <button id="forceRefreshBtn" onclick="forceRefresh()" title="Clear browser cache and reload fresh data" style="padding: 10px; cursor: pointer; width:100%; margin-bottom: 0.5rem;">
+          <h3>🔄 Clean Cache & Refresh Data</h3>
+        </button>
+
+        <div class="help-section" style="margin-top: 0.5rem; text-align: center;">
+          <p style="font-size: 0.9em; color: #666; margin-bottom: 0.5rem;">Not seeing recent app updates or icons?</p>
+          <button onclick="forceResetApp()" style="background-color: #d9534f; color: white; border: none; padding: 10px 16px; border-radius: 6px; font-weight: bold; cursor: pointer; width: 100%;">
+            🔄 Reset & Hard Refresh App
+          </button>
+        </div>
+      </div>
+    </details>
+
+  </div>
+
+
+  <!-- TAB 2: CHECK-IN SYSTEM -->
+  <div id="checkinTab" class="tab-content">
+    <!-- DROPDOWN REMOVED: Replaced with Read-Only Banner -->
+    <div class="card" style="margin-bottom:0.75rem; padding:0.6rem 0.8rem; background:var(--input-bg); border:2px solid var(--input-border); border-radius:0.5rem;">
+      <b>Active Group:</b> <span class="active-group-label" style="font-size:1.15rem; font-weight:bold; color:#0d6efd; margin-left:4px;">--</span>
+      <small style="display:block; color:var(--text-secondary, #666); margin-top:2px;">(To change groups, return to Register & Help tab)</small>
+    </div>
+    <div id="checkInStatus" class="status-msg" style="margin-top:0.25rem; margin-bottom:0.5rem;"></div>
+    <div id="playerList"><i>Loading players for selected group...</i></div>
+  </div>
+
+
+  <!-- TAB 3: ENTER SCORES -->
+  <div id="scoreTab" class="tab-content">
+    <h3 style="margin-top:0;">📝 Enter Court Scores</h3>
+
+    <div class="card" style="margin-bottom:0.75rem; padding:0.6rem 0.8rem; background:var(--input-bg); border:2px solid var(--input-border); border-radius:0.5rem;">
+      <b>Active Group:</b> <span class="active-group-label" style="font-size:1.15rem; font-weight:bold; color:#0d6efd; margin-left:4px;">--</span>
+    </div>
+
+    <button type="button" id="findFoursomeBtn" class="btn btn-primary" onclick="lookupPhone()">
+      Recheck for Foursome Assignment
+    </button>
+
+    <div id="lookupResult">
+      <div class="card" style="background: var(--bg-color);">
+        <h4 style="margin:0 0 0.25rem 0;" id="pNameDisplay"></h4>
+        <p style="margin:0.25rem 0; font-size:1rem;">Group: <b id="pGroupDisplay"></b> | Court: <b id="pCourtDisplay"></b></p>
+        <p style="margin:0.25rem 0 0 0; font-size:1rem;">Status: <span id="pStatusDisplay" class="status-badge"></span></p>
+      </div>
+
+      <div id="scoreEntrySection" style="margin-top: 0.75rem;">
+        <h4 style="margin: 0.75rem 0 0.25rem 0;">Submit Court Scores</h4>
+        <div id="scoreInputsContainer"></div>
+        <button class="btn-main" style="margin-top:0.75rem;" onclick="saveScores()">Submit Scores</button>
+      </div>
+    </div>
+
+    <!-- REGISTRATION FORM -->
+    <div id="registrationSection" class="card" style="display:none; margin-top: 1rem;">
+      <h4 style="margin:0 0 0.75rem 0;">New Player Registration</h4>
+      <!-- DROPDOWN REMOVED: Shows active group assignment -->
+      <p style="margin-bottom:0.5rem;">Registering into group: <b class="active-group-label" style="color:#0d6efd;">--</b></p>
+      <input type="text" id="regFirst" placeholder="First Name">
+      <input type="text" id="regLast" placeholder="Last Name">
+      <input type="tel" id="regPhone" placeholder="Phone Number">
+      <input type="email" id="regEmail" placeholder="Email">
+      <button class="btn-main" style="margin-top:0.5rem;" onclick="submitRegistration()">Register Player</button>
+      <button class="btn-sub" style="margin-top:0.5rem;" onclick="cancelRegistration()">Cancel</button>
+    </div>
+
+    <div id="phoneStatus" class="status-msg" style="margin-top:0.5rem;"></div>
+  </div>
+
+
+  <!-- TAB 4: RANKINGS & SCHEDULE VIEWER -->
+  <div id="rankschedTab" class="tab-content">
+    <!-- DROPDOWN REMOVED: Replaced with Read-Only Banner -->
+    <div class="card" style="margin-bottom:0.75rem; padding:0.6rem 0.8rem; background:var(--input-bg); border:2px solid var(--input-border); border-radius:0.5rem;">
+      <b>Viewing Group:</b> <span class="active-group-label" style="font-size:1.15rem; font-weight:bold; color:#0d6efd; margin-left:4px;">--</span>
+      <small style="display:block; color:var(--text-secondary, #666); margin-top:2px;">(To change groups, return to Register & Help tab)</small>
+    </div>
+    <div id="viewerContent" style="margin-top: 0.75rem;"></div>
+    <div id="viewerStatus" class="status-msg"></div>
+  </div>
+
+
+  <!-- TAB 5: ADMIN -->
+  <div id="adminTab" class="tab-content">
+    <div class="card">
+      <h3 style="margin-top:0; color:var(--btn-danger-bg);">⚙️ Admin Controls</h3>
+
+      <div id="adminStatus" class="status-msg"></div>
+
+      <!-- DROPDOWN REMOVED: Replaced with Read-Only Banner -->
+      <div class="card" style="margin-bottom:1rem; background: var(--bg-color); border: 2px solid var(--btn-danger-bg);">
+        <label><b>Admin Target Group:</b> <span class="active-group-label" style="font-size:1.15rem; font-weight:bold; color:var(--btn-danger-bg); margin-left:4px;">--</span></label>
+        <small style="display:block; color:#666; margin-top:2px;">(Target group is locked to Tab 1 choice)</small>
+      </div>
+
+      <!-- 1. Court Selection -->
+      <details open class="card" style="margin-bottom:1rem; background: var(--bg-color); cursor: pointer;">
+        <summary style="font-weight:bold; font-size:1.05rem; outline:none;">🏟️ 1. Court Selection</summary>
+        <div style="margin-top: 0.75rem;">
+          <label style="font-size:0.95rem; font-weight:bold;">Select Courts to Use:</label>
+          <div id="admin-court-list" class="court-list" style="margin-top: 0.5rem;">
+            <i style="grid-column: 1 / -1; text-align: center; color: #666;">Loading courts for selected group...</i>
+          </div>
+        </div>
+      </details>
+
+      <!-- 2. Combined Roster Manager -->
+      <details class="card" style="margin-bottom:1rem; background: var(--bg-color); cursor: pointer;">
+        <summary style="font-weight:bold; font-size:1.05rem; outline:none;">
+          👥 2. Player Roster & Check-In Manager
+        </summary>
+        <div style="margin-top:0.75rem;" onclick="event.stopPropagation();">
+          <input 
+            type="text" 
+            id="adminPlayerSearch" 
+            oninput="filterAdminPlayers()" 
+            placeholder="🔍 Search name or phone..." 
+            style="width: 100%; padding: 0.5rem; margin-bottom: 0.75rem; border-radius: 0.25rem; border: 1px solid #ccc; box-sizing: border-box;"
+          >
+
+          <div 
+            id="adminPlayerStatusList" 
+            style="margin-top:0.25rem; max-height:60vh; overflow-y:auto; border-radius:0.5rem; border:2px solid var(--row-border); padding:0.5rem; background:#fff;"
+          >
+            <i>Type in the search box above to display players...</i>
+          </div>
+        </div>
+      </details>
+
+      <!-- 3. Reschedule with Checked-In Players -->
+      <div class="card" style="margin-bottom:1rem; background: var(--bg-color); padding: 1rem; border-radius: 0.5rem;">
+        <label style="font-size:0.95rem; font-weight:bold;">Schedule generation:</label>
+        <button id="reschedCheckedInBtn" class="btn-main" style="margin-top:0.5rem; margin-bottom:0.5rem; width:100%;" onclick="runRescheduleCheckedIn()">
+          🔄 (Re)Schedule Checked-In Only
+        </button>
+        <button id="reschedActiveBtn" class="btn-sub" style="margin-top:0.5rem; margin-bottom:0.5rem; background-color: #2d6a4f; color: white; width:100%;" onclick="runRescheduleActive()">
+          ⚡ Schedule All Active
+        </button>
+      </div>
+
+      <!-- 5. Additional Tools & Scoring -->
+      <details class="card" style="margin-bottom:1rem; background: var(--bg-color); cursor: pointer;">
+        <summary style="font-weight:bold; font-size:1.05rem; outline:none;">🛠️ 5. Additional Admin Actions & Standings</summary>
+        <div style="margin-top:0.75rem; display:flex; flex-direction:column; gap:0.5rem;">
+          <button onclick="runAdmin('sortActivePlayersForSheet')">Sort Active Players</button>
+          <button onclick="runAdmin('processWeeklyScoresForSheet', { weekCol: 'W10', shift: true })">Process Weekly Standings (Shift)</button>
+          <button onclick="runAdmin('processWeeklyScoresForSheet', { weekCol: 'W10', shift: false })">Correct Scores (No Shift)</button>
+          <button onclick="runAdmin('webExportSchedulePdf')">Export Schedule PDF</button>
+        </div>
+      </details>
+
+      <!-- 6. Add New Player (Retained in Admin) -->
+      <details class="card" style="margin-bottom:1rem; background: var(--bg-color); cursor: pointer;">
+        <summary style="font-weight:bold; font-size:1.05rem; outline:none;">➕ 6. Add New Player</summary>
+        <div style="margin-top:0.75rem;">
+          <input type="text" id="adminRegFirst" placeholder="First Name" style="width:100%; margin-bottom:0.5rem; padding:0.5rem; box-sizing:border-box;">
+          <input type="text" id="adminRegLast" placeholder="Last Name" style="width:100%; margin-bottom:0.5rem; padding:0.5rem; box-sizing:border-box;">
+          <input type="tel" id="adminRegPhone" placeholder="Phone Number" style="width:100%; margin-bottom:0.5rem; padding:0.5rem; box-sizing:border-box;">
+          <input type="email" id="adminRegEmail" placeholder="Email" style="width:100%; margin-bottom:0.5rem; padding:0.5rem; box-sizing:border-box;">
+          <button class="btn-main" style="margin-top:0.5rem; width:100%;" onclick="submitAdminRegistration()">Add Pending Player</button>
+        </div>
+      </details>
+
+      <!-- 7. Edit Sheet Link -->
+      <a id="adminSheetLink" href="#" target="_blank" class="btn-main" style="display:block; padding:0.75rem; margin-top:1.5rem; border-radius:0.5rem; text-align:center;">📝 Edit Score Data Sheet for Group</a>
   </div>
 </div>
 <script>
@@ -657,15 +648,13 @@ function renderHelpGroupRadios(cleanGroupArray) {
       </label>
     `;
   });
-  container.innerHTML = html;
+    container.innerHTML = html;
+   localStorage.setItem('cached_sheets', JSON.stringify(cleanGroupArray));
+
+    syncAllGroupDropdowns(currentGroup);
 }
 
-function onHelpGroupRadioChange(val) {
-  console.log(`✅ Set Group to "${val}"`);
-  if (val) {
-    setSelectedGroup(val);
-  }
-}
+
 
 function populateSheets(sheets) {
   const sourceList = (Array.isArray(sheets) && sheets.length > 0) ? sheets : HARDCODED_GROUPS;
@@ -688,15 +677,8 @@ function populateSheets(sheets) {
       select.appendChild(opt);
     });
   }
-
-  renderHelpGroupRadios(cleanGroupArray);
-  localStorage.setItem('cached_sheets', JSON.stringify(cleanGroupArray));
-
-  const savedGroup = getSavedGroup();
-  if (savedGroup) {
-    syncAllGroupDropdowns(savedGroup);
-  }
 }
+  
 
         
 function populateGroups(groups) {
@@ -727,39 +709,43 @@ function populateGroups(groups) {
       el.value = currentVal;
     }
   });
+}
 
-  renderHelpGroupRadios(cleanGroupArray);
-  localStorage.setItem('cached_groups', JSON.stringify(cleanGroupArray));
+/**
+ * Retrieves saved group from localStorage or the selected radio button.
+ */
+function getSavedGroup() {
+  const cached = localStorage.getItem('scpb_selected_group') || localStorage.getItem('scpb_saved_group');
+  if (cached) return cached;
 
+  const selectedRadio = document.querySelector('input[name="helpGroupRadio"]:checked');
+  return selectedRadio ? selectedRadio.value : '';
+}
+
+/**
+ * Updates all read-only group badges (.active-group-label) across all tabs.
+ */
+function updateAllGroupDisplays(groupName) {
+  const displayGroup = groupName || getSavedGroup() || '--';
+  document.querySelectorAll('.active-group-label').forEach(el => {
+    el.textContent = displayGroup;
+  });
+}
+
+
+/**
+ * Optional: Sync radio button check state & labels when app loads.
+ */
+document.addEventListener('DOMContentLoaded', () => {
   const savedGroup = getSavedGroup();
   if (savedGroup) {
-    syncAllGroupDropdowns(savedGroup);
+    const radio = document.querySelector(`input[name="helpGroupRadio"][value="${savedGroup}"]`);
+    if (radio) radio.checked = true;
+    updateAllGroupDisplays(savedGroup);
   }
-}
+  });
 
-
-
-function loadFromCache() {
-  const cachedSheets = localStorage.getItem('cached_sheets');
-  const cachedGroups = localStorage.getItem('cached_groups');
-
-  if (cachedSheets) {
-    try { populateSheets(JSON.parse(cachedSheets)); } catch(e){}
-  }
-  if (cachedGroups) {
-    try { populateGroups(JSON.parse(cachedGroups)); } catch(e){}
-  }
   
-  autoSelectStoredGroup();
-}
-
-function onAdminGlobalGroupChange() {
-  const val = document.getElementById('adminGlobalGroupSelect').value;
-  if (val) {
-    setSelectedGroup(val);
-  }
-}
-
 async function checkAppVersion() {
   try {
     const res = await apiCall('getAppVersion');
@@ -1059,7 +1045,7 @@ async function lookupPhone(cachedPhone) {
 
 function renderLookupResult(player, foursome) { 
   activeLookupPlayer = player || {};
-  activeFoursome = foursome || [];
+  activeLookupFoursomeactiveLookupFoursome = foursome || [];
 
   const regEl = document.getElementById('registrationSection');
   const resultEl = document.getElementById('lookupResult');
@@ -1095,13 +1081,13 @@ function renderLookupResult(player, foursome) {
   if (!scoreContainer) return;
   scoreContainer.innerHTML = '';
 
-  if (activeFoursome.length === 4) {
+  if (activeLookupFoursome.length === 4) {
     const getPName = (p) => (typeof p === 'object' && p !== null ? (p.name || `${p.first || ''} ${p.last || ''}`.trim()) : String(p || ''));
     
-    const p1 = getPName(activeFoursome[0]);
-    const p2 = getPName(activeFoursome[1]);
-    const p3 = getPName(activeFoursome[2]);
-    const p4 = getPName(activeFoursome[3]);
+    const p1 = getPName(activeLookupFoursome[0]);
+    const p2 = getPName(activeLookupFoursome[1]);
+    const p3 = getPName(activeLookupFoursome[2]);
+    const p4 = getPName(activeLookupFoursome[3]);
 
     scoreContainer.innerHTML = `
       <!-- FOURSOME ROSTER SUMMARY CARD -->
@@ -1197,7 +1183,7 @@ function renderLookupResult(player, foursome) {
 }
 
 async function saveScores() {
-  if (!activeLookupPlayer || activeFoursome.length < 4) {
+  if (!activeLookupPlayer || activeLookupFoursome.length < 4) {
     alert('Active court match assignment not found.');
     return;
   }
@@ -1230,10 +1216,10 @@ async function saveScores() {
     return;
   }
 
-  const p1 = activeFoursome[0].name;
-  const p2 = activeFoursome[1].name;
-  const p3 = activeFoursome[2].name;
-  const p4 = activeFoursome[3].name;
+  const p1 = activeLookupFoursome[0].name;
+  const p2 = activeLookupFoursome[1].name;
+  const p3 = activeLookupFoursome[2].name;
+  const p4 = activeLookupFoursome[3].name;
 
    // Frontend maps game rotation to individual player objects (leaving empty games as undefined)
   const scoresPayload = [
@@ -1599,460 +1585,9 @@ function loadCheckInPlayers(groupName, forceRefresh = true) {
 }
 
 
-async function switchTab(tabId) {
-  try {
-    // [CHANGE 1]: Safely evaluate getSavedGroup() in case helper isn't loaded or throws an exception
-    let currentGroup = null;
-    if (typeof getSavedGroup === 'function') {
-      try {
-        currentGroup = getSavedGroup();
-      } catch (grpErr) {
-        console.warn("⚠️ [switchTab] Could not retrieve saved group:", grpErr);
-      }
-    }
 
-    if (!currentGroup && tabId !== 'help') {
-      alert('Please select a group in "Config & Setup" before proceeding.');
-      tabId = 'help';
-    }
 
-    localStorage.setItem('activeTab', tabId);
 
-    const tabMap = {
-      'help': 'helpTab',
-      'checkin': 'checkinTab',
-      'score': 'scoreTab',
-      'phone': 'scoreTab',
-      'enterscore': 'scoreTab',
-      'ranksched': 'rankschedTab',
-      'admin': 'adminTab'
-    };
-
-    const btnMap = {
-      'help': 'tabHelpBtn',
-      'checkin': 'tabCheckinBtn',
-      'score': 'tabScoreBtn',
-      'phone': 'tabScoreBtn',
-      'enterscore': 'tabScoreBtn',
-      'ranksched': 'tabRankschedBtn',
-      'admin': 'tabAdminBtn'
-    };
-
-    // [CHANGE 2]: Clear active classes AND remove any leftover inline 'style.display = "none"' 
-    // from prior error handlers across all tab containers
-    document.querySelectorAll('.tab-content').forEach(el => {
-      el.classList.remove('active');
-      if (el.style.display === 'none') {
-        el.style.display = ''; // Reset inline override so CSS class rules control layout
-      }
-    });
-
-    document.querySelectorAll('.nav button').forEach(el => el.classList.remove('active'));
-
-    const targetId = tabMap[tabId] || (tabId + 'Tab');
-    const activeContent = document.getElementById(targetId);
-
-    // [CHANGE 3]: Activate and force display block on target container BEFORE triggering network fetches
-    if (activeContent) {
-      activeContent.classList.add('active');
-      activeContent.style.display = 'block'; // Ensures container is visible regardless of previous state
-    } else {
-      console.warn(`⚠️ [switchTab] Target content element #${targetId} not found in DOM.`);
-    }
-
-    const btnId = btnMap[tabId];
-    if (btnId) {
-      const activeBtn = document.getElementById(btnId);
-      if (activeBtn) activeBtn.classList.add('active');
-    }
-
-    // [CHANGE 4]: Isolated Async Try/Catch for refreshActiveTabData()
-    // If backend data fetching or rendering throws an error, it is caught here locally.
-    // This guarantees the active tab container remains visible on screen instead of crashing the tab switch.
-    if (typeof refreshActiveTabData === 'function') {
-      try {
-        await refreshActiveTabData();
-      } catch (dataErr) {
-        console.error(`❌ [switchTab Data Error] Failed updating data for tab "${tabId}":`, dataErr);
-        
-        // Show an inline warning banner inside the tab instead of leaving it blank or hiding it
-        if (activeContent && typeof showContainerError === 'function') {
-          showContainerError(targetId, 'Could not refresh tab data. Displaying cached view.');
-        }
-      }
-    }
-
-  } catch (err) {
-    console.error(`❌ [switchTab Critical Error] Exception during transition to "${tabId}":`, err);
-
-    // [CHANGE 5]: Emergency Fallback Recovery
-    // In case of a high-level JS crash, force the fallback container to stay visible on screen
-    const fallbackId = tabMap[tabId] || (tabId + 'Tab');
-    const fallbackEl = document.getElementById(fallbackId) || document.getElementById('helpTab');
-    if (fallbackEl) {
-      fallbackEl.classList.add('active');
-      fallbackEl.style.display = 'block';
-    }
-  }
-}
-
-
-
-const HARDCODED_GROUPS = ['Womens', 'Mixed', 'Mens'];
-
-// Unified App Initialization
-document.addEventListener('DOMContentLoaded', () => {
-  // Check if user has previously saved or cached groups, otherwise fallback to hardcoded list
-  const cachedGroups = JSON.parse(localStorage.getItem('cached_groups') || '[]');
-  const groupsToUse = cachedGroups.length > 0 ? cachedGroups : HARDCODED_GROUPS;
-
-  populateGroups(groupsToUse);
-  populateSheets(groupsToUse);
-
-  const savedGroup = getSavedGroup();
-
-  if (!savedGroup) {
-    switchTab('help');
-  } else {
-    syncAllGroupDropdowns(savedGroup);
-  }
-
-  // Trigger main app setup
-  setupEventListeners();
-});
-
-function refreshActiveTabData() {
-  const currentGroup = getSavedGroup();
-  syncAllGroupDropdowns(currentGroup);
-
-  const activeTab = document.querySelector('.tab-content.active');
-  if (!activeTab) return;
-
-  /* Polling for Check-In tab */
-  if (activeTab.id === 'checkinTab' && checkincnt < 20) {
-    loadCheckInPlayers();
-    startCheckInAutoRefresh();
-  } else {
-    stopCheckInAutoRefresh();
-    checkincnt = 0;
-  }
-
-  if (activeTab.id === 'rankschedTab') {
-    loadRankingsAndSched();
-  } else if (activeTab.id === 'adminTab') {
-    loadAdminTabData(currentGroup);
-  } else if (activeTab.id === 'scoreTab' || activeTab.id === 'scoresTab' || activeTab.id === 'enterScoresTab') {
-    // Automatically load saved phone and check for foursome on tab switch
-    const savedPhone = localStorage.getItem('scpb_saved_phone');
-    if (savedPhone) {
-      // Look for the score tab's phone input field
-      const phoneInput = document.getElementById('phoneInput') || document.getElementById('scorePhoneInput');
-      if (phoneInput) phoneInput.value = savedPhone;
-      lookupPhone();
-    }
-  } else if (activeTab.id === 'helpTab') {
-    // Config & Setup tab only pre-fills the input field without API calls
-    const savedPhone = localStorage.getItem('scpb_saved_phone');
-    if (savedPhone) {
-      const phoneInput = document.getElementById('phoneInput');
-      if (phoneInput) phoneInput.value = savedPhone;
-    }
-  }
-}
-
-
-
-function autoSelectStoredGroup() {
-  const savedGroup = getSavedGroup();
-  if (savedGroup) {
-    syncAllGroupDropdowns(savedGroup);
-    refreshActiveTabData();
-  }
-}
-
-function forceRefresh() {
-  localStorage.clear();
-  sessionStorage.clear();
-  
-  if ('caches' in window) {
-    caches.keys().then(names => {
-      for (let name of names) caches.delete(name);
-    });
-  }
-  
-  window.location.reload(true);
-}
-
-const GEOFENCE_RADIUS_METERS = 1500;
-
-const ALLOWED_GEOFENCE_LOCATIONS = [
-  { lat: 33.65362909476011, lng: -112.27699205631843, name: "Marinette Pickleball Courts" },
-  { lat: 33.612973981080074, lng: -112.27032707707161, name: "Boult House" }     
-];
-
-function haversineDistanceMeters(lat1, lon1, lat2, lon2) {
-  const R = 6371000;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-            Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
-
-function checkGeofence() {
-  return new Promise((resolve) => {
-    const statusElement = document.getElementById('checkInStatus');
-
-    if (!navigator.geolocation) {
-      const errMsg = "❌ Geolocation Error: Location services are not supported by your browser or device.";
-      if (statusElement) {
-        statusElement.innerHTML = `<div style="color: var(--btn-danger-bg); background: #ffe6e6; border: 1px solid var(--btn-danger-bg); padding: 0.75rem; border-radius: 0.5rem; text-align: left;">${errMsg}</div>`;
-      }
-      alert("Geolocation is not supported by your browser/device.");
-      resolve(false);
-      return;
-    }
-
-    if (statusElement) {
-      statusElement.innerHTML = '<span class="loading-spinner"></span> Verifying your location at the courts...';
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const userLat = position.coords.latitude;
-        const userLng = position.coords.longitude;
-
-        let isWithinFence = false;
-        let minDistanceMeters = Infinity;
-        let nearestLocName = "";
-
-        for (const loc of ALLOWED_GEOFENCE_LOCATIONS) {
-          const dist = haversineDistanceMeters(userLat, userLng, loc.lat, loc.lng);
-          if (dist < minDistanceMeters) {
-            minDistanceMeters = dist;
-            nearestLocName = loc.name || "Pickleball Courts";
-          }
-          if (dist <= GEOFENCE_RADIUS_METERS) {
-            isWithinFence = true;
-            break;
-          }
-        }
-
-        if (!isWithinFence) {
-          const distMeters = Math.round(minDistanceMeters);
-          const distFeet = Math.round(minDistanceMeters * 3.28084);
-          const distMiles = (minDistanceMeters / 1609.34).toFixed(2);
-          const maxMeters = GEOFENCE_RADIUS_METERS;
-          const maxFeet = Math.round(GEOFENCE_RADIUS_METERS * 3.28084);
-
-          const userNotice = `📍 <b>Check-In Location Restriction</b><br>
-            You must be physically at the Sun City Pickleball Courts to check in.<br><br>
-            • <b>Nearest Venue:</b> ${nearestLocName}<br>
-            • <b>Your Current Distance:</b> ~${distMeters} meters (~${distFeet} ft / ${distMiles} miles) away<br>
-            • <b>Allowed Check-In Distance:</b> Within ${maxMeters} meters (~${maxFeet} ft)<br><br>
-            <i>Please move closer to the pickleball courts and try again once you arrive at the courts.</i>`;
-
-          if (statusElement) {
-            statusElement.innerHTML = `<div style="color: #721c24; background-color: #f8d7da; border: 2px solid #f5c6cb; padding: 0.85rem; border-radius: 0.5rem; text-align: left; font-size: 0.95rem; line-height: 1.4;">${userNotice}</div>`;
-          }
-
-          alert(`📍 Check-In Blocked: Not At Courts\n\nYou must be within ${maxMeters} meters (~${maxFeet} ft) of the pickleball courts to check in.\n\nYour current distance is ~${distMeters} meters (${distMiles} miles) away from ${nearestLocName}.\n\nPlease check in once you arrive at the courts!`);
-          
-          resolve(false);
-        } else {
-          if (statusElement) {
-            statusElement.innerHTML = '';
-          }
-          resolve(true);
-        }
-      },
-      (error) => {
-        let errorDetail = "Could not verify location.";
-        let detailedInstruction = "";
-
-        if (error.code === error.PERMISSION_DENIED) {
-          errorDetail = "Location permission denied.";
-          detailedInstruction = "To check in, please enable Location / GPS permissions for this app or browser in your mobile device settings.";
-        } else if (error.code === error.POSITION_UNAVAILABLE) {
-          errorDetail = "Location position unavailable.";
-          detailedInstruction = "Your device could not get a GPS fix. Ensure GPS / Location services are enabled and you have a clear view of the sky.";
-        } else if (error.code === error.TIMEOUT) {
-          errorDetail = "Location request timed out.";
-          detailedInstruction = "GPS location request timed out. Please try tapping check-in again.";
-        }
-
-        const fullErrorMsg = `⚠️ <b>Location Access Needed</b><br>${errorDetail}<br><br>${detailedInstruction}`;
-
-        if (statusElement) {
-          statusElement.innerHTML = `<div style="color: #856404; background-color: #fff3bf; border: 2px solid #ffeba0; padding: 0.85rem; border-radius: 0.5rem; text-align: left; font-size: 0.95rem; line-height: 1.4;">${fullErrorMsg}</div>`;
-        }
-
-        alert(`Geofence Location Error:\n\n${errorDetail}\n\n${detailedInstruction}`);
-        resolve(false);
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0
-      }
-    );
-  });
-}
-
-// Helper to strip court assignment and sort players alphabetically
-function processAndSortPlayers(players) {
-  if (!Array.isArray(players)) return [];
-  return players
-    .map(player => ({
-      ...player,
-      court: '' // Clear court name so it won't render
-    }))
-    .sort((a, b) => {
-      const nameA = String(a.name || `${a.first || ''} ${a.last || ''}`).trim();
-      const nameB = String(b.name || `${b.first || ''} ${b.last || ''}`).trim();
-      return nameA.localeCompare(nameB, undefined, { sensitivity: 'base' });
-    });
-}
-
-// Single startup payload fetch
-async function setupEventListeners() {
-  initAccessibility();
-  loadFromCache(); // 1. Display cached localStorage instantly
-
-  const savedGroup = getSavedGroup() || "Mens";
-  const savedPhone = (activeLookupPlayer && activeLookupPlayer.phone) || localStorage.getItem('scpb_saved_phone') || '';
-
-  try {
-    // 2. Fire BOTH backend requests simultaneously in parallel
-    const [initData, rosterData] = await Promise.all([
-      apiCall('getInitialAppData', {
-        groupName: savedGroup,
-        sheet: savedGroup ? "Sched " + savedGroup : "",
-        phone: savedPhone,
-        playerId: savedPhone
-      }),
-      apiCall('getAdminPlayersByGroup', {
-        group: savedGroup,
-        groupName: savedGroup
-      })
-    ]);
-
-    // Handle App Metadata
-    if (initData) {
-      if (initData.sheets) populateSheets(initData.sheets);
-      if (initData.groups) populateGroups(initData.groups);
-      handleVersionCheck(initData.version);
-    }
-
-    // Handle Player Roster & Seed Cache
-    const players = rosterData?.players || rosterData?.roster || [];
-    if (Array.isArray(players) && players.length > 0) {
-      const sortedPlayers = processAndSortPlayers(players);
-      
-      // Seed all shared memory caches
-      checkInPlayersCache = sortedPlayers;
-      window.appPlayersCache = sortedPlayers;
-      if (typeof adminPlayersCache !== 'undefined') {
-        adminPlayersCache = sortedPlayers;
-      }
-
-      renderCheckInPlayers(checkInPlayersCache);
-    }
-
-  } catch (err) {
-    console.warn("Initial sync failed, using cached data:", err);
-  } finally {
-    isInitialLoading = false;
-    updateGlobalLoaderStatus();
-
-    const loader = document.getElementById('globalLoader');
-    if (loader) loader.style.display = 'none';
-
-    startCheckInAutoRefresh();
-  }
-}
-  
-
-// Locate where you process the version response from Code_2.js
-function handleVersionCheck(serverVersion) {
-  if (false &serverVersion !== CURRENT_APP_VERSION) {
-    const errorMsg = `Version Mismatch Detected!\n` +
-                     `Client Version: ${CURRENT_APP_VERSION}\n` +
-                     `Server Version: ${serverVersion}\n\n` +
-                     `Please perform a hard refresh or redeploy the script.`;
-
-    console.error(errorMsg);
-
-    // 1. Hide global loader/spinner if present
-    const loader = document.getElementById("loader") || document.getElementById("loading-spinner");
-    if (loader) loader.style.display = "none";
-
-    // 2. Render a clear error message to the UI
-    const appContainer = document.getElementById("app") || document.body;
-    appContainer.innerHTML = `
-      <div style="padding: 20px; margin: 40px auto; max-width: 500px; border: 2px solid #d9534f; background-color: #fdf7f7; border-radius: 8px; font-family: sans-serif; text-align: center;">
-        <h3 style="color: #d9534f; margin-top: 0;">App Version Mismatch</h3>
-        <p style="color: #333;">The client code (<strong>v${CURRENT_APP_VERSION}</strong>) does not match the server code (<strong>v${serverVersion}</strong>).</p>
-        <p style="font-size: 0.9em; color: #666;">Automatic app initialization has been stopped to prevent infinite reloads.</p>
-        <button onclick="window.location.reload(true)" style="padding: 8px 16px; background-color: #d9534f; color: white; border: none; border-radius: 4px; cursor: pointer;">
-          Force Reload Page
-        </button>
-      </div>
-    `;
-
-    // 3. Throw an error or return to prevent the rest of setupEventListeners() from running
-    throw new Error(`Execution halted due to version mismatch: Client (${CURRENT_APP_VERSION}) vs Server (${serverVersion})`);
-  }
-
-  // Version matches — continue normal app initialization...
-}  
-
-async function loadRankingsAndSched() {
-  const group = getSavedGroup();
-  const viewerContent = document.getElementById('viewerContent');
-  const viewerStatus = document.getElementById('viewerStatus');
-
-  if (!group) {
-    if (viewerStatus) viewerStatus.innerHTML = '<i>Please select a group in Config & Setup.</i>';
-    return;
-  }
-
-  if (viewerStatus) viewerStatus.innerHTML = '<span class="loading-spinner"></span> <i>Loading schedule & rankings...</i>';
-
-  try {
-    const data = await apiCall('getRankingsAndScheduleData', { 
-      group: group, 
-      groupName: group,
-      sheet: "Sched " + group 
-    });
-
-    if (viewerStatus) viewerStatus.innerHTML = '';
-
-    if (!data) {
-      if (viewerContent) viewerContent.innerHTML = '<i>No schedule or ranking data returned.</i>';
-      return;
-    }
-
-    // Check schedule validity flag
-    if (data.scheduleReady === false) {
-      if (viewerContent) {
-        viewerContent.innerHTML = `
-          <div class="card" style="background:#fff3cd; color:#856404; text-align:center; padding:1.5rem;">
-            <h3>⏳ Schedule Not Yet Ready</h3>
-            <p style="margin:0;">The schedule for this week has not been generated yet. Please check back later.</p>
-          </div>`;
-      }
-      return;
-    }
-
-    // Render using the matching UI function
-    renderRankingsAndSchedule(data);
-  } catch (err) {
-    if (viewerStatus) viewerStatus.innerHTML = '❌ Error loading schedule & rankings: ' + err.message;
-  }
-}
 function renderRankingsAndSchedule(data) {
   const viewerContent = document.getElementById('viewerContent');
   if (!viewerContent) return;
@@ -2590,17 +2125,27 @@ function normalizePhone(phone) {
 }
 
 
+/**
+ * Loads roster data for Check-In and Admin tabs without phantom helper dependencies.
+ */
 async function loadUnifiedRosterData(groupName, forceRefresh = false) {
-  const targetGroup = groupName || document.getElementById('sheetSelect')?.value || document.getElementById('adminGlobalGroupSelect')?.value || (typeof getSavedGroup === 'function' ? getSavedGroup() : null);
+  const targetGroup = groupName 
+    || (document.getElementById('sheetSelect')?.value) 
+    || (document.getElementById('adminGlobalGroupSelect')?.value) 
+    || (typeof getSavedGroup === 'function' ? getSavedGroup() : null);
 
   if (!targetGroup) return;
 
   const playerListEl = document.getElementById('playerList');
   const adminListEl = document.getElementById('adminPlayerStatusList');
 
-  // [CHANGE]: Show non-destructive overlays over existing content instead of setting innerHTML = ""
-  if (playerListEl) showElementOverlay('playerList', 'Updating players...');
-  if (adminListEl) showElementOverlay('adminPlayerStatusList', 'Updating roster...');
+  // Set simple inline loading text only if containers are empty
+  if (playerListEl && !playerListEl.children.length) {
+    playerListEl.innerHTML = '<div style="padding: 1rem; text-align: center; color: #666;">Updating players...</div>';
+  }
+  if (adminListEl && !adminListEl.children.length) {
+    adminListEl.innerHTML = '<div style="padding: 1rem; text-align: center; color: #666;">Updating roster...</div>';
+  }
 
   try {
     const res = await apiCall('getUnifiedRoster', { 
@@ -2608,7 +2153,6 @@ async function loadUnifiedRosterData(groupName, forceRefresh = false) {
       forceRefresh: forceRefresh 
     });
 
-    // Extract players array safely
     let extractedPlayers = null;
     if (Array.isArray(res)) {
       extractedPlayers = res;
@@ -2620,50 +2164,175 @@ async function loadUnifiedRosterData(groupName, forceRefresh = false) {
       extractedPlayers = res.data;
     }
 
-    // [CHANGE]: ATOMIC SWAP - Render content into an offscreen string/fragment first.
-    // Only update innerHTML AFTER verification succeeds.
     if (extractedPlayers && extractedPlayers.length > 0) {
       if (typeof checkInPlayersCache !== 'undefined') {
         checkInPlayersCache = extractedPlayers;
       }
 
-      if (document.getElementById('checkInStatus') && typeof renderCheckInPlayers === 'function') {
-        const sortedPlayers = typeof processAndSortPlayers === 'function' ? processAndSortPlayers(extractedPlayers) : extractedPlayers;
-        
-        // Wipe old content ONLY now that new data is validated and ready to swap
-        if (playerListEl) playerListEl.innerHTML = '';
+      const sortedPlayers = typeof processAndSortPlayers === 'function' 
+        ? processAndSortPlayers(extractedPlayers) 
+        : extractedPlayers;
+
+      // Render Check-In Tab
+      if (playerListEl && typeof renderCheckInPlayers === 'function') {
+        playerListEl.innerHTML = '';
         renderCheckInPlayers(sortedPlayers);
       }
 
-      if (document.getElementById('adminGlobalGroupSelect')) {
-        if (typeof adminPlayersCache !== 'undefined') {
-          adminPlayersCache = extractedPlayers;
-        }
+      // Render Admin Tab
+      if (typeof adminPlayersCache !== 'undefined') {
+        adminPlayersCache = extractedPlayers;
+      }
+
+      if (adminListEl) {
+        adminListEl.innerHTML = '';
         if (typeof filterAdminPlayers === 'function') {
-          if (adminListEl) adminListEl.innerHTML = '';
           filterAdminPlayers();
+        } else if (typeof renderAdminCourts === 'function') {
+          renderAdminCourts(targetGroup);
         }
       }
     } else {
-      // Unregistered or empty payload handling without wiping the view structure
       const msg = (res && res.registered === false) 
         ? "Selected group is not registered yet. Please complete setup above." 
         : "No roster data available for this group.";
 
-      if (playerListEl) showContainerError('playerList', msg);
-      if (adminListEl) showContainerError('adminPlayerStatusList', msg);
+      const notice = `<div style="padding:0.75rem; color:#856404; background:#fff3cd; border:1px solid #ffeeba; border-radius:0.25rem;">${msg}</div>`;
+      if (playerListEl) playerListEl.innerHTML = notice;
+      if (adminListEl) adminListEl.innerHTML = notice;
     }
   } catch (err) {
     console.error("Unified load error:", err);
-    // [CHANGE]: Preserve whatever DOM existed before and show an alert banner
-    if (playerListEl) showContainerError('playerList', 'Failed to update roster. Displaying cached data.');
-    if (adminListEl) showContainerError('adminPlayerStatusList', 'Failed to update roster. Displaying cached data.');
-  } finally {
-    // [CHANGE]: Always remove overlays in finally block to ensure UI never freezes
-    if (playerListEl) hideElementOverlay('playerList');
-    if (adminListEl) hideElementOverlay('adminPlayerStatusList');
+    const errNotice = '<div style="padding:0.75rem; color:#721c24; background:#f8d7da; border:1px solid #f5c6cb; border-radius:0.25rem;">⚠️ Failed to update roster. Displaying cached data.</div>';
+    
+    // Show error notice only if DOM is empty so cached rows are preserved
+    if (playerListEl && !playerListEl.children.length) playerListEl.innerHTML = errNotice;
+    if (adminListEl && !adminListEl.children.length) adminListEl.innerHTML = errNotice;
   }
 }
+
+/**
+ * 1. TAB SWITCHING (Fixed Scoping & Fallback)
+ */
+async function switchTab(tabId) {
+  // Define maps outside try/catch so they remain accessible in the catch block
+  const tabMap = {
+    'help': 'helpTab',
+    'checkin': 'checkinTab',
+    'score': 'scoreTab',
+    'phone': 'scoreTab',
+    'enterscore': 'scoreTab',
+    'ranksched': 'rankschedTab',
+    'admin': 'adminTab'
+  };
+
+  const btnMap = {
+    'help': 'tabHelpBtn',
+    'checkin': 'tabCheckinBtn',
+    'score': 'tabScoreBtn',
+    'phone': 'tabScoreBtn',
+    'enterscore': 'tabScoreBtn',
+    'ranksched': 'tabRankschedBtn',
+    'admin': 'tabAdminBtn'
+  };
+
+  try {
+    let currentGroup = typeof getSavedGroup === 'function' ? getSavedGroup() : null;
+
+    if (!currentGroup && tabId !== 'help') {
+      alert('Please select a group in "Config & Setup" before proceeding.');
+      tabId = 'help';
+    }
+
+    if (typeof updateAllGroupDisplays === 'function') {
+      updateAllGroupDisplays(currentGroup);
+    }
+    localStorage.setItem('activeTab', tabId);
+
+    // Hide all tab views
+    document.querySelectorAll('.tab-content').forEach(el => {
+      el.classList.remove('active');
+      el.style.display = 'none';
+    });
+
+    document.querySelectorAll('.nav button').forEach(el => el.classList.remove('active'));
+
+    // Activate target tab
+    const targetId = tabMap[tabId] || (tabId + 'Tab');
+    const activeContent = document.getElementById(targetId);
+    if (activeContent) {
+      activeContent.classList.add('active');
+      activeContent.style.display = 'block';
+    } else {
+      console.warn(`⚠️ [switchTab] Target element #${targetId} not found.`);
+    }
+
+    const btnId = btnMap[tabId];
+    if (btnId) {
+      const activeBtn = document.getElementById(btnId);
+      if (activeBtn) activeBtn.classList.add('active');
+    }
+
+    // Trigger tab-specific refresh
+    await refreshActiveTabData();
+
+  } catch (err) {
+    console.error(`❌ [switchTab Error] Exception during transition to "${tabId}":`, err);
+    const fallbackId = tabMap[tabId] || 'helpTab';
+    const fallbackEl = document.getElementById(fallbackId);
+    if (fallbackEl) {
+      fallbackEl.classList.add('active');
+      fallbackEl.style.display = 'block';
+    }
+  }
+}
+
+/**
+ * 2. REFRESH ROUTER (Required by switchTab)
+ */
+async function refreshActiveTabData() {
+  const activeTab = localStorage.getItem('activeTab') || 'help';
+  const currentGroup = typeof getSavedGroup === 'function' ? getSavedGroup() : null;
+
+  if (!currentGroup) return;
+
+  if (activeTab === 'checkin' || activeTab === 'admin') {
+    if (typeof loadUnifiedRosterData === 'function') {
+      await loadUnifiedRosterData(currentGroup);
+    }
+  } else if (activeTab === 'ranksched') {
+    if (typeof loadRankingsAndSched === 'function') {
+      await loadRankingsAndSched();
+    }
+  }
+}
+
+/**
+ * 3. VERSION CHECK FIX (Fixed Bitwise Syntax Error)
+ */
+function handleVersionCheck(serverVersion) {
+  if (typeof CURRENT_APP_VERSION !== 'undefined' && serverVersion !== CURRENT_APP_VERSION) {
+    const errorMsg = `Version Mismatch!\nClient: v${CURRENT_APP_VERSION}\nServer: v${serverVersion}`;
+    console.error(errorMsg);
+
+    const loader = document.getElementById("loader") || document.getElementById("loading-spinner");
+    if (loader) loader.style.display = "none";
+
+    const appContainer = document.getElementById("app") || document.body;
+    appContainer.innerHTML = `
+      <div style="padding: 20px; margin: 40px auto; max-width: 500px; border: 2px solid #d9534f; background-color: #fdf7f7; border-radius: 8px; text-align: center;">
+        <h3 style="color: #d9534f; margin-top: 0;">App Version Mismatch</h3>
+        <p style="color: #333;">Client (v${CURRENT_APP_VERSION}) does not match server (v${serverVersion}).</p>
+        <button onclick="window.location.reload(true)" style="padding: 8px 16px; background-color: #d9534f; color: white; border: none; border-radius: 4px; cursor: pointer;">
+          Force Reload Page
+        </button>
+      </div>
+    `;
+
+    throw new Error(`Execution halted: Version mismatch`);
+  }
+}
+
 
 
 
@@ -2714,16 +2383,68 @@ async function fetchGroupRoster(group, forceRefresh = false) {
 
 
 
+/**
+ * Checks if a player exists in the roster cache for the given group.
+ * @param {string} phone - The phone number entered by the user.
+ * @param {string} selectedGroup - The group name to search within.
+ * @returns {{exists: boolean, player: object|null}} Result object.
+ */
+function checkPlayerExists(phone, selectedGroup) {
+  if (!phone) return { exists: false, player: null };
+
+  // 1. Normalize phone input
+  const cleanPhone = typeof normalizePhone === 'function'
+    ? normalizePhone(phone)
+    : String(phone).replace(/\D/g, '');
+
+  if (cleanPhone.length < 7) return { exists: false, player: null };
+
+  const targetGroup = selectedGroup ? String(selectedGroup).trim().toLowerCase() : '';
+
+  // 2. Load active in-memory roster cache
+  const roster = (Array.isArray(window.appPlayersCache) && window.appPlayersCache.length > 0)
+    ? window.appPlayersCache
+    : (Array.isArray(checkInPlayersCache) && checkInPlayersCache.length > 0)
+      ? checkInPlayersCache
+      : (Array.isArray(adminPlayersCache) ? adminPlayersCache : []);
+
+  // 3. Search for a player matching BOTH phone number and group
+  const player = roster.find(p => {
+    // Match phone number
+    const pPhone = typeof normalizePhone === 'function'
+      ? normalizePhone(p.phone || p.cell || p.mobile || p.playerId)
+      : String(p.phone || p.cell || p.mobile || p.playerId || '').replace(/\D/g, '');
+
+    const phoneMatches = pPhone.length >= 7 && (
+      pPhone === cleanPhone ||
+      pPhone.endsWith(cleanPhone.slice(-7)) ||
+      cleanPhone.endsWith(pPhone.slice(-7))
+    );
+
+    if (!phoneMatches) return false;
+
+    // Match group (if selectedGroup is provided)
+    if (!targetGroup) return true;
+
+    const pGroup = String(p.groupName || p.group || p.selectedGroup || '').trim().toLowerCase();
+    return !pGroup || pGroup === targetGroup;
+  });
+
+  return {
+    exists: !!player,
+    player: player || null
+  };
+}
   
 // 4. Save Phone Number to LocalStorage & Load Status
 function savePhoneToCache() {
   const phoneInput = document.getElementById("phoneInput");
   const savePhoneBtn = document.getElementById("savePhoneBtn");
-  
+
   // Grab selected radio button group (Womens, Mixed, Mens)
   const selectedRadio = document.querySelector('input[name="helpGroupRadio"]:checked');
   const selectedGroup = selectedRadio ? selectedRadio.value : "";
-  
+
   const phone = phoneInput ? phoneInput.value.trim() : "";
 
   if (!phone) {
@@ -2731,36 +2452,52 @@ function savePhoneToCache() {
     return;
   }
 
-  // 🔍 Replace 'checkPlayerExists(phone)' with your actual roster lookup check/API call
-  const isRegistered = checkPlayerExists(phone, selectedGroup); 
+  // Fixed: Destructuring `exists` instead of `isRegistered`
+  const { exists, player } = checkPlayerExists(phone, selectedGroup);
 
-  if (!isRegistered) {
-    // ==========================================
-    // ❌ FAILURE STATE: RED / "Must register"
-    // ==========================================
-    savePhoneBtn.style.backgroundColor = "#d90429"; // Red (use #ffc107 for Yellow)
-    savePhoneBtn.style.color = "#ffffff";
-    savePhoneBtn.textContent = "Must register";
-
-    // Re-bind click handler so pressing "Must register" opens the accordion
-    savePhoneBtn.onclick = function () {
-      redirectToRegistrationTab(phone, selectedGroup);
-    };
-
-  } else {
+  if (exists) {
     // ==========================================
     // ✅ SUCCESS STATE: GREEN / "Registered ✓"
     // ==========================================
-    savePhoneBtn.style.backgroundColor = "#2d6a4f"; // Green
-    savePhoneBtn.style.color = "#ffffff";
-    savePhoneBtn.textContent = "Registered ✓";
+    
+    // 1. Save valid phone & group to localStorage
+    localStorage.setItem("scpb_saved_phone", phone);
+    localStorage.setItem("scpb_saved_group", selectedGroup);
 
-    // Restore original click handler in case they search another number later
-    savePhoneBtn.onclick = savePhoneToCache;
+    // 2. Update button styling
+    if (savePhoneBtn) {
+      savePhoneBtn.style.backgroundColor = "#2d6a4f"; // Green
+      savePhoneBtn.style.color = "#ffffff";
+      savePhoneBtn.textContent = "Registered ✓";
+      savePhoneBtn.onclick = savePhoneToCache;
+    }
 
-    // Continue with your standard cache/status display logic...
+    // 3. Display profile / check-in view
+    console.log('Found player:', player);
+    showCheckInView(player);
+
+  } else {
+    // ==========================================
+    // ❌ FAILURE STATE: RED / "Must register"
+    // ==========================================
+
+    // 1. Update button styling & rebind click to open registration form
+    if (savePhoneBtn) {
+      savePhoneBtn.style.backgroundColor = "#d90429"; // Red
+      savePhoneBtn.style.color = "#ffffff";
+      savePhoneBtn.textContent = "Must register";
+
+      savePhoneBtn.onclick = function () {
+        redirectToRegistrationTab(phone, selectedGroup);
+      };
+    }
+
+    // 2. Direct user immediately to registration tab
+    console.log('Not registered in group. Directing to registration...');
+    redirectToRegistrationTab(phone, selectedGroup);
   }
 }
+
 
 
 // Helper to fill pre-populated values and switch tabs
@@ -3073,6 +2810,14 @@ async function onHelpGroupRadioChange(groupValue) {
   if (cleanPhone.length >= 7) {
     await loadPlayerStatusFromCache(phone);
   }
+  // Sync all tab badges immediately
+  updateAllGroupDisplays(selectedGroup);
+
+  // Refresh active tab data if function exists
+  if (typeof refreshActiveTabData === 'function') {
+    refreshActiveTabData();
+  }
+    
 }
 
 
@@ -3231,7 +2976,6 @@ function submitFrontPageRegistration() {
 }
 
 
-
 // ==========================================
 // 8. INITIALIZER ON DOM LOAD
 // ==========================================
@@ -3254,13 +2998,15 @@ document.addEventListener("DOMContentLoaded", async function () {
 
   if (phoneInput) {
     if (cachedPhone) {
-      phoneInput.value = cachedPhone;
-      setSaveButtonState(true);
-      await loadPlayerStatusFromCache(cachedPhone);
-    } else {
-      setSaveButtonState(false);
-      setAppViewState(false);
-    }
+      // Fixed: Destructuring `exists` instead of `isRegistered`
+      const { exists, player } = checkPlayerExists(cachedPhone, cachedGroup); 
+      if (exists) {
+        console.log('Found player:', player);
+        setSaveButtonState(true);
+        phoneInput.value = cachedPhone;
+        await loadPlayerStatusFromCache(cachedPhone);
+      }
+    } // Fixed: Added missing closing brace for `if (cachedPhone)`
 
     let phoneDebounceTimer = null;
     phoneInput.addEventListener("input", function () {
@@ -3278,31 +3024,29 @@ document.addEventListener("DOMContentLoaded", async function () {
       } else {
         setAppViewState(false, rawPhone);
       }
-    });
+    }); // Fixed: Changed `};` to `});`
   }
 });
 
 
-  (function loadTheme() {
-    const themeLink = document.getElementById('theme-stylesheet');
-    const hostname = window.location.hostname;
+(function loadTheme() {
+  const themeLink = document.getElementById('theme-stylesheet');
+  const hostname = window.location.hostname;
 
-    // Check if domain is local or explicitly a dev environment
-    const isDev = hostname === 'localhost' || 
-                  hostname === '127.0.0.1' || 
-                  hostname.includes('dev') || 
-                  hostname.includes('staging');
+  // Check if domain is local or explicitly a dev environment
+  const isDev = hostname === 'localhost' || 
+                hostname === '127.0.0.1' || 
+                hostname.includes('dev') || 
+                hostname.includes('staging');
 
-    const targetTheme = isDev ? 'devtheme.css' : 'prodtheme.css';
+  const targetTheme = isDev ? 'devtheme.css' : 'prodtheme.css';
 
-    console.log(`[Theme Switcher] Host: "${hostname}" | Loading: ${targetTheme}`);
-    
-    if (themeLink) {
-      themeLink.href = targetTheme;
-    }
-  })();
-
-      
+  console.log(`[Theme Switcher] Host: "${hostname}" | Loading: ${targetTheme}`);
+  
+  if (themeLink) {
+    themeLink.href = targetTheme;
+  }
+})();      
   </script>
   </body>
 </html>
