@@ -22,6 +22,23 @@ const GROUP_COURT_MAP = {
 let _dbInstance = null;
 
 
+function testTimestampUpdates() {
+  const testGroup = "Mens"; // Change to match one of your groups
+  const testPlayerName = "John Doe"; // Use a real player name from your sheet
+  const testPhone = "5551234567"; // Use that player's phone number
+
+  Logger.log("--- 1. Testing Active/Inactive Toggle ---");
+  const statusResult = toggleUnifiedActiveStatus({
+    groupName: testGroup,
+    playerName: testPlayerName,
+    phone: testPhone
+  });
+  Logger.log("Status Result: " + JSON.stringify(statusResult));
+
+  Logger.log("--- 2. Testing Check-In Toggle ---");
+  const checkInResult = toggleSingleCheckIn(testGroup, testPlayerName, true);
+  Logger.log("Check-in Result: " + JSON.stringify(checkInResult));
+}
 
 function testToggleDebug() {
   // Replace these with actual values from your Google Sheet to test!
