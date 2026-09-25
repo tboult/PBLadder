@@ -24,8 +24,8 @@ let _dbInstance = null;
  
 function testTimestampUpdates() {
   const testGroup = "Mens"; // Change to match one of your groups
-  const testPlayerName = "John Doe"; // Use a real player name from your sheet
-  const testPhone = "5551234567"; // Use that player's phone number
+  const testPlayerName = "Terry Boult"; // Use a real player name from your sheet
+  const testPhone = "7199630573"; // Use that player's phone number
 
   Logger.log("--- 1. Testing Active/Inactive Toggle ---");
   const statusResult = toggleUnifiedActiveStatus({
