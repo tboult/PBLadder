@@ -21,7 +21,7 @@ const GROUP_COURT_MAP = {
 
 let _dbInstance = null;
 
-
+ 
 function testTimestampUpdates() {
   const testGroup = "Mens"; // Change to match one of your groups
   const testPlayerName = "John Doe"; // Use a real player name from your sheet
