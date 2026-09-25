@@ -185,138 +185,7 @@ function getAvailableGroups() { return GROUPS; }
 
 
 
-function toggleSingleCheckIn(sheetNameOrData, playerName, isCheckedIn) {
-  let sheetName, targetPlayer, checkedState;
-  if (typeof sheetNameOrData === 'object' && sheetNameOrData !== null) {
-    sheetName = sheetNameOrData.sheet || sheetNameOrData.schedSheetName || sheetNameOrData.tab || sheetNameOrData.group || "";
-    targetPlayer = sheetNameOrData.playerName || sheetNameOrData.name || sheetNameOrData.phone || "";
-    checkedState = sheetNameOrData.isCheckedIn !== undefined ? sheetNameOrData.isCheckedIn : sheetNameOrData.checkedIn;
-  } else {
-    sheetName = sheetNameOrData;
-    targetPlayer = playerName;
-    checkedState = isCheckedIn;
-  }
 
-  const result = updatePlayerCheckInInSheet(sheetName, targetPlayer, checkedState);
-
-  const cacheKey = getCheckInCacheKey(sheetName);
-  const cache = CacheService.getScriptCache();
-  try {
-    const cachedData = cache.get(cacheKey);
-    if (cachedData) {
-      let players = JSON.parse(cachedData);
-      const target = String(targetPlayer).trim().toLowerCase();
-      players = players.map(p => {
-        if (String(p.name).trim().toLowerCase() === target || String(p.phone).trim() === target) {
-          p.checkedIn = !!checkedState;
-          p.checked = !!checkedState;
-        }
-        return p;
-      });
-      cache.put(cacheKey, JSON.stringify(players), 600);
-    }
-  } catch (err) {
-    cache.remove(cacheKey); 
-  }
-  return result;
-}
-
-
-function updatePlayerCheckInInSheet(sheetName, targetPlayer, checkedState) {
-  logDebug("updatePlayerCheckInInSheet", "Updating check-in", { sheetName, targetPlayer, checkedState });
-  if (!sheetName || !targetPlayer) return { success: false, message: "Missing parameter" };
-
-  const ss = getDb();
-  let cleanGroupName = String(sheetName).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
-  let sheet = ss.getSheetByName("Sched " + cleanGroupName) || 
-              ss.getSheetByName(sheetName);
-
-  if (!sheet) return { success: false, message: "Sheet not found: " + sheetName };
-
-  const data = sheet.getDataRange().getValues();
-  if (!data || data.length <= 1) return { success: false, message: "No data in sheet" };
-
-  // Helper to normalize strings (replaces non-breaking spaces \u00A0 and double spaces)
-  const cleanStr = str => String(str || "").replace(/[\u00A0\s]+/g, " ").trim().toLowerCase();
-
-  // 1. Dynamically locate the header row (in case Row 1 is a title/banner)
-  let headerRowIdx = 0;
-  let nameIdx = -1;
-  let checkInIdx = -1;
-
-  for (let r = 0; r < Math.min(data.length, 5); r++) {
-    const rowHeaders = data[r].map(h => cleanStr(h).replace(/[\s\-_]/g, ""));
-    const tempNameIdx = rowHeaders.findIndex(h => h.includes("player") || h.includes("name"));
-    
-    if (tempNameIdx !== -1) {
-      headerRowIdx = r;
-      nameIdx = tempNameIdx;
-      checkInIdx = rowHeaders.findIndex(h => h.includes("checkin") || h.includes("status") || h === "x");
-      break;
-    }
-  }
-
-  // Fallbacks if header scan didn't locate exact columns
-  if (nameIdx === -1) nameIdx = 0;
-  if (checkInIdx === -1) checkInIdx = 2; // Column C ("Check-In")
-
-  const targetNorm = cleanStr(targetPlayer);
-  let found = false;
-
-  // 2. Scan player rows below the header
-  for (let r = headerRowIdx + 1; r < data.length; r++) {
-    let pName = cleanStr(data[r][nameIdx]);
-    if (!pName) continue;
-
-    // Exact match OR fuzzy containment (handles "Jennifer Little (Sub)" or "Jennifer Little / Partner")
-    if (pName === targetNorm || pName.includes(targetNorm) || targetNorm.includes(pName)) {
-      sheet.getRange(r + 1, checkInIdx + 1).setValue(checkedState ? "X" : "");
-      found = true;
-      break;
-    }
-  }
-
-  return { success: found, message: found ? "Updated check-in" : `Player '${targetPlayer}' not found on sheet` };
-}
-
-
-function saveCheckIns(schedSheetName, checkedPlayerNames) {
-  logDebug("saveCheckIns", "Saving check-ins for sheet", { schedSheetName, checkedPlayerNames });
-  if (!schedSheetName) return "⚠️ Error: No target sheet specified.";
-
-  const ss = getDb();
-  let targetName = schedSheetName.toString().trim();
-  if (!targetName.startsWith("Sched ")) targetName = "Sched " + targetName;
-
-  let sheet = ss.getSheetByName(targetName);
-  if (!sheet) return `⚠️ Error: Sheet '${targetName}' not found.`;
-
-  const data = sheet.getDataRange().getValues();
-  const namesArray = Array.isArray(checkedPlayerNames) 
-    ? checkedPlayerNames 
-    : JSON.parse(checkedPlayerNames || "[]");
-  const checkedSet = new Set(namesArray.map(n => n.toString().trim().toLowerCase()));
-
-  let headers = data[0].map(h => h.toString().toLowerCase().trim());
-  let checkInIdx = headers.indexOf("check-in");
-  let targetCol = checkInIdx !== -1 ? checkInIdx + 1 : 7;
-
-  let updatedCount = 0;
-  for (let i = 1; i < data.length; i++) {
-    let name = data[i][0] ? data[i][0].toString().trim() : "";
-    let court = data[i][1] ? data[i][1].toString().trim() : "";
-    if (name && court && court !== "BYE" && !name.startsWith("---") && !name.startsWith("Time:")) {
-      let isChecked = checkedSet.has(name.toLowerCase());
-      sheet.getRange(i + 1, targetCol).setValue(isChecked ? "X" : "");
-      if (isChecked) updatedCount++;
-    }
-  }
-
-  const cacheKey = getCheckInCacheKey(schedSheetName);
-  if (cacheKey) CacheService.getScriptCache().remove(cacheKey);
-
-  return `✅ Check-ins saved successfully (${updatedCount} checked in)!`;
-}
 
 
 
@@ -2738,7 +2607,166 @@ function getUnifiedRoster(payload) {
 
 
 
+/**
+ * Helper to get or append a timestamp header if it doesn't already exist.
+ */
+function getOrAddHeaderColumn(sheet, headerRowIdx, headerRowValues, targetHeaderName) {
+  const cleanTarget = targetHeaderName.toLowerCase().replace(/[\s\-_]/g, "");
+  let colIdx = headerRowValues.findIndex(h => {
+    const cleanH = String(h || "").toLowerCase().replace(/[\s\-_]/g, "");
+    return cleanH.includes(cleanTarget);
+  });
 
+  // If header doesn't exist, append it to the end of the header row
+  if (colIdx === -1) {
+    colIdx = headerRowValues.length;
+    sheet.getRange(headerRowIdx + 1, colIdx + 1).setValue(targetHeaderName);
+  }
+  return colIdx;
+}
+
+function toggleSingleCheckIn(sheetNameOrData, playerName, isCheckedIn) {
+  let sheetName, targetPlayer, checkedState;
+  if (typeof sheetNameOrData === 'object' && sheetNameOrData !== null) {
+    sheetName = sheetNameOrData.sheet || sheetNameOrData.schedSheetName || sheetNameOrData.tab || sheetNameOrData.group || "";
+    targetPlayer = sheetNameOrData.playerName || sheetNameOrData.name || sheetNameOrData.phone || "";
+    checkedState = sheetNameOrData.isCheckedIn !== undefined ? sheetNameOrData.isCheckedIn : sheetNameOrData.checkedIn;
+  } else {
+    sheetName = sheetNameOrData;
+    targetPlayer = playerName;
+    checkedState = isCheckedIn;
+  }
+
+  const now = new Date();
+  const result = updatePlayerCheckInInSheet(sheetName, targetPlayer, checkedState, now);
+
+  const cacheKey = getCheckInCacheKey(sheetName);
+  const cache = CacheService.getScriptCache();
+  try {
+    const cachedData = cache.get(cacheKey);
+    if (cachedData) {
+      let players = JSON.parse(cachedData);
+      const target = String(targetPlayer).trim().toLowerCase();
+      players = players.map(p => {
+        if (String(p.name).trim().toLowerCase() === target || String(p.phone).trim() === target) {
+          p.checkedIn = !!checkedState;
+          p.checked = !!checkedState;
+          p.lastCheckIn = now.toISOString();
+        }
+        return p;
+      });
+      cache.put(cacheKey, JSON.stringify(players), 600);
+    }
+  } catch (err) {
+    cache.remove(cacheKey); 
+  }
+  return result;
+}
+
+
+function updatePlayerCheckInInSheet(sheetName, targetPlayer, checkedState, timestamp) {
+  logDebug("updatePlayerCheckInInSheet", "Updating check-in", { sheetName, targetPlayer, checkedState });
+  if (!sheetName || !targetPlayer) return { success: false, message: "Missing parameter" };
+
+  const ss = getDb();
+  let cleanGroupName = String(sheetName).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
+  let sheet = ss.getSheetByName("Sched " + cleanGroupName) || 
+              ss.getSheetByName(sheetName);
+
+  if (!sheet) return { success: false, message: "Sheet not found: " + sheetName };
+
+  const data = sheet.getDataRange().getValues();
+  if (!data || data.length <= 1) return { success: false, message: "No data in sheet" };
+
+  const cleanStr = str => String(str || "").replace(/[\u00A0\s]+/g, " ").trim().toLowerCase();
+
+  // 1. Dynamically locate header row
+  let headerRowIdx = 0;
+  let nameIdx = -1;
+  let checkInIdx = -1;
+
+  for (let r = 0; r < Math.min(data.length, 5); r++) {
+    const rowHeaders = data[r].map(h => cleanStr(h).replace(/[\s\-_]/g, ""));
+    const tempNameIdx = rowHeaders.findIndex(h => h.includes("player") || h.includes("name"));
+    
+    if (tempNameIdx !== -1) {
+      headerRowIdx = r;
+      nameIdx = tempNameIdx;
+      checkInIdx = rowHeaders.findIndex(h => h.includes("checkin") || h.includes("status") || h === "x");
+      break;
+    }
+  }
+
+  if (nameIdx === -1) nameIdx = 0;
+  if (checkInIdx === -1) checkInIdx = 2;
+
+  // Locate or create "Last Check-In" timestamp column
+  const lastCheckInIdx = getOrAddHeaderColumn(sheet, headerRowIdx, data[headerRowIdx], "Last Check-In");
+
+  const targetNorm = cleanStr(targetPlayer);
+  let found = false;
+
+  // 2. Scan player rows
+  for (let r = headerRowIdx + 1; r < data.length; r++) {
+    let pName = cleanStr(data[r][nameIdx]);
+    if (!pName) continue;
+
+    if (pName === targetNorm || pName.includes(targetNorm) || targetNorm.includes(pName)) {
+      const updateTime = timestamp || new Date();
+      sheet.getRange(r + 1, checkInIdx + 1).setValue(checkedState ? "X" : "");
+      sheet.getRange(r + 1, lastCheckInIdx + 1).setValue(checkedState ? updateTime : "");
+      found = true;
+      break;
+    }
+  }
+
+  return { success: found, message: found ? "Updated check-in" : `Player '${targetPlayer}' not found on sheet` };
+}
+
+
+function saveCheckIns(schedSheetName, checkedPlayerNames) {
+  logDebug("saveCheckIns", "Saving check-ins for sheet", { schedSheetName, checkedPlayerNames });
+  if (!schedSheetName) return "⚠️ Error: No target sheet specified.";
+
+  const ss = getDb();
+  let targetName = schedSheetName.toString().trim();
+  if (!targetName.startsWith("Sched ")) targetName = "Sched " + targetName;
+
+  let sheet = ss.getSheetByName(targetName);
+  if (!sheet) return `⚠️ Error: Sheet '${targetName}' not found.`;
+
+  const data = sheet.getDataRange().getValues();
+  const namesArray = Array.isArray(checkedPlayerNames) 
+    ? checkedPlayerNames 
+    : JSON.parse(checkedPlayerNames || "[]");
+  const checkedSet = new Set(namesArray.map(n => n.toString().trim().toLowerCase()));
+
+  let headers = data[0].map(h => h.toString().toLowerCase().trim());
+  let checkInIdx = headers.indexOf("check-in");
+  let targetCol = checkInIdx !== -1 ? checkInIdx + 1 : 7;
+
+  // Find or create "Last Check-In" timestamp column
+  let lastCheckInIdx = getOrAddHeaderColumn(sheet, 0, data[0], "Last Check-In");
+
+  const now = new Date();
+  let updatedCount = 0;
+
+  for (let i = 1; i < data.length; i++) {
+    let name = data[i][0] ? data[i][0].toString().trim() : "";
+    let court = data[i][1] ? data[i][1].toString().trim() : "";
+    if (name && court && court !== "BYE" && !name.startsWith("---") && !name.startsWith("Time:")) {
+      let isChecked = checkedSet.has(name.toLowerCase());
+      sheet.getRange(i + 1, targetCol).setValue(isChecked ? "X" : "");
+      sheet.getRange(i + 1, lastCheckInIdx + 1).setValue(isChecked ? now : "");
+      if (isChecked) updatedCount++;
+    }
+  }
+
+  const cacheKey = getCheckInCacheKey(schedSheetName);
+  if (cacheKey) CacheService.getScriptCache().remove(cacheKey);
+
+  return `✅ Check-ins saved successfully (${updatedCount} checked in)!`;
+}
 
 
 
@@ -2764,6 +2792,9 @@ function toggleUnifiedActiveStatus(payload) {
 
       if (activeIdx === -1) return { success: false, error: "Status/Active column header not found." };
 
+      // Find or dynamically add the "Last Availability Change" timestamp header
+      const lastAvailabilityIdx = getOrAddHeaderColumn(scoreSheet, 0, data[0], "Last Availability Change");
+
       for (let r = 1; r < data.length; r++) {
         let rowPhone = phoneIdx !== -1 ? String(data[r][phoneIdx] || "").replace(/\D/g, "") : "";
         let rowName = nameIdx !== -1 ? String(data[r][nameIdx] || "").trim().toLowerCase() : "";
@@ -2779,7 +2810,11 @@ function toggleUnifiedActiveStatus(payload) {
 
           cell.setValue(newStatus);
           cell.setBackground(newStatus === "ACTIVE" ? "#d4FF8a" : "#fff366");
-          
+
+          // Update the "Last Availability Change" column with current date/time
+          const now = new Date();
+          scoreSheet.getRange(r + 1, lastAvailabilityIdx + 1).setValue(now);
+
           // Force Google Sheets to save writes immediately
           SpreadsheetApp.flush();
 
@@ -2793,7 +2828,11 @@ function toggleUnifiedActiveStatus(payload) {
             Logger.log("Cache clear warning: " + cacheErr.message);
           }
 
-          return { success: true, newStatus: newStatus };
+          return { 
+            success: true, 
+            newStatus: newStatus, 
+            lastChange: now.toISOString() 
+          };
         }
       }
 
@@ -2803,6 +2842,10 @@ function toggleUnifiedActiveStatus(payload) {
     }
   });
 }
+
+
+
+
 
 function getCheckInCacheKey(groupName) {
   return "CHECKIN_CACHE_" + (groupName || 'DEFAULT').toUpperCase();
