@@ -2608,7 +2608,7 @@ function getUnifiedRoster(payload) {
 
 
 /**
- * Helper to get or append a timestamp header if it doesn't already exist.
+ * Helper to get or append a header column if it doesn't already exist on a sheet.
  */
 function getOrAddHeaderColumn(sheet, headerRowIdx, headerRowValues, targetHeaderName) {
   const cleanTarget = targetHeaderName.toLowerCase().replace(/[\s\-_]/g, "");
@@ -2617,13 +2617,54 @@ function getOrAddHeaderColumn(sheet, headerRowIdx, headerRowValues, targetHeader
     return cleanH.includes(cleanTarget);
   });
 
-  // If header doesn't exist, append it to the end of the header row
   if (colIdx === -1) {
     colIdx = headerRowValues.length;
     sheet.getRange(headerRowIdx + 1, colIdx + 1).setValue(targetHeaderName);
   }
   return colIdx;
 }
+
+/**
+ * Helper to update a long-term timestamp column on the master "Score <Group>" sheet.
+ */
+function updateScoreSheetTimestamp(groupName, targetPlayer, colHeaderName, timestamp) {
+  const ss = getDb();
+  let cleanGroup = String(groupName).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
+  const scoreSheet = ss.getSheetByName("Score " + cleanGroup);
+  if (!scoreSheet) return false;
+
+  const data = scoreSheet.getDataRange().getValues();
+  if (data.length < 2) return false;
+
+  const cleanStr = str => String(str || "").replace(/[\u00A0\s]+/g, " ").trim().toLowerCase();
+  const targetNorm = cleanStr(targetPlayer);
+  const targetPhone = String(targetPlayer).replace(/\D/g, "");
+
+  const headers = data[0].map(cleanStr);
+  let nameIdx = headers.findIndex(h => h.includes("name") || h.includes("player"));
+  let phoneIdx = headers.findIndex(h => h.includes("phone") || h.includes("mobile"));
+  if (nameIdx === -1) nameIdx = 0;
+
+  // Get or create timestamp column on the Score sheet
+  const timeColIdx = getOrAddHeaderColumn(scoreSheet, 0, data[0], colHeaderName);
+
+  for (let r = 1; r < data.length; r++) {
+    let pName = cleanStr(data[r][nameIdx]);
+    let pPhone = phoneIdx !== -1 ? String(data[r][phoneIdx] || "").replace(/\D/g, "") : "";
+
+    let isNameMatch = pName && (pName === targetNorm || pName.includes(targetNorm) || targetNorm.includes(pName));
+    let isPhoneMatch = targetPhone && pPhone && pPhone.endsWith(targetPhone.slice(-7));
+
+    if (isNameMatch || isPhoneMatch) {
+      scoreSheet.getRange(r + 1, timeColIdx + 1).setValue(timestamp || new Date());
+      return true;
+    }
+  }
+  return false;
+}
+
+
+// --- 1. CHECK-IN FUNCTIONS ---
 
 function toggleSingleCheckIn(sheetNameOrData, playerName, isCheckedIn) {
   let sheetName, targetPlayer, checkedState;
@@ -2651,7 +2692,7 @@ function toggleSingleCheckIn(sheetNameOrData, playerName, isCheckedIn) {
         if (String(p.name).trim().toLowerCase() === target || String(p.phone).trim() === target) {
           p.checkedIn = !!checkedState;
           p.checked = !!checkedState;
-          p.lastCheckIn = now.toISOString();
+          p.lastCheckIn = checkedState ? now.toISOString() : p.lastCheckIn;
         }
         return p;
       });
@@ -2670,17 +2711,15 @@ function updatePlayerCheckInInSheet(sheetName, targetPlayer, checkedState, times
 
   const ss = getDb();
   let cleanGroupName = String(sheetName).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
-  let sheet = ss.getSheetByName("Sched " + cleanGroupName) || 
-              ss.getSheetByName(sheetName);
+  let schedSheet = ss.getSheetByName("Sched " + cleanGroupName) || ss.getSheetByName(sheetName);
 
-  if (!sheet) return { success: false, message: "Sheet not found: " + sheetName };
+  if (!schedSheet) return { success: false, message: "Sheet not found: " + sheetName };
 
-  const data = sheet.getDataRange().getValues();
+  const data = schedSheet.getDataRange().getValues();
   if (!data || data.length <= 1) return { success: false, message: "No data in sheet" };
 
   const cleanStr = str => String(str || "").replace(/[\u00A0\s]+/g, " ").trim().toLowerCase();
 
-  // 1. Dynamically locate header row
   let headerRowIdx = 0;
   let nameIdx = -1;
   let checkInIdx = -1;
@@ -2700,24 +2739,25 @@ function updatePlayerCheckInInSheet(sheetName, targetPlayer, checkedState, times
   if (nameIdx === -1) nameIdx = 0;
   if (checkInIdx === -1) checkInIdx = 2;
 
-  // Locate or create "Last Check-In" timestamp column
-  const lastCheckInIdx = getOrAddHeaderColumn(sheet, headerRowIdx, data[headerRowIdx], "Last Check-In");
-
   const targetNorm = cleanStr(targetPlayer);
   let found = false;
+  const updateTime = timestamp || new Date();
 
-  // 2. Scan player rows
+  // 1. Mark weekly "X" on the Sched Sheet
   for (let r = headerRowIdx + 1; r < data.length; r++) {
     let pName = cleanStr(data[r][nameIdx]);
     if (!pName) continue;
 
     if (pName === targetNorm || pName.includes(targetNorm) || targetNorm.includes(pName)) {
-      const updateTime = timestamp || new Date();
-      sheet.getRange(r + 1, checkInIdx + 1).setValue(checkedState ? "X" : "");
-      sheet.getRange(r + 1, lastCheckInIdx + 1).setValue(checkedState ? updateTime : "");
+      schedSheet.getRange(r + 1, checkInIdx + 1).setValue(checkedState ? "X" : "");
       found = true;
       break;
     }
+  }
+
+  // 2. Write long-term timestamp to "Last Check-In" on master Score Sheet
+  if (checkedState) {
+    updateScoreSheetTimestamp(cleanGroupName, targetPlayer, "Last Check-In", updateTime);
   }
 
   return { success: found, message: found ? "Updated check-in" : `Player '${targetPlayer}' not found on sheet` };
@@ -2729,11 +2769,9 @@ function saveCheckIns(schedSheetName, checkedPlayerNames) {
   if (!schedSheetName) return "⚠️ Error: No target sheet specified.";
 
   const ss = getDb();
-  let targetName = schedSheetName.toString().trim();
-  if (!targetName.startsWith("Sched ")) targetName = "Sched " + targetName;
-
-  let sheet = ss.getSheetByName(targetName);
-  if (!sheet) return `⚠️ Error: Sheet '${targetName}' not found.`;
+  let cleanGroupName = String(schedSheetName).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
+  let sheet = ss.getSheetByName("Sched " + cleanGroupName);
+  if (!sheet) return `⚠️ Error: Sheet 'Sched ${cleanGroupName}' not found.`;
 
   const data = sheet.getDataRange().getValues();
   const namesArray = Array.isArray(checkedPlayerNames) 
@@ -2745,9 +2783,6 @@ function saveCheckIns(schedSheetName, checkedPlayerNames) {
   let checkInIdx = headers.indexOf("check-in");
   let targetCol = checkInIdx !== -1 ? checkInIdx + 1 : 7;
 
-  // Find or create "Last Check-In" timestamp column
-  let lastCheckInIdx = getOrAddHeaderColumn(sheet, 0, data[0], "Last Check-In");
-
   const now = new Date();
   let updatedCount = 0;
 
@@ -2757,8 +2792,12 @@ function saveCheckIns(schedSheetName, checkedPlayerNames) {
     if (name && court && court !== "BYE" && !name.startsWith("---") && !name.startsWith("Time:")) {
       let isChecked = checkedSet.has(name.toLowerCase());
       sheet.getRange(i + 1, targetCol).setValue(isChecked ? "X" : "");
-      sheet.getRange(i + 1, lastCheckInIdx + 1).setValue(isChecked ? now : "");
-      if (isChecked) updatedCount++;
+      
+      if (isChecked) {
+        updatedCount++;
+        // Write long-term timestamp on Score sheet
+        updateScoreSheetTimestamp(cleanGroupName, name, "Last Check-In", now);
+      }
     }
   }
 
@@ -2769,6 +2808,7 @@ function saveCheckIns(schedSheetName, checkedPlayerNames) {
 }
 
 
+// --- 2. AVAILABILITY / ACTIVE STATUS TOGGLE ---
 
 function toggleUnifiedActiveStatus(payload) {
   return executeWithLock(function() {
@@ -2792,14 +2832,13 @@ function toggleUnifiedActiveStatus(payload) {
 
       if (activeIdx === -1) return { success: false, error: "Status/Active column header not found." };
 
-      // Find or dynamically add the "Last Availability Change" timestamp header
+      // Get or add "Last Availability Change" column on Score sheet
       const lastAvailabilityIdx = getOrAddHeaderColumn(scoreSheet, 0, data[0], "Last Availability Change");
 
       for (let r = 1; r < data.length; r++) {
         let rowPhone = phoneIdx !== -1 ? String(data[r][phoneIdx] || "").replace(/\D/g, "") : "";
         let rowName = nameIdx !== -1 ? String(data[r][nameIdx] || "").trim().toLowerCase() : "";
 
-        // Match by phone OR fallback match by player name
         let isPhoneMatch = targetPhone && rowPhone && rowPhone.endsWith(targetPhone.slice(-7));
         let isNameMatch = targetName && rowName && (rowName === targetName || rowName.includes(targetName));
 
@@ -2811,14 +2850,12 @@ function toggleUnifiedActiveStatus(payload) {
           cell.setValue(newStatus);
           cell.setBackground(newStatus === "ACTIVE" ? "#d4FF8a" : "#fff366");
 
-          // Update the "Last Availability Change" column with current date/time
+          // Update "Last Availability Change" timestamp on Score sheet
           const now = new Date();
           scoreSheet.getRange(r + 1, lastAvailabilityIdx + 1).setValue(now);
 
-          // Force Google Sheets to save writes immediately
           SpreadsheetApp.flush();
 
-          // Safely invalidate cache without crashing if helper function is missing
           try {
             if (typeof getCheckInCacheKey === 'function') {
               const cacheKey = getCheckInCacheKey("Sched " + cleanGroup);
@@ -2842,8 +2879,6 @@ function toggleUnifiedActiveStatus(payload) {
     }
   });
 }
-
-
 
 
 
