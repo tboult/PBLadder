@@ -114,9 +114,10 @@ function logDebug(fnName, msg, extra = "") {
   console.log(`[${new Date().toISOString()}] [${fnName}] ${msg} ${extraStr}`.trim());
 }
 
+
 function getDb() {
     if (_dbInstance) return _dbInstance;
-    // Automatically pulls the Dev ID when running in Dev, or Prod ID when running in Prod
+    
     const sheetId = PropertiesService.getScriptProperties().getProperty("SHEET_ID");
   
     if (!sheetId) {
@@ -124,7 +125,8 @@ function getDb() {
     }
   
     try {
-      _dbInstance = SpreadsheetApp.openById(SPREADSHEET_ID);
+      // Changed SPREADSHEET_ID to sheetId
+      _dbInstance = SpreadsheetApp.openById(sheetId);
       return _dbInstance;
     } catch(e) {
       logDebug("getDb", "Error opening by Sheet ID, falling back to active", e.message);
@@ -132,6 +134,8 @@ function getDb() {
   _dbInstance = SpreadsheetApp.getActiveSpreadsheet();
   return _dbInstance;
 }
+
+
 
 
 
