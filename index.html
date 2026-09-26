@@ -2235,75 +2235,96 @@ async function loadUnifiedRosterData(groupName, forceRefresh = false) {
   const playerListEl = document.getElementById('playerList');
   const adminListEl = document.getElementById('adminPlayerStatusList');
 
-  // Set simple inline loading text only if containers are empty
-  if (playerListEl && !playerListEl.children.length) {
-    playerListEl.innerHTML = '<div style="padding: 1rem; text-align: center; color: #666;">Updating players...</div>';
-  }
-  if (adminListEl && !adminListEl.children.length) {
-    adminListEl.innerHTML = '<div style="padding: 1rem; text-align: center; color: #666;">Updating roster...</div>';
-  }
+  const maxRetries = 2; // Retry 2 times (3 total attempts)
+  let attempt = 0;
+  let res = null;
+  let extractedPlayers = null;
 
-  try {
-    const res = await apiCall('getUnifiedRoster', { 
-      groupName: targetGroup.trim(),
-      forceRefresh: forceRefresh 
-    });
-
-    let extractedPlayers = null;
-    if (Array.isArray(res)) {
-      extractedPlayers = res;
-    } else if (res && Array.isArray(res.players)) {
-      extractedPlayers = res.players;
-    } else if (res && res.data && Array.isArray(res.data.players)) {
-      extractedPlayers = res.data.players;
-    } else if (res && Array.isArray(res.data)) {
-      extractedPlayers = res.data;
-    }
-
-    if (extractedPlayers && extractedPlayers.length > 0) {
-      if (typeof checkInPlayersCache !== 'undefined') {
-        checkInPlayersCache = extractedPlayers;
-      }
-
-      const sortedPlayers = typeof processAndSortPlayers === 'function' 
-        ? processAndSortPlayers(extractedPlayers) 
-        : extractedPlayers;
-
-      // Render Check-In Tab
-      if (playerListEl && typeof renderCheckInPlayers === 'function') {
-        playerListEl.innerHTML = '';
-        renderCheckInPlayers(sortedPlayers);
-      }
-
-      // Render Admin Tab
-      if (typeof adminPlayersCache !== 'undefined') {
-        adminPlayersCache = extractedPlayers;
-      }
-
-      if (adminListEl) {
-        adminListEl.innerHTML = '';
-        if (typeof filterAdminPlayers === 'function') {
-          filterAdminPlayers();
-        } else if (typeof renderAdminCourts === 'function') {
-          renderAdminCourts(targetGroup);
-        }
-      }
+  while (attempt <= maxRetries) {
+    // Show UI feedback for initial load vs retries
+    if (attempt > 0) {
+      const retryNotice = `<div style="padding:1rem; text-align:center; color:#0d6efd; font-weight:bold;">🔄 Retrying roster request (${attempt}/${maxRetries})...</div>`;
+      if (playerListEl) playerListEl.innerHTML = retryNotice;
+      if (adminListEl) adminListEl.innerHTML = retryNotice;
+      
+      // Delay 1.2 seconds before retrying
+      await new Promise(resolve => setTimeout(resolve, 1200));
     } else {
-      const msg = (res && res.registered === false) 
-        ? "Selected group is not registered yet. Please complete setup above." 
-        : "No roster data available for this group.";
-
-      const notice = `<div style="padding:0.75rem; color:#856404; background:#fff3cd; border:1px solid #ffeeba; border-radius:0.25rem;">${msg}</div>`;
-      if (playerListEl) playerListEl.innerHTML = notice;
-      if (adminListEl) adminListEl.innerHTML = notice;
+      if (playerListEl && !playerListEl.children.length) {
+        playerListEl.innerHTML = '<div style="padding: 1rem; text-align: center; color: #666;">Updating players...</div>';
+      }
+      if (adminListEl && !adminListEl.children.length) {
+        adminListEl.innerHTML = '<div style="padding: 1rem; text-align: center; color: #666;">Updating roster...</div>';
+      }
     }
-  } catch (err) {
-    console.error("Unified load error:", err);
-    const errNotice = '<div style="padding:0.75rem; color:#721c24; background:#f8d7da; border:1px solid #f5c6cb; border-radius:0.25rem;">⚠️ Failed to update roster. Displaying cached data.</div>';
-    
-    // Show error notice only if DOM is empty so cached rows are preserved
-    if (playerListEl && !playerListEl.children.length) playerListEl.innerHTML = errNotice;
-    if (adminListEl && !adminListEl.children.length) adminListEl.innerHTML = errNotice;
+
+    try {
+      // Force refresh on retries to bypass deduplication/caching
+      res = await apiCall('getUnifiedRoster', { 
+        groupName: targetGroup.trim(),
+        forceRefresh: forceRefresh || attempt > 0 
+      });
+
+      extractedPlayers = null;
+      if (Array.isArray(res)) {
+        extractedPlayers = res;
+      } else if (res && Array.isArray(res.players)) {
+        extractedPlayers = res.players;
+      } else if (res && res.data && Array.isArray(res.data.players)) {
+        extractedPlayers = res.data.players;
+      } else if (res && Array.isArray(res.data)) {
+        extractedPlayers = res.data;
+      }
+
+      // If valid data is returned, break out of the retry loop
+      if (extractedPlayers && extractedPlayers.length > 0) {
+        break;
+      }
+    } catch (err) {
+      console.warn(`⚠️ [getUnifiedRoster] Attempt ${attempt + 1} failed:`, err);
+    }
+
+    attempt++;
+  }
+
+  // Render UI after retry loop completes
+  if (extractedPlayers && extractedPlayers.length > 0) {
+    if (typeof checkInPlayersCache !== 'undefined') {
+      checkInPlayersCache = extractedPlayers;
+    }
+
+    const sortedPlayers = typeof processAndSortPlayers === 'function' 
+      ? processAndSortPlayers(extractedPlayers) 
+      : extractedPlayers;
+
+    // Render Check-In Tab
+    if (playerListEl && typeof renderCheckInPlayers === 'function') {
+      playerListEl.innerHTML = '';
+      renderCheckInPlayers(sortedPlayers);
+    }
+
+    // Render Admin Tab
+    if (typeof adminPlayersCache !== 'undefined') {
+      adminPlayersCache = extractedPlayers;
+    }
+
+    if (adminListEl) {
+      adminListEl.innerHTML = '';
+      if (typeof filterAdminPlayers === 'function') {
+        filterAdminPlayers();
+      } else if (typeof renderAdminCourts === 'function') {
+        renderAdminCourts(targetGroup);
+      }
+    }
+  } else {
+    // Show error notice only after all retries have given up
+    const msg = (res && res.registered === false) 
+      ? "Selected group is not registered yet. Please complete setup above." 
+      : "No roster data available for this group.";
+
+    const notice = `<div style="padding:0.75rem; color:#856404; background:#fff3cd; border:1px solid #ffeeba; border-radius:0.25rem;">${msg}</div>`;
+    if (playerListEl) playerListEl.innerHTML = notice;
+    if (adminListEl) adminListEl.innerHTML = notice;
   }
 }
 
