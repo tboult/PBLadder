@@ -1,4 +1,4 @@
-const CACHE_NAME = 'scpb-ladder-v20260926164652';
+const CACHE_NAME = 'scpb-ladder-v20260926165303';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -27,7 +27,7 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  if (event.request.url.includes('script.google.com')) {
+  if (event.request.url.includes('script.google.com') || event.request.url.includes('googleusercontent.com')) {
     return;
   }
 
