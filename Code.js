@@ -2616,7 +2616,7 @@ function getUnifiedRoster(payload) {
     // Save fresh roster to Script Cache
     const payloadString = JSON.stringify(finalRoster);
     if (payloadString.length < 100000) {
-      cache.put(cacheKey, payloadString, 600);
+      cache.put(cacheKey, payloadString, 21600);
     }
 
     return { success: true, players: finalRoster, source: "live" };

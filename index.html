@@ -986,6 +986,88 @@ async function handlePlayerRowClick(rowEl, identifier) {
 
 async function lookupPhone(cachedPhone) {
   const phoneInput = document.getElementById('phoneInput') || document.getElementById('scorePhoneInput');
+  const phoneBtn= document.getElementById('savePhoneBtn');
+  const findBtn = document.getElementById('findFoursomeBtn');
+
+  let phone = cachedPhone || (phoneInput ? phoneInput.value : '');
+  phone = String(phone).replace(/\D/g, '');
+
+  // Wait until exactly 10 digits to prevent premature API calls
+  if (phone.length !== 10) return;
+
+  if (phoneInput) phoneInput.value = phone;
+
+  document.body.style.cursor = 'wait';
+  if (findBtn) {
+    findBtn.disabled = true;
+    findBtn.innerHTML = '⏳ Checking...'; // Shortened for button width
+  }
+  if (phoneBtn) {
+    phoneBtn.disabled = true;
+    phoneBtn.innerHTML = '⏳ Checking...'; // Shortened for button width
+  }
+
+  try {
+    const currentGroup = getSavedGroup();
+    // First, check if we have a locally cached success flag for this phone
+    // If not, make the API call
+    const result = await apiCall('findFoursomeByPhone', { 
+      groupName: currentGroup, 
+      phone: phone 
+    });
+
+    if (result && (result.success || result.found)) {
+      
+      // SUCCESS! Cache this phone number on the device so next time 
+      // they don't even have to type it.
+      localStorage.setItem('cachedPhone', phone);
+      
+
+      if (Array.isArray(result.foursome) && result.foursome.length > 0) {
+        const playerObj = (typeof result.player === 'object' && result.player !== null) 
+          ? result.player 
+          : { 
+              name: result.player || 'Player', 
+              court: result.court || 'Unassigned', 
+              group: result.group || currentGroup 
+            };
+
+           if (findBtn) {
+               findBtn.disabled = true;
+               findBtn.innerHTML = ' Found...'; // 
+           }
+            
+
+        if (!playerObj.court && result.court) playerObj.court = result.court;
+        if (!playerObj.group && result.group) playerObj.group = result.group;
+        
+        renderLookupResult(playerObj, result.foursome);
+      } else {
+        // Registered, but no foursome assigned yet
+        renderLookupResult(null, []);
+      }
+    } else {
+      // NOT FOUND ON SERVER. 
+      // This is where you flip the UI to the "Register" state.
+      if (phoneBtn) {
+         phoneBtn.innerHTML = 'Register New Player';
+         phoneBtn.onclick = showRegistrationForm; // Change button action
+      }
+      renderLookupResult(null, []);
+    }
+  } catch (err) {
+    console.error("Error during lookup:", err);
+    renderLookupResult(null, []);
+  } finally {
+    document.body.style.cursor = 'default';
+    if (phoneBtn && phoneBtn.innerHTML !== 'Register New Player') {
+      phoneBtn.disabled = false;
+      phoneBtn.innerHTML = 'Recheck Assignment';
+    }
+  }
+}
+async function lookupPhone(cachedPhone) {
+  const phoneInput = document.getElementById('phoneInput') || document.getElementById('scorePhoneInput');
   const findBtn = document.getElementById('findFoursomeBtn');
 
   let phone = cachedPhone || (phoneInput ? phoneInput.value : '');
@@ -3022,36 +3104,61 @@ document.addEventListener("DOMContentLoaded", async function () {
   }
 
   if (phoneInput) {
+    // 1. INITIAL LOAD CHECK
     if (cachedPhone) {
-      // Fixed: Destructuring `exists` instead of `isRegistered`
       const { exists, player } = checkPlayerExists(cachedPhone, cachedGroup); 
       if (exists) {
         console.log('Found player:', player);
-        setSaveButtonState(true);
+        setSaveButtonState(true); // Set to active/save state
         phoneInput.value = cachedPhone;
         await loadPlayerStatusFromCache(cachedPhone);
       }
-    } // Fixed: Added missing closing brace for `if (cachedPhone)`
+    }
 
     let phoneDebounceTimer = null;
+    
+    // 2. LIVE TYPING CHECK
     phoneInput.addEventListener("input", function () {
-      setSaveButtonState(false);
+      setSaveButtonState(false); // Reset button while typing
       const rawPhone = phoneInput.value.trim();
       const digits = typeof normalizePhone === "function" ? normalizePhone(rawPhone) : rawPhone.replace(/\D/g, "");
 
       if (phoneDebounceTimer) clearTimeout(phoneDebounceTimer);
 
-      if (digits.length >= 7) {
-        showStatusLoading("⏳ LOOKING UP...");
-        phoneDebounceTimer = setTimeout(() => {
-          loadPlayerStatusFromCache(rawPhone);
+      // Wait for exactly 10 digits for a definitive registration check
+      if (digits.length === 10) {
+        showStatusLoading("⏳ VERIFYING...");
+        
+        phoneDebounceTimer = setTimeout(async () => {
+          // Immediately check the local roster cache
+          const currentGroup = document.querySelector('input[name="helpGroupRadio"]:checked')?.value || cachedGroup;
+          const { exists, player } = checkPlayerExists(digits, currentGroup);
+          
+          if (exists) {
+            // KNOWN PLAYER: Activate the save button and load their status
+            setSaveButtonState(true);
+            await loadPlayerStatusFromCache(digits);
+          } else {
+            // UNKNOWN PLAYER: Flip UI to Registration Mode
+            // You can trigger your "Register" button state here
+            const saveBtn = document.getElementById('savePhoneBtn');
+            if (saveBtn) {
+              saveBtn.innerHTML = "Register New Player";
+              saveBtn.disabled = false;
+              // saveBtn.onclick = showRegistrationForm; // Wire this to your register function
+            }
+            showStatusLoading("Player not found. Please register.");
+            setAppViewState(false, rawPhone);
+          }
         }, 300);
-      } else {
+      } else if (digits.length < 10) {
+        // Clear the view if they delete numbers
         setAppViewState(false, rawPhone);
       }
-    }); // Fixed: Changed `};` to `});`
+    }); 
   }
 });
+
 
 
 (function loadTheme() {
@@ -3289,6 +3396,35 @@ function checkGeofence(userPhoneOverride) {
   });
 }      
 
+  
+function checkRegistrationStatus(phone) {
+  // 1. Check the phone's local cache first
+  const isLocallyCached = localStorage.getItem('registered_' + phone);
+  
+  if (isLocallyCached === 'true') {
+    // Instant success! They are cached. Load the app.
+    loadActivePlayerDashboard();
+    return; 
+  }
+
+  // 2. Not in cache, check the server (Google Sheet)
+  // (Optional: change your button text to "Checking..." or show a spinner here)
+  document.getElementById('actionButton').innerText = "Checking...";
+
+  google.script.run.withSuccessHandler(function(serverResult) {
+    if (serverResult.isFound) {
+      // Found on the server! Save to local cache for next time.
+      localStorage.setItem('registered_' + phone, 'true');
+      loadActivePlayerDashboard();
+    } else {
+      // 3. Not found locally or on the server. NOW they need to register.
+      // Change the button and show the rest of the registration form.
+      document.getElementById('actionButton').innerText = "Register";
+      document.getElementById('actionButton').onclick = submitNewRegistration; 
+      showRegistrationFields(); // show name, email, etc.
+    }
+  }).lookupPlayerByPhone(phone); // Your backend function
+}
 
   </script>
   </body>
