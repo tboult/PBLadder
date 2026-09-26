@@ -376,24 +376,13 @@
         </div>
       </details>
 
-      <!-- 6. Add New Player (Retained in Admin) -->
-      <details class="card" style="margin-bottom:1rem; background: var(--bg-color); cursor: pointer;">
-        <summary style="font-weight:bold; font-size:1.05rem; outline:none;">➕ 6. Add New Player</summary>
-        <div style="margin-top:0.75rem;">
-          <input type="text" id="adminRegFirst" placeholder="First Name" style="width:100%; margin-bottom:0.5rem; padding:0.5rem; box-sizing:border-box;">
-          <input type="text" id="adminRegLast" placeholder="Last Name" style="width:100%; margin-bottom:0.5rem; padding:0.5rem; box-sizing:border-box;">
-          <input type="tel" id="adminRegPhone" placeholder="Phone Number" style="width:100%; margin-bottom:0.5rem; padding:0.5rem; box-sizing:border-box;">
-          <input type="email" id="adminRegEmail" placeholder="Email" style="width:100%; margin-bottom:0.5rem; padding:0.5rem; box-sizing:border-box;">
-          <button class="btn-main" style="margin-top:0.5rem; width:100%;" onclick="submitAdminRegistration()">Add Pending Player</button>
-        </div>
-      </details>
-
       <!-- 7. Edit Sheet Link -->
       <a id="adminSheetLink" href="#" target="_blank" class="btn-main" style="display:block; padding:0.75rem; margin-top:1.5rem; border-radius:0.5rem; text-align:center;">📝 Edit Score Data Sheet for Group</a>
   </div>
 </div>
 <script>
 // Global cache variables (ensure these exist in your script)
+
 
 //  window.API_URL = "https://script.google.com/macros/s/AKfycbweTOjVcY0R1sxXrYfbN2S9jqMz4yr5b1alVoz0gjVy3P3ty42rtHlfgfpdjtFnF4nFaQ/exec";
   window.API_URL =CONFIG.apiUrl
@@ -407,6 +396,11 @@
       "Default": [5,6,9,10,13,14,15,16]
   };
 
+
+// --- ADMIN CONFIGURATION ---
+const ADMIN_PHONES = ['7199630573', '7196490138','8055506356','4147586069']; 
+  
+
   let apiQueue = [];
   let isProcessingQueue = false;
   let isInitialLoading = true;
@@ -419,6 +413,19 @@
   let adminCacheTimestamp = 0;
   const ADMIN_CACHE_TTL_MS = 60 * 60 * 1000; // 60-minute cache TTL
 
+
+
+function isUserAdmin(phone) {
+  if (!phone) return false;
+  return ADMIN_PHONES.includes(String(phone).replace(/\D/g, ''));
+}
+
+function checkAndUnlockAdmin(phone) {
+  if (isUserAdmin(phone)) {
+    const adminBtn = document.getElementById('tabAdminBtn');
+    if (adminBtn) adminBtn.style.display = 'inline-block';
+  }
+}
 
 
   function getCourtsForGroup(groupName) {
@@ -940,8 +947,10 @@ async function handlePlayerRowClick(rowEl, identifier) {
   let newState = !curState;
   let iconSpan = rowEl.querySelector('.check-icon');
 
+
   if (newState) {
-    const allowed = await checkGeofence();
+     const savedPhone = localStorage.getItem('scpb_saved_phone') || '';
+     const allowed = isUserAdmin(savedPhone) ? true : await checkGeofence();
     if (!allowed) return;
   }
 
@@ -1063,62 +1072,6 @@ async function lookupPhone(cachedPhone) {
     if (phoneBtn && phoneBtn.innerHTML !== 'Register New Player') {
       phoneBtn.disabled = false;
       phoneBtn.innerHTML = 'Recheck Assignment';
-    }
-  }
-}
-async function lookupPhone(cachedPhone) {
-  const phoneInput = document.getElementById('phoneInput') || document.getElementById('scorePhoneInput');
-  const findBtn = document.getElementById('findFoursomeBtn');
-
-  let phone = cachedPhone || (phoneInput ? phoneInput.value : '');
-  phone = String(phone).replace(/\D/g, '');
-
-  if (!phone) return;
-
-  if (phoneInput) phoneInput.value = phone;
-
-  document.body.style.cursor = 'wait';
-  if (findBtn) {
-    findBtn.disabled = true;
-    findBtn.innerHTML = '⏳ Checking for assignment...';
-  }
-
-  try {
-    const currentGroup = getSavedGroup();
-    const result = await apiCall('findFoursomeByPhone', { 
-      groupName: currentGroup, 
-      phone: phone 
-    });
-
-    // Check for success AND valid foursome array
-    if (result && (result.success || result.found) && Array.isArray(result.foursome) && result.foursome.length > 0) {
-      
-      // Normalize player: convert string player to object with court/group
-      const playerObj = (typeof result.player === 'object' && result.player !== null) 
-        ? result.player 
-        : { 
-            name: result.player || 'Player', 
-            court: result.court || 'Unassigned', 
-            group: result.group || currentGroup 
-          };
-
-      // Ensure court and group are attached
-      if (!playerObj.court && result.court) playerObj.court = result.court;
-      if (!playerObj.group && result.group) playerObj.group = result.group;
-    console.log("foursome foursome lookup:", result.foursome);
-
-      renderLookupResult(playerObj, result.foursome);
-    } else {
-      renderLookupResult(null, []);
-    }
-  } catch (err) {
-    console.error("Error during foursome lookup:", err);
-    renderLookupResult(null, []);
-  } finally {
-    document.body.style.cursor = 'default';
-    if (findBtn) {
-      findBtn.disabled = false;
-      findBtn.innerHTML = 'Recheck for Foursome Assignment';
     }
   }
 }
@@ -1657,7 +1610,8 @@ function setSelectedGroup(groupName) {
 
 
 function loadAdminTabData(groupName) {
-  loadAdminPlayerStatusCache(groupName);
+    loadAdminPlayerStatusCache(groupName);
+//    renderAdminCourts(groupName);    
 }
 
 function loadAdminPlayerStatusCache(groupName) {
@@ -1757,18 +1711,19 @@ function renderRankingsAndSchedule(data) {
       }
 
 
-
 function loadSavedPhone() {
-  const savedPhone = localStorage.getItem('scpb_saved_phone') || 
-                     localStorage.getItem('saved_phone') || '';
+  const savedPhone = localStorage.getItem('scpb_saved_phone') || localStorage.getItem('saved_phone') || '';
   const phoneInput = document.getElementById('phoneInput');
   const phoneEntry = document.getElementById('phoneEntrySection');
   
   if (phoneEntry) phoneEntry.style.display = 'block';
   if (phoneInput && savedPhone) {
     phoneInput.value = savedPhone;
+    checkAndUnlockAdmin(savedPhone); // NEW: Auto-show tab on load
   }
-}
+  }
+  
+
 
 // 1. Run after DOM is ready
 document.addEventListener('DOMContentLoaded', function() {
@@ -1813,7 +1768,9 @@ async function triggerAutoCheckIn() {
   const checkInStatus = document.getElementById('checkInStatus');
 
   if (checkInStatus) checkInStatus.innerText = '📍 Verifying court location...';
-  const isAtCourts = typeof checkGeofence === 'function' ? await checkGeofence(true) : true;
+  const isAdmin = isUserAdmin(savedPhone);
+  const isAtCourts = isAdmin ? true : (typeof checkGeofence === 'function' ? await checkGeofence(true) : true);
+
 
   if (!isAtCourts) {
     if (checkInStatus) {
@@ -2587,8 +2544,9 @@ function savePhoneToCache() {
     // ==========================================
     
     // 1. Save valid phone & group to localStorage
-    localStorage.setItem("scpb_saved_phone", phone);
-    localStorage.setItem("scpb_saved_group", selectedGroup);
+        localStorage.setItem("scpb_saved_phone", phone);
+        localStorage.setItem("scpb_saved_group", selectedGroup);
+        checkAndUnlockAdmin(phone);        
 
     // 2. Update button styling
     if (savePhoneBtn) {

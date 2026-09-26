@@ -3,6 +3,9 @@
  
  * ========================================== */
 
+let _dbInstance = null;
+
+
 const VALID_SCORE_TABS = ["Score Womens", "Score Mens", "Score Mixed"];
 const SCORE_TABS = VALID_SCORE_TABS;
 const MAX_MOVEMENT = 4;
@@ -18,8 +21,6 @@ const GROUP_COURT_MAP = {
   "Mixed": [3,4,5,6,7,8,15,16,17,18,19,20],
   "Default": [5,6,9,10,13,14,15,16]
 };
-
-let _dbInstance = null;
 
  
 function testTimestampUpdates() {
@@ -2387,7 +2388,9 @@ function ensurePlayerCheckedIn(sheetName, targetPlayer) {
 
   const targetNorm = String(targetPlayer).trim().toLowerCase();
   const normPhone = String(targetPlayer).replace(/\D/g, "");
+  
   let found = false;
+  let matchedName = ""; // NEW: Variable to hold the actual name out of loop scope
 
   for (let r = 1; r < data.length; r++) {
     let pName = (data[r][nameIdx] || "").toString().trim().toLowerCase();
@@ -2399,6 +2402,8 @@ function ensurePlayerCheckedIn(sheetName, targetPlayer) {
     if (isMatch) {
       sheet.getRange(r + 1, checkInIdx + 1).setValue("X");
       found = true;
+      // Capture the properly capitalized name from the sheet
+      matchedName = String(data[r][nameIdx] || "").trim();
       break;
     }
   }
@@ -2413,9 +2418,11 @@ function ensurePlayerCheckedIn(sheetName, targetPlayer) {
   return { 
     success: found, 
     status: found ? "success" : "failed", 
-      message: found ? "Player ${pName} ${targePlayer} checked in successfully, getting rest of players." : "Player not found on sheet." 
+    // FIX: Using backticks and the scoped matchedName
+    message: found ? `${matchedName || targetPlayer} checked in successfully!` : "Player not found on sheet." 
   };
 }
+
 
 
 
