@@ -1778,6 +1778,8 @@ async function triggerAutoCheckIn() {
   if (checkInStatus) checkInStatus.innerText = '📍 Verifying court location...';
   const isAdmin = isUserAdmin(savedPhone);
   const isAtCourts = isAdmin ? true : (typeof checkGeofence === 'function' ? await checkGeofence(true) : true);
+  console.log('📡 isadmin at court testing:', IsAdmin);
+
 
 
   if (!isAtCourts) {
@@ -2708,6 +2710,7 @@ function setSaveButtonState(isSaved) {
     saveBtn.style.backgroundColor = "#2d6a4f";
     saveBtn.style.color = "#ffffff";
       saveBtn.innerHTML = "✓ Registered";
+      const savedPhone = localStorage.getItem("userPhone") || localStorage.getItem("scpb_saved_phone") || "";      
       const isAdmin = isUserAdmin(savedPhone);
       saveBtn.textContent = "Admin Reg. ✓";
       
@@ -3011,7 +3014,7 @@ async function submitUserRegistration() {
     : (cleanDigits.length === 11 && cleanDigits.startsWith('1'))
     ? `${cleanDigits.slice(1,4)}-${cleanDigits.slice(4,7)}-${cleanDigits.slice(7)}`
     : phone;
-    savePhoneToCache(phone);
+  savePhoneToCache(formattedPhone);
 
   const statusEl = document.getElementById('phoneStatus');
   if (statusEl) statusEl.innerText = 'Submitting registration...';
@@ -3103,6 +3106,7 @@ document.addEventListener("DOMContentLoaded", async function () {
       await fetchGroupRoster(cachedGroup);
     }
   }
+
   console.log(`In DomContentload group ${cachedGroup}, Phone ${cachedPhone}...`);
 
   if (phoneInput) {
