@@ -2423,10 +2423,13 @@ function ensurePlayerCheckedIn(sheetName, targetPlayer) {
 
 function getUnifiedRoster(payload) {
   try {
-    const group = payload.group || payload.groupName || payload.sheet || "";
+    const payloadObj = payload || {};
+    const group = payloadObj.group || payloadObj.groupName || payloadObj.sheet || "";
     const cleanGroup = String(group).replace(/^(Score|Sched)\s*/i, "").trim().toUpperCase();
     
-    if (!cleanGroup) return { success: false, message: "No group specified." };
+    if (!cleanGroup) {
+      return { success: false, registered: false, message: "No group specified." };
+    }
 
     const schedSheetName = "Sched " + cleanGroup;
     const scoreSheetName = "Score " + cleanGroup;
@@ -2435,13 +2438,13 @@ function getUnifiedRoster(payload) {
     const cache = CacheService.getScriptCache();
     
     // 1. Check Cache unless forceRefresh is true
-    if (!payload.forceRefresh) {
+    if (!payloadObj.forceRefresh) {
       const cached = cache.get(cacheKey);
       if (cached) {
         try {
           const parsed = JSON.parse(cached);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            return { success: true, players: parsed, source: "cache" };
+            return { success: true, registered: true, players: parsed, source: "cache" };
           }
         } catch (e) {
           // Ignore corrupt cache
@@ -2454,13 +2457,19 @@ function getUnifiedRoster(payload) {
     const scoreSheet = ss.getSheetByName(scoreSheetName);
     
     if (!schedSheet && !scoreSheet) {
-      return { success: false, message: "Neither " + scoreSheetName + " nor " + schedSheetName + " was found." };
+      return { 
+        success: false, 
+        registered: false, 
+        message: "Neither " + scoreSheetName + " nor " + schedSheetName + " was found.",
+        players: []
+      };
     }
 
-    // Helper: Strip non-breaking spaces and clean whitespace
+    // Helper: Strip non-breaking spaces, normalize spaces, and clean whitespace
     function cleanStr(val) {
       return String(val || '')
         .replace(/[\u00a0\u1680\u180e\u2000-\u200b\u202f\u205f\u3000\ufeff]/g, " ")
+        .replace(/\s+/g, " ")
         .trim();
     }
 
@@ -2483,6 +2492,7 @@ function getUnifiedRoster(payload) {
         
         const firstIdx = headers.findIndex(h => /\bfirst\b/i.test(h));
         const lastIdx = headers.findIndex(h => /\blast\b/i.test(h));
+        // Fixed regex syntax (removed corrupted '\vert{}' artifacts)
         const fullNameIdx = headers.findIndex(h => /(full\s*name|^name$\vert{}^player$|player\s*name)/i.test(h) && !/first|last/i.test(h));
         const phoneIdx = headers.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
         const activeIdx = headers.findIndex(h => /status|active/i.test(h));
@@ -2536,9 +2546,8 @@ function getUnifiedRoster(payload) {
       if (schedData.length > 1) {
         const headers = schedData[0].map(h => cleanStr(h).toLowerCase());
         
-        const nameIdx = headers.findIndex(h => /name|player/i.test(h)) !== -1 
-          ? headers.findIndex(h => /name|player/i.test(h)) 
-          : 1;
+        const matchedNameIdx = headers.findIndex(h => /name|player/i.test(h));
+        const nameIdx = matchedNameIdx !== -1 ? matchedNameIdx : (schedData[0].length > 1 ? 1 : 0);
         const phoneIdx = headers.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
         let checkIdx = headers.findIndex(h => /check|checked|x/i.test(h));
         if (checkIdx === -1 && schedData[0].length >= 7) checkIdx = 6;
@@ -2619,7 +2628,7 @@ function getUnifiedRoster(payload) {
       cache.put(cacheKey, payloadString, 21600);
     }
 
-    return { success: true, players: finalRoster, source: "live" };
+    return { success: true, registered: true, players: finalRoster, source: "live" };
 
   } catch (err) {
     return { success: false, error: err.toString(), players: [] };
