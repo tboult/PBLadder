@@ -2413,7 +2413,7 @@ function ensurePlayerCheckedIn(sheetName, targetPlayer) {
   return { 
     success: found, 
     status: found ? "success" : "failed", 
-    message: found ? "Player checked in successfully." : "Player not found on sheet." 
+      message: found ? "Player ${pName} checked in successfully." : "Player not found on sheet." 
   };
 }
 
