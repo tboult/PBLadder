@@ -422,8 +422,16 @@ function isUserAdmin(phone) {
 
 function checkAndUnlockAdmin(phone) {
   if (isUserAdmin(phone)) {
-    const adminBtn = document.getElementById('tabAdminBtn');
-    if (adminBtn) adminBtn.style.display = 'inline-block';
+      const adminBtn = document.getElementById('tabAdminBtn');
+      if (adminBtn) adminBtn.style.display = 'inline-block';
+      const savePhoneBtn = document.getElementById("savePhoneBtn");      
+      if (savePhoneBtn) {
+          savePhoneBtn.style.backgroundColor = "#006a4f"; // Green
+          savePhoneBtn.style.color = "#ffffff";
+          savePhoneBtn.textContent = "Admin Reg. ✓";
+          savePhoneBtn.onclick = savePhoneToCache;
+    }
+      
   }
 }
 
@@ -1798,6 +1806,12 @@ async function triggerAutoCheckIn() {
     if (checkInStatus) {
       if (res && res.status === 'already_checked_in') {
         checkInStatus.innerHTML = `<span style="color: #0c5460; font-weight: bold;">ℹ️ ${res.message || 'Already checked in for today.'}</span>`;
+      }else if (false && res && res.success && isAdmin) {
+          checkInStatus.innerHTML = `<span style="color: #2e7d32; font-weight: bold;">✅ Admin Checked in'</span>`;
+          const adminBtn = document.getElementById('tabAdminBtn');
+          if (adminBtn) {
+              adminBtn.style.display = 'inline-block';
+          }
       } else if (res && res.success) {
         checkInStatus.innerHTML = `<span style="color: #2e7d32; font-weight: bold;">✅ ${res.message || 'Successfully checked in!'}</span>`;
       } else {
@@ -2535,6 +2549,9 @@ function savePhoneToCache() {
     return;
   }
 
+  console.log('SavephonebtoCache  Phone ${phone}');
+    
+
   // Fixed: Destructuring `exists` instead of `isRegistered`
   const { exists, player } = checkPlayerExists(phone, selectedGroup);
 
@@ -2546,7 +2563,6 @@ function savePhoneToCache() {
     // 1. Save valid phone & group to localStorage
         localStorage.setItem("scpb_saved_phone", phone);
         localStorage.setItem("scpb_saved_group", selectedGroup);
-        checkAndUnlockAdmin(phone);        
 
     // 2. Update button styling
     if (savePhoneBtn) {
@@ -2556,9 +2572,11 @@ function savePhoneToCache() {
       savePhoneBtn.onclick = savePhoneToCache;
     }
 
+    checkAndUnlockAdmin(phone);        
+      
+
     // 3. Display profile / check-in view
     console.log('Found player:', player);
-    showCheckInView(player);
     if (typeof updateGlobalLoaderStatus === 'function') updateGlobalLoaderStatus();
 
   } else {
@@ -2689,7 +2707,10 @@ function setSaveButtonState(isSaved) {
   if (isSaved) {
     saveBtn.style.backgroundColor = "#2d6a4f";
     saveBtn.style.color = "#ffffff";
-    saveBtn.innerHTML = "✓ Registered";
+      saveBtn.innerHTML = "✓ Registered";
+      const isAdmin = isUserAdmin(savedPhone);
+      saveBtn.textContent = "Admin Reg. ✓";
+      
   } else {
     saveBtn.style.backgroundColor = "#ffc107";
     saveBtn.style.color = "#000000";
@@ -2897,7 +2918,7 @@ async function onHelpGroupRadioChange(groupValue) {
     await loadPlayerStatusFromCache(phone);
   }
   // Sync all tab badges immediately
-  updateAllGroupDisplays(selectedGroup);
+  updateAllGroupDisplays(groupValue);
 
   // Refresh active tab data if function exists
   if (typeof refreshActiveTabData === 'function') {
@@ -2990,6 +3011,7 @@ async function submitUserRegistration() {
     : (cleanDigits.length === 11 && cleanDigits.startsWith('1'))
     ? `${cleanDigits.slice(1,4)}-${cleanDigits.slice(4,7)}-${cleanDigits.slice(7)}`
     : phone;
+    savePhoneToCache(phone);
 
   const statusEl = document.getElementById('phoneStatus');
   if (statusEl) statusEl.innerText = 'Submitting registration...';
@@ -3068,9 +3090,9 @@ function submitFrontPageRegistration() {
 document.addEventListener("DOMContentLoaded", async function () {
   // Restore saved text size or default to normal
   const savedSize = localStorage.getItem('pwa-text-size') || 'normal';
-  applyTextSize(savedSize);
+  if (typeof applyTextSize === "function") applyTextSize(savedSize);
 
-  const cachedPhone = localStorage.getItem("userPhone") || localStorage.getItem("scpb_saved_phone");
+  const cachedPhone = localStorage.getItem("userPhone") || localStorage.getItem("scpb_saved_phone") || "";
   const cachedGroup = localStorage.getItem("scpb_saved_group") || localStorage.getItem("scpb_selected_group");
   const phoneInput = document.getElementById("phoneInput");
 
@@ -3081,16 +3103,33 @@ document.addEventListener("DOMContentLoaded", async function () {
       await fetchGroupRoster(cachedGroup);
     }
   }
+  console.log(`In DomContentload group ${cachedGroup}, Phone ${cachedPhone}...`);
 
   if (phoneInput) {
+    // Populate the input field immediately if cache exists
+    if (cachedPhone) {
+      phoneInput.value = cachedPhone;
+    }
+
+
     // 1. INITIAL LOAD CHECK
     if (cachedPhone) {
-      const { exists, player } = checkPlayerExists(cachedPhone, cachedGroup); 
+      const currentGroup = document.querySelector('input[name="helpGroupRadio"]:checked')?.value || cachedGroup;
+      const { exists, player } = checkPlayerExists(cachedPhone, currentGroup); 
+      
       if (exists) {
         console.log('Found player:', player);
-        setSaveButtonState(true); // Set to active/save state
-        phoneInput.value = cachedPhone;
-        await loadPlayerStatusFromCache(cachedPhone);
+        if (typeof setSaveButtonState === "function") setSaveButtonState(true);
+        if (typeof loadPlayerStatusFromCache === "function") await loadPlayerStatusFromCache(cachedPhone);
+      } else if (cachedPhone.replace(/\D/g, "").length >= 10) {
+        // Apply your "Unknown Player" logic if they have a full cached number but aren't in the group
+        const saveBtn = document.getElementById('savePhoneBtn');
+        if (saveBtn) {
+          saveBtn.innerHTML = "Register New Player";
+          saveBtn.disabled = false;
+        }
+        if (typeof showStatusLoading === "function") showStatusLoading("Player not found. Please register.");
+        if (typeof setAppViewState === "function") setAppViewState(false, cachedPhone);
       }
     }
 
@@ -3098,46 +3137,42 @@ document.addEventListener("DOMContentLoaded", async function () {
     
     // 2. LIVE TYPING CHECK
     phoneInput.addEventListener("input", function () {
-      setSaveButtonState(false); // Reset button while typing
+      if (typeof setSaveButtonState === "function") setSaveButtonState(false);
       const rawPhone = phoneInput.value.trim();
       const digits = typeof normalizePhone === "function" ? normalizePhone(rawPhone) : rawPhone.replace(/\D/g, "");
 
       if (phoneDebounceTimer) clearTimeout(phoneDebounceTimer);
 
-      // Wait for exactly 10 digits for a definitive registration check
       if (digits.length === 10) {
-        showStatusLoading("⏳ VERIFYING...");
+        if (typeof showStatusLoading === "function") showStatusLoading("⏳ VERIFYING...");
         
         phoneDebounceTimer = setTimeout(async () => {
-          // Immediately check the local roster cache
           const currentGroup = document.querySelector('input[name="helpGroupRadio"]:checked')?.value || cachedGroup;
           const { exists, player } = checkPlayerExists(digits, currentGroup);
           
           if (exists) {
-            // KNOWN PLAYER: Activate the save button and load their status
-            setSaveButtonState(true);
-            await loadPlayerStatusFromCache(digits);
+            if (typeof setSaveButtonState === "function") setSaveButtonState(true);
+              if (typeof loadPlayerStatusFromCache === "function") await loadPlayerStatusFromCache(digits);
+              savePhoneToCache(digits);
+              saveBtn.innerHTML = "Registration found";
+              saveBtn.disabled = false;              
+                  
           } else {
-            // UNKNOWN PLAYER: Flip UI to Registration Mode
-            // You can trigger your "Register" button state here
             const saveBtn = document.getElementById('savePhoneBtn');
             if (saveBtn) {
               saveBtn.innerHTML = "Register New Player";
               saveBtn.disabled = false;
-              // saveBtn.onclick = showRegistrationForm; // Wire this to your register function
             }
-            showStatusLoading("Player not found. Please register.");
-            setAppViewState(false, rawPhone);
+            if (typeof showStatusLoading === "function") showStatusLoading("Player not found. Please register.");
+            if (typeof setAppViewState === "function") setAppViewState(false, rawPhone);
           }
         }, 300);
       } else if (digits.length < 10) {
-        // Clear the view if they delete numbers
-        setAppViewState(false, rawPhone);
+        if (typeof setAppViewState === "function") setAppViewState(false, rawPhone);
       }
     }); 
   }
 });
-
 
 
 (function loadTheme() {
