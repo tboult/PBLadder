@@ -396,6 +396,7 @@
       "Default": [5,6,9,10,13,14,15,16]
   };
 
+    console.log('window.API_URL:', window.API_URL);  
 
 // --- ADMIN CONFIGURATION ---
 const ADMIN_PHONES = ['7199630573', '7196490138','8055506356','4147586069']; 
@@ -1778,7 +1779,7 @@ async function triggerAutoCheckIn() {
   if (checkInStatus) checkInStatus.innerText = '📍 Verifying court location...';
   const isAdmin = isUserAdmin(savedPhone);
   const isAtCourts = isAdmin ? true : (typeof checkGeofence === 'function' ? await checkGeofence(true) : true);
-  console.log('📡 isadmin at court testing:', IsAdmin);
+
 
 
 
@@ -1809,6 +1810,7 @@ async function triggerAutoCheckIn() {
       if (res && res.status === 'already_checked_in') {
         checkInStatus.innerHTML = `<span style="color: #0c5460; font-weight: bold;">ℹ️ ${res.message || 'Already checked in for today.'}</span>`;
       }else if (false && res && res.success && isAdmin) {
+          console.log('📡 isadmin at court testing:');          
           checkInStatus.innerHTML = `<span style="color: #2e7d32; font-weight: bold;">✅ Admin Checked in'</span>`;
           const adminBtn = document.getElementById('tabAdminBtn');
           if (adminBtn) {
@@ -3158,6 +3160,7 @@ document.addEventListener("DOMContentLoaded", async function () {
             if (typeof setSaveButtonState === "function") setSaveButtonState(true);
               if (typeof loadPlayerStatusFromCache === "function") await loadPlayerStatusFromCache(digits);
               savePhoneToCache(digits);
+              const saveBtn = document.getElementById('savePhoneBtn');              
               saveBtn.innerHTML = "Registration found";
               saveBtn.disabled = false;              
                   
