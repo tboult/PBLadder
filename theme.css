@@ -25,7 +25,7 @@
   --btn-danger-bg: #b91c1c;     /* Alert red */
   --btn-danger-text: #ffffff;
   --btn-disabled-bg: #cbd5e1;   /* Disabled background */
-  --btn-disabled-text: #64748b; /* Disabled text */  
+  --btn-disabled-text: #F4F45b; /* Disabled text */  
 
   /* --- NAVIGATION & TABS --- */
   --nav-bg: #cbd5e1;            /* Distinct tab container background */
@@ -46,7 +46,7 @@
 
   /* Court Sections */
   --court-header-bg: #dbeafe;   /* Light blue court header background */
-  --court-header-text: #1e3a8a; /* Deep navy court title text */
+  --court-header-text: #6e68FF; /* Deep navy court title text */
   --bye-header-bg: #fef3c7;     /* High-contrast yellow for Bye / Waiting courts */
   --bye-header-text: #78350f;   /* Dark amber text for readability */
 
