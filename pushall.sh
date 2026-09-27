@@ -1,4 +1,4 @@
-#!/bin/bash -e  -x
+#!/bin/bash -e -x
 
 # 1. Capture arguments
 COMMIT_MSG="$1"
@@ -12,8 +12,8 @@ if [ -z "$COMMIT_MSG" ]; then
 fi
 
 # 3. Define Deployment IDs & Config Files
-#DEV_DEPLOYMENT_ID="AKfycbzt6BreB7T8nY6gg1VbNnRqEhIywIBjT2apbIWNLwLsqt9ci_PwQy8EErGZtHyCdwMh"
-dev_DEPLOYMENT_ID="AKfycbyuY1-ZkbpA2Udpe__rKSE6H4EBfl_OKn_Xep719FJII1u5RxAXhSzU3dyrD0c64diS"
+# Fixed variable name (capitalized DEV_)
+DEV_DEPLOYMENT_ID="AKfycbyuY1-ZkbpA2Udpe__rKSE6H4EBfl_OKn_Xep719FJII1u5RxAXhSzU3dyrD0c64diS"
 PROD_DEPLOYMENT_ID="AKfycbweTOjVcY0R1sxXrYfbN2S9jqMz4yr5b1alVoz0gjVy3P3ty42rtHlfgfpdjtFnF4nFaQ"
 
 if [ "$TARGET_ENV" = "prod" ]; then
@@ -25,7 +25,7 @@ else
     DEPLOYMENT_ID="$DEV_DEPLOYMENT_ID"
     CONFIG_FILE="devclasp.json"
     THEME_FILE="devtheme.css"    
-    echo "🛠️ DEPLOYING TO DEVELOPMENT..." $DEPLOYMENT_ID ,     $CONFIG_FILE,     $THEME_FILE
+    echo "🛠️ DEPLOYING TO DEVELOPMENT ($DEPLOYMENT_ID)..."
 fi
 
 # 4. Ensure target .clasp config file exists before proceeding
@@ -36,17 +36,18 @@ fi
 
 # 5. Swap .clasp.json to target the correct Apps Script project
 cp "$CONFIG_FILE" .clasp.json
-echo "📋 copied config to .clasp.json -> $CONFIG_FILE"
+echo "📋 Copied config to .clasp.json -> $CONFIG_FILE"
 
-# if [ -f "$MANIFEST_FILE" ]; then
-#     cp "$MANIFEST_FILE" manifest.json
-#     echo "📱 copied manifest.json -> $MANIFEST_FILE"
-# fi    
+# Swap appsscript.json if environment manifests exist
+if [ -f "${TARGET_ENV}manifest.json" ]; then
+    cp "${TARGET_ENV}manifest.json" appsscript.json
+    echo "📱 Copied ${TARGET_ENV}manifest.json -> appsscript.json"
+fi
 
 # Swap theme.css
 if [ -f "$THEME_FILE" ]; then
     cp "$THEME_FILE" theme.css
-    echo "🎨 copied $THEME_FILE -> theme.css"
+    echo "🎨 Copied $THEME_FILE -> theme.css"
 fi
 
 # 6. Update CACHE_NAME in sw.js
@@ -54,12 +55,12 @@ NEW_VER="v$(date +%Y%m%d%H%M%S)"
 sed -i -E "s/const CACHE_NAME = '[^']+';/const CACHE_NAME = 'scpb-ladder-$NEW_VER';/" sw.js
 echo "🏷️ Updated sw.js CACHE_NAME to: scpb-ladder-$NEW_VER"
 
-# 7. Git commit & push
+# 7. Push code to Apps Script and update existing deployment version in-place
+clasp push --force
+clasp deploy -i "$DEPLOYMENT_ID" -d "$COMMIT_MSG ($NEW_VER)"
+
+# 8. Git commit & push after deployment succeeds
 git commit -am "$COMMIT_MSG ($NEW_VER) [$TARGET_ENV]"
 git push
 
-# 8. Push code to Apps Script and deploy new version to exec URL
-clasp push
-clasp deploy -i "$DEPLOYMENT_ID" -d "$COMMIT_MSG ($NEW_VER)"
-
-echo "✅ Successfully deployed to $TARGET_ENV!"
+echo "✅ Successfully updated deployment $DEPLOYMENT_ID for $TARGET_ENV!"
