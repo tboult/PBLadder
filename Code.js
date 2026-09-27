@@ -99,21 +99,27 @@ function isLoggingEnabled() {
 }
 
 function logDebug(fnName, msg, extra = "") {
-  //if (!isLoggingEnabled()) return;
+  // if (!isLoggingEnabled()) return;
   let extraStr = "";
   if (extra !== undefined && extra !== null && extra !== "") {
-    if (typeof extra === "object") {
+    if (extra instanceof Error) {
+      // Capture error stack/message properly
+      extraStr = `[Error: ${extra.message}${extra.stack ? '\n' + extra.stack : ''}]`;
+    } else if (typeof extra === "object") {
       try {
         extraStr = JSON.stringify(extra);
       } catch (err) {
-        extraStr = `[Object/Error: ${String(extra)}]`; 
+        extraStr = `[Object/Circular: ${String(extra)}]`; 
       }
     } else {
       extraStr = String(extra);
     }
   }
+  
+  // Goes straight to GAS Executions Log / Cloud Logging
   console.log(`[${new Date().toISOString()}] [${fnName}] ${msg} ${extraStr}`.trim());
 }
+
 
 
 function getDb() {

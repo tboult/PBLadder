@@ -762,7 +762,8 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   
-async function checkAppVersion() {
+  async function checkAppVersion() {
+      console.log(`Checking Version ...`);      
   try {
       const res = await apiCall('getAppVersion');
     if (res && res.version && res.version !== CURRENT_APP_VERSION) {
