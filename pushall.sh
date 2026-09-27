@@ -14,19 +14,18 @@ fi
 # 3. Define Deployment IDs & Config Files
 # Fixed variable name (capitalized DEV_)
 DEV_DEPLOYMENT_ID="AKfycbyuY1-ZkbpA2Udpe__rKSE6H4EBfl_OKn_Xep719FJII1u5RxAXhSzU3dyrD0c64diS"
-DEV_DEPLOYMENT_ID="AKfycbweTOjVcY0R1sxXrYfbN2S9jqMz4yr5b1alVoz0gjVy3P3ty42rtHlfgfpdjtFnF4nFaQ"
 PROD_DEPLOYMENT_ID="AKfycbweTOjVcY0R1sxXrYfbN2S9jqMz4yr5b1alVoz0gjVy3P3ty42rtHlfgfpdjtFnF4nFaQ"
 
 if [ "$TARGET_ENV" = "prod" ]; then
     DEPLOYMENT_ID="$PROD_DEPLOYMENT_ID"
     CLASP_FILE="prodclasp.json"
-    CONFIG_FILE="prodconfig.js"    
+    CONFIG_FILE="prodconfig"    
     THEME_FILE="prodtheme.css"
     echo "🚀 DEPLOYING TO PRODUCTION..."
 else
     DEPLOYMENT_ID="$DEV_DEPLOYMENT_ID"
     CLASP_FILE="devclasp.json"
-    CONFIG_FILE="devconfig.js"        
+    CONFIG_FILE="devconfig"        
     THEME_FILE="devtheme.css"    
     echo "🛠️ DEPLOYING TO DEVELOPMENT ($DEPLOYMENT_ID)..."
 fi
