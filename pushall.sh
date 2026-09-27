@@ -1,4 +1,4 @@
-#!/bin/bash -e -x
+#!/bin/bash  -x
 
 # 1. Capture arguments
 COMMIT_MSG="$1"
@@ -25,7 +25,7 @@ else
     DEPLOYMENT_ID="$DEV_DEPLOYMENT_ID"
     CONFIG_FILE="devclasp.json"
     THEME_FILE="devtheme.css"    
-    echo "🛠️ DEPLOYING TO DEVELOPMENT..." DEPLOYMENT_ID ,     CONFIG_FILE,     THEME_FILE
+    echo "🛠️ DEPLOYING TO DEVELOPMENT..." $DEPLOYMENT_ID ,     $CONFIG_FILE,     $THEME_FILE
 fi
 
 # 4. Ensure target .clasp config file exists before proceeding
