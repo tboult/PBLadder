@@ -400,7 +400,7 @@
     console.log('window.API_URL:', window.API_URL);  
 
 // --- ADMIN CONFIGURATION ---
-const ADMIN_PHONES = ['7199630573', '7196490138','8055506356','4147586069']; 
+  const ADMIN_PHONES = ['7199630573', '7196490138','8055506356','4147586069',"6025701430"]; 
   
 
   let apiQueue = [];
@@ -443,7 +443,8 @@ function checkAndUnlockAdmin(phone) {
   }
 
   function renderAdminCourts(groupName) {
-    const cachedGroup = localStorage.getItem("scpb_saved_group") || localStorage.getItem("scpb_selected_group");      
+      const cachedGroup = localStorage.getItem("scpb_saved_group") || localStorage.getItem("scpb_selected_group");
+      if(!groupName) groupName =cachedGroup;
     console.log("🔍 renderAdminCourts:", {  groupName });      
     const list = document.getElementById('admin-court-list');
     if (!list) return;
@@ -2446,43 +2447,25 @@ function handleVersionCheck(serverVersion) {
 
 
 
-// Fetch group roster into shared cache
-// Fetch group roster into shared cache (Cache-First)
 async function fetchGroupRoster(group, forceRefresh = false) {
-  if (!group) return [];
+    const cachedGroup = localStorage.getItem("scpb_saved_group") || localStorage.getItem("scpb_selected_group");
+    if (!group) {
+        group = cachedGroup;
+        if (!group) {
+        return [];
+        }
+    }
 
-  // 1. CHECK IN-MEMORY CACHE FIRST (If not forcing a refresh)
+  // 1. Check in-memory cache first
   if (!forceRefresh && Array.isArray(window.appPlayersCache) && window.appPlayersCache.length > 0) {
-    // Verify the cached roster matches the requested group
     const firstPlayerGroup = window.appPlayersCache[0]?.group || window.appPlayersCache[0]?.sheet;
     if (!firstPlayerGroup || firstPlayerGroup.toLowerCase() === group.toLowerCase()) {
       return window.appPlayersCache;
     }
   }
 
-  // 2. FETCH FROM NETWORK ONLY IF CACHE MISS OR FORCED REFRESH
-  try {
-    if (typeof apiCall === "function") {
-      const res = await apiCall("getAdminPlayersByGroup", { group: group, groupName: group });
-      const roster = res?.players || res?.roster || (Array.isArray(res) ? res : []);
-
-      if (Array.isArray(roster) && roster.length > 0) {
-        window.appPlayersCache = roster;
-        if (typeof adminPlayersCache !== "undefined") {
-          adminPlayersCache = roster;
-        }
-        return roster;
-      }
-    }
-  } catch (err) {
-    console.warn("Roster fetch network error, using fallback:", err);
-  }
-
-  // 3. FALLBACK TO ANY EXISTING CACHE IF NETWORK FAILS
-  if (typeof adminPlayersCache !== "undefined" && Array.isArray(adminPlayersCache)) {
-    window.appPlayersCache = adminPlayersCache;
-  }
-
+  // 2. Delegate to unified roster loader
+  await loadUnifiedRosterData(group, forceRefresh);
   return window.appPlayersCache || [];
 }
 

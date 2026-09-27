@@ -1229,6 +1229,29 @@ function addNewUser(info) {
   const data = targetSheet.getDataRange().getValues();
   const headers = data[0];
   const col = buildColMap(headers);
+
+  // --- DUPLICATE CHECK ---
+  const inputFirst = info.first.trim().toLowerCase();
+  const inputLast = info.last.trim().toLowerCase();
+  const inputFullName = `${inputFirst} ${inputLast}`;
+  const inputPhone = String(info.phone).replace(/\D/g, ""); // Digits only for clean comparison
+
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+
+    const existingFirst = col.first !== undefined ? String(row[col.first] || "").trim().toLowerCase() : "";
+    const existingLast = col.last !== undefined ? String(row[col.last] || "").trim().toLowerCase() : "";
+    const existingName = col.name !== undefined ? String(row[col.name] || "").trim().toLowerCase() : "";
+    const existingPhone = col.phone !== undefined ? String(row[col.phone] || "").replace(/\D/g, "") : "";
+
+    const isNameMatch = (existingFirst === inputFirst && existingLast === inputLast) ||
+                        (existingName !== "" && existingName === inputFullName);
+    const isPhoneMatch = inputPhone !== "" && existingPhone !== "" && existingPhone === inputPhone;
+
+    if (isNameMatch || isPhoneMatch) {
+      return `⚠️ Notice: User '${info.first.trim()} ${info.last.trim()}' is already registered in '${targetSheet.getName()}'.`;
+    }
+  }
   
   let newRow = new Array(headers.length).fill("");
   if (col.first !== undefined) newRow[col.first] = info.first.trim();
@@ -1280,6 +1303,7 @@ function addNewUser(info) {
   
   return `✅ Success: Added ${info.first} ${info.last} (Inactive) to tab '${targetSheet.getName()}'.`;
 }
+f
 
 
 function getSCPBLadderFolder() {
