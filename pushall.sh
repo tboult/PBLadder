@@ -25,7 +25,7 @@ else
     DEPLOYMENT_ID="$DEV_DEPLOYMENT_ID"
     CONFIG_FILE="devclasp.json"
     THEME_FILE="devtheme.css"    
-    echo "🛠️ DEPLOYING TO DEVELOPMENT..."
+    echo "🛠️ DEPLOYING TO DEVELOPMENT..." DEPLOYMENT_ID ,     CONFIG_FILE,     THEME_FILE
 fi
 
 # 4. Ensure target .clasp config file exists before proceeding
