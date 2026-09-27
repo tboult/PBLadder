@@ -14,14 +14,18 @@
   --bg-color: #f1f5f9;          /* Anti-glare soft slate background */
   --text-color: #0f172a;        /* Near-black text for sharp legibility in sunlight */
 
-  /* --- PRIMARY ACTION BUTTONS ("Good State") --- */
-  --primary-bg: #15803d;        /* High-visibility court green for confirmation actions */
-  --btn-main-bg: #1d4ed8;       /* Deep royal blue for primary navigation actions */
-  --btn-main-text: #ffffff;     /* Stark white button text */
-  --btn-sub-bg: #334155;        /* Dark slate for secondary controls */
+
+/* --- PRIMARY ACTION BUTTONS ("Good State") --- */
+  --primary-bg: #15803d;        /* High-visibility court green */
+  --primary-text: #ffffff;      /* Pure white text */
+  --btn-main-bg: #1d4ed8;       /* Deep royal blue */
+  --btn-main-text: #ffffff;     /* Stark white text */
+  --btn-sub-bg: #334155;        /* Dark slate */
   --btn-sub-text: #ffffff;
-  --btn-danger-bg: #b91c1c;     /* High-contrast alert red */
+  --btn-danger-bg: #b91c1c;     /* Alert red */
   --btn-danger-text: #ffffff;
+  --btn-disabled-bg: #cbd5e1;   /* Disabled background */
+  --btn-disabled-text: #64748b; /* Disabled text */  
 
   /* --- NAVIGATION & TABS --- */
   --nav-bg: #cbd5e1;            /* Distinct tab container background */
