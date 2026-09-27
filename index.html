@@ -654,6 +654,77 @@ function getSavedGroup() {
   return localStorage.getItem('scpb_selected_group');
 }
 
+/**
+ * Unified storage helpers for player session data.
+ */
+function getSavedPhone() {
+  // Migrate legacy 'cachedPhone' if present
+  const legacyPhone = localStorage.getItem('cachedPhone');
+  if (legacyPhone) {
+    localStorage.setItem('scpb_saved_phone', legacyPhone);
+    localStorage.removeItem('cachedPhone'); // Clean up redundant key
+    return legacyPhone;
+  }
+  return localStorage.getItem('scpb_saved_phone') || '';
+}
+
+/**
+ * Retrieves the saved player name from localStorage.
+ * If missing, attempts to resolve it using the saved phone and cached roster array,
+ * automatically saving it to localStorage once found.
+ */
+function getSavedName() {
+  // 1. Direct check in localStorage
+  let savedName = localStorage.getItem('scpb_saved_name') || '';
+  if (savedName) {
+    return savedName;
+  }
+
+  // 2. Fallback: Resolve via saved phone and cached roster array
+  const savedPhone = typeof getSavedPhone === 'function' 
+    ? getSavedPhone() 
+    : (localStorage.getItem('scpb_saved_phone') || '');
+    
+  const cleanPhone = String(savedPhone).replace(/\D/g, '');
+
+  if (cleanPhone.length === 10) {
+    // Check available cached player arrays
+    const roster = (typeof checkInPlayersCache !== 'undefined' && Array.isArray(checkInPlayersCache))
+      ? checkInPlayersCache
+      : (typeof playersCache !== 'undefined' && Array.isArray(playersCache) ? playersCache : []);
+
+    if (roster.length > 0) {
+      const match = roster.find(p => {
+        const pPhone = String(p.phone || p.id || p.cell || p.playerId || '').replace(/\D/g, '');
+        return pPhone === cleanPhone;
+      });
+
+      if (match) {
+        savedName = `${match.first || ''} ${match.last || ''}`.trim() || match.name || match.playerName || '';
+
+        // 3. Cache retrieved name to localStorage for instant subsequent loads
+        if (savedName && savedName !== 'Unknown' && savedName !== 'Player') {
+          localStorage.setItem('scpb_saved_name', savedName);
+          return savedName;
+        }
+      }
+    }
+  }
+
+  return '';
+}
+
+function savePlayerCredentials(phone, name) {
+  if (phone) {
+    const cleanPhone = String(phone).replace(/\D/g, '');
+    if (cleanPhone.length === 10) {
+      localStorage.setItem('scpb_saved_phone', cleanPhone);
+    }
+  }
+  if (name && typeof name === 'string') {
+    localStorage.setItem('scpb_saved_name', name.trim());
+  }
+}  
 
 function renderHelpGroupRadios(cleanGroupArray) {
   const container = document.getElementById('helpGroupRadioContainer');
@@ -1009,15 +1080,15 @@ async function handlePlayerRowClick(rowEl, identifier) {
 }
 
 
+
 async function lookupPhone(cachedPhone) {
   const phoneInput = document.getElementById('phoneInput') || document.getElementById('scorePhoneInput');
-  const phoneBtn= document.getElementById('savePhoneBtn');
+  const phoneBtn = document.getElementById('savePhoneBtn');
   const findBtn = document.getElementById('findFoursomeBtn');
 
-  let phone = cachedPhone || (phoneInput ? phoneInput.value : '');
+  let phone = cachedPhone || (phoneInput ? phoneInput.value : '') || getSavedPhone();
   phone = String(phone).replace(/\D/g, '');
 
-  // Wait until exactly 10 digits to prevent premature API calls
   if (phone.length !== 10) return;
 
   if (phoneInput) phoneInput.value = phone;
@@ -1025,58 +1096,56 @@ async function lookupPhone(cachedPhone) {
   document.body.style.cursor = 'wait';
   if (findBtn) {
     findBtn.disabled = true;
-    findBtn.innerHTML = '⏳ Checking...'; // Shortened for button width
+    findBtn.innerHTML = '⏳ Checking...';
   }
   if (phoneBtn) {
     phoneBtn.disabled = true;
-    phoneBtn.innerHTML = '⏳ Checking...'; // Shortened for button width
+    phoneBtn.innerHTML = '⏳ Checking...';
   }
 
   try {
     const currentGroup = getSavedGroup();
-    // First, check if we have a locally cached success flag for this phone
-    // If not, make the API call
     const result = await apiCall('findFoursomeByPhone', { 
       groupName: currentGroup, 
       phone: phone 
     });
 
     if (result && (result.success || result.found)) {
-      
-      // SUCCESS! Cache this phone number on the device so next time 
-      // they don't even have to type it.
-      localStorage.setItem('cachedPhone', phone);
-      
+      let playerObj = null;
 
       if (Array.isArray(result.foursome) && result.foursome.length > 0) {
-        const playerObj = (typeof result.player === 'object' && result.player !== null) 
+        playerObj = (typeof result.player === 'object' && result.player !== null) 
           ? result.player 
           : { 
-              name: result.player || 'Player', 
+              name: result.player || result.name || 'Player', 
               court: result.court || 'Unassigned', 
               group: result.group || currentGroup 
             };
-
-           if (findBtn) {
-               findBtn.disabled = true;
-               findBtn.innerHTML = ' Found...'; // 
-           }
-            
-
-        if (!playerObj.court && result.court) playerObj.court = result.court;
-        if (!playerObj.group && result.group) playerObj.group = result.group;
-        
-        renderLookupResult(playerObj, result.foursome);
-      } else {
-        // Registered, but no foursome assigned yet
-        renderLookupResult(null, []);
+      } else if (result.player || result.name) {
+        playerObj = (typeof result.player === 'object' && result.player !== null)
+          ? result.player
+          : { name: result.player || result.name || 'Player', group: currentGroup };
       }
+
+      // Extract full name
+      const resolvedName = playerObj 
+        ? (`${playerObj.first || ''} ${playerObj.last || ''}`.trim() || playerObj.name || playerObj.playerName || '') 
+        : '';
+
+      // Cache BOTH name and phone in single storage keys
+      savePlayerCredentials(phone, resolvedName);
+
+      if (findBtn) {
+        findBtn.disabled = true;
+        findBtn.innerHTML = ' Found...';
+      }
+
+      renderLookupResult(playerObj, result.foursome || []);
+      if (typeof updateWelcomeBanner === 'function') updateWelcomeBanner();
     } else {
-      // NOT FOUND ON SERVER. 
-      // This is where you flip the UI to the "Register" state.
       if (phoneBtn) {
          phoneBtn.innerHTML = 'Register New Player';
-         phoneBtn.onclick = showRegistrationForm; // Change button action
+         phoneBtn.onclick = showRegistrationForm;
       }
       renderLookupResult(null, []);
     }
@@ -1091,6 +1160,7 @@ async function lookupPhone(cachedPhone) {
     }
   }
 }
+
 
 
 
@@ -1769,11 +1839,17 @@ if (typeof refreshActiveTabData === 'function') {
 
 
 async function triggerAutoCheckIn() {
-  const savedGroup = (activeLookupPlayer && activeLookupPlayer.group) || localStorage.getItem('scpb_saved_group') || '';
-  const savedPhone = (activeLookupPlayer && activeLookupPlayer.phone) || localStorage.getItem('scpb_saved_phone') || '';
-  const savedName  = (activeLookupPlayer && (activeLookupPlayer.name || activeLookupPlayer.playerName)) || localStorage.getItem('scpb_saved_name') || '';
+    // 3. Display profile / check-in view
 
-  if (!savedGroup || (!savedPhone && !savedName)) return;
+  const savedGroup = (activeLookupPlayer && activeLookupPlayer.group) || localStorage.getItem('scpb_saved_group') || localStorage.getItem('scpb_selected_group') || '';
+  const savedPhone = (activeLookupPlayer && activeLookupPlayer.phone) || getSavedPhone();
+  const savedName  = (activeLookupPlayer && (activeLookupPlayer.name || activeLookupPlayer.playerName)) || getSavedName();
+
+    console.log('Trying autocheckin with', savedGroup, savedPhone,savedName);
+    
+
+  // Require both group, phone, and name
+  if (!savedGroup || !savedPhone || !savedName) return;
 
   const sheetSelect = document.getElementById('sheetSelect');
   if (sheetSelect && sheetSelect.value !== savedGroup) {
@@ -1782,20 +1858,17 @@ async function triggerAutoCheckIn() {
   }
 
   const checkInStatus = document.getElementById('checkInStatus');
+  if (checkInStatus) checkInStatus.innerText = '📍 Verifying location...';
 
-  if (checkInStatus) checkInStatus.innerText = '📍 Verifying court location...';
   const isAdmin = isUserAdmin(savedPhone);
   const isAtCourts = isAdmin ? true : (typeof checkGeofence === 'function' ? await checkGeofence(true) : true);
-
-
-
 
   if (!isAtCourts) {
     if (checkInStatus) {
       checkInStatus.innerHTML = `
         <div style="color: #856404; background-color: #fff3bf; border: 1px solid #ffeeba; padding: 0.75rem; border-radius: 0.5rem; text-align: left; margin-top: 0.5rem; line-height: 1.4;">
-          📍 <b>Check-In Restricted:</b> Auto check-in is only available when you are physically at the pickleball courts.<br>
-          <i>Please reopen or refresh the app once you arrive at the courts to check in!</i>
+          📍 <b>Check-In Restricted:</b> Auto check-in requires being physically at the courts.<br>
+          <i>Please reopen or refresh when you arrive!</i>
         </div>`;
     }
     return;
@@ -1816,13 +1889,6 @@ async function triggerAutoCheckIn() {
     if (checkInStatus) {
       if (res && res.status === 'already_checked_in') {
         checkInStatus.innerHTML = `<span style="color: #0c5460; font-weight: bold;">ℹ️ ${res.message || 'Already checked in for today.'}</span>`;
-      }else if (false && res && res.success && isAdmin) {
-          console.log('📡 isadmin at court testing:');          
-          checkInStatus.innerHTML = `<span style="color: #2e7d32; font-weight: bold;">✅ Admin Checked in'</span>`;
-          const adminBtn = document.getElementById('tabAdminBtn');
-          if (adminBtn) {
-              adminBtn.style.display = 'inline-block';
-          }
       } else if (res && res.success) {
         checkInStatus.innerHTML = `<span style="color: #2e7d32; font-weight: bold;">✅ ${res.message || 'Successfully checked in!'}</span>`;
       } else {
@@ -1831,13 +1897,13 @@ async function triggerAutoCheckIn() {
     }
 
     if (isSuccess && Array.isArray(checkInPlayersCache)) {
-      const matchName = savedName.trim().toLowerCase();
-      const cleanPhone = savedPhone.replace(/\D/g, '');
+      const matchName = savedName.toLowerCase().trim();
+      const matchPhone = savedPhone.replace(/\D/g, '');
 
       const playerObj = checkInPlayersCache.find(p => {
         const pPhone = String(p.phone || p.id || p.playerId || '').replace(/\D/g, '');
-        const pName = String(p.name || p.playerName || '').trim().toLowerCase();
-        return (cleanPhone && pPhone === cleanPhone) || (matchName && pName === matchName);
+        const pName = String(p.name || p.playerName || '').toLowerCase().trim();
+        return (matchPhone && pPhone === matchPhone) || (matchName && pName === matchName);
       });
 
       if (playerObj) {
@@ -1845,14 +1911,15 @@ async function triggerAutoCheckIn() {
         playerObj.status = 'Checked In';
       }
 
-      if (typeof renderCheckInPlayers === 'function') {
-        renderCheckInPlayers(checkInPlayersCache);
-      }
+    // 3. Display profile / check-in view
+    console.log('Checked in :', playerObj);
+
     }
   } catch (err) {
-    if (checkInStatus) checkInStatus.innerHTML = '<span style="color: #721c24; font-weight: bold;">⚠️ Auto check-in failed. Please try again.</span>';
+    if (checkInStatus) checkInStatus.innerHTML = '<span style="color: #721c24; font-weight: bold;">⚠️ Auto check-in failed.</span>';
   }
 }
+
 
 
 function onGroupContextUpdated(groupName) {
@@ -2555,10 +2622,11 @@ function savePhoneToCache() {
     // ==========================================
     // ✅ SUCCESS STATE: GREEN / "Registered ✓"
     // ==========================================
-    
-    // 1. Save valid phone & group to localStorage
-        localStorage.setItem("scpb_saved_phone", phone);
+    console.log('Found player:', player);
+
+      // 1. Save valid phone & group to localStorage
         localStorage.setItem("scpb_saved_group", selectedGroup);
+        savePlayerCredentials(phone, player.name);
 
     // 2. Update button styling
     if (savePhoneBtn) {
@@ -2570,9 +2638,7 @@ function savePhoneToCache() {
 
     checkAndUnlockAdmin(phone);        
       
-
-    // 3. Display profile / check-in view
-    console.log('Found player:', player);
+    // 3. Update status
     if (typeof updateGlobalLoaderStatus === 'function') updateGlobalLoaderStatus();
 
   } else {
@@ -3089,7 +3155,7 @@ document.addEventListener("DOMContentLoaded", async function () {
   const savedSize = localStorage.getItem('pwa-text-size') || 'normal';
   if (typeof applyTextSize === "function") applyTextSize(savedSize);
 
-  const cachedPhone = localStorage.getItem("userPhone") || localStorage.getItem("scpb_saved_phone") || "";
+  const scpb_saved_phone = localStorage.getItem("userPhone") || localStorage.getItem("scpb_saved_phone") || "";
   const cachedGroup = localStorage.getItem("scpb_saved_group") || localStorage.getItem("scpb_selected_group");
   const phoneInput = document.getElementById("phoneInput");
 
@@ -3101,25 +3167,25 @@ document.addEventListener("DOMContentLoaded", async function () {
     }
   }
 
-  console.log(`In DomContentload group ${cachedGroup}, Phone ${cachedPhone}...`);
+  console.log(`In DomContentload group ${cachedGroup}, Phone ${scpb_saved_phone}...`);
 
   if (phoneInput) {
     // Populate the input field immediately if cache exists
-    if (cachedPhone) {
-      phoneInput.value = cachedPhone;
+    if (scpb_saved_phone) {
+      phoneInput.value = scpb_saved_phone;
     }
 
 
     // 1. INITIAL LOAD CHECK
-    if (cachedPhone) {
+    if (scpb_saved_phone) {
       const currentGroup = document.querySelector('input[name="helpGroupRadio"]:checked')?.value || cachedGroup;
-      const { exists, player } = checkPlayerExists(cachedPhone, currentGroup); 
+      const { exists, player } = checkPlayerExists(scpb_saved_phone, currentGroup); 
       
       if (exists) {
         console.log('Found player:', player);
         if (typeof setSaveButtonState === "function") setSaveButtonState(true);
-        if (typeof loadPlayerStatusFromCache === "function") await loadPlayerStatusFromCache(cachedPhone);
-      } else if (cachedPhone.replace(/\D/g, "").length >= 10) {
+        if (typeof loadPlayerStatusFromCache === "function") await loadPlayerStatusFromCache(scpb_saved_phone);
+      } else if (scpb_saved_phone.replace(/\D/g, "").length >= 10) {
         // Apply your "Unknown Player" logic if they have a full cached number but aren't in the group
         const saveBtn = document.getElementById('savePhoneBtn');
         if (saveBtn) {
@@ -3127,7 +3193,7 @@ document.addEventListener("DOMContentLoaded", async function () {
           saveBtn.disabled = false;
         }
         if (typeof showStatusLoading === "function") showStatusLoading("Player not found. Please register.");
-        if (typeof setAppViewState === "function") setAppViewState(false, cachedPhone);
+        if (typeof setAppViewState === "function") setAppViewState(false, scpb_saved_phone);
       }
     }
 

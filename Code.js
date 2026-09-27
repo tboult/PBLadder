@@ -83,9 +83,21 @@ function testunifiedata() {
 function testCheckInDirectly() {
   try {
     const result = toggleSingleCheckIn({
-      sheet: "Sched Women", 
-      playerName: "Jennifer Little",
+      sheet: "Mens", 
+      playerName: "Terry Boult",
       isCheckedIn: true
+    });
+    Logger.log("SUCCESS: " + JSON.stringify(result));
+  } catch (err) {
+    Logger.log("ERROR: " + err.toString());
+  }
+}
+function testCheckbyPhone() {
+  try {
+    const result = toggleSingleCheckIn({
+      sheet: "Mens", 
+      phone: "7199630573",
+      isCheckedin: true
     });
     Logger.log("SUCCESS: " + JSON.stringify(result));
   } catch (err) {
