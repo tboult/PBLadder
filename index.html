@@ -443,11 +443,14 @@ function checkAndUnlockAdmin(phone) {
   }
 
   function renderAdminCourts(groupName) {
+    const cachedGroup = localStorage.getItem("scpb_saved_group") || localStorage.getItem("scpb_selected_group");      
     console.log("🔍 renderAdminCourts:", {  groupName });      
     const list = document.getElementById('admin-court-list');
     if (!list) return;
     list.innerHTML = '';
-    
+      if (!groupName) {
+          groupName=  cachedGroup
+      }
     if (!groupName) {
       list.innerHTML = '<i style="grid-column: 1 / -1; text-align: center; color: #666;">Select a group above to load courts...</i>';
       return;
@@ -2394,7 +2397,7 @@ async function refreshActiveTabData() {
     if (activeTab === 'checkin' || activeTab === 'admin') {
         if (typeof triggerAutoCheckIn === 'function') await triggerAutoCheckIn();
     if (activeTab === 'admin') {
-        renderAdminCourts()
+        if (typeof  renderAdminCourts === 'function')        await renderAdminCourts()
     }
     if (typeof loadUnifiedRosterData === 'function') {
       await loadUnifiedRosterData(currentGroup);
