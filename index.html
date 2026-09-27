@@ -764,10 +764,10 @@ document.addEventListener('DOMContentLoaded', () => {
   
 async function checkAppVersion() {
   try {
-    const res = await apiCall('getAppVersion');
+      const res = await apiCall('getAppVersion');
     if (res && res.version && res.version !== CURRENT_APP_VERSION) {
-      console.log(`New app version detected (${res.version}). Force resetting caches...`);
-      forceResetApp();
+      console.log(`New app version detected (${res.version}). Consider Force resetting caches...`);
+      //forceResetApp();
     }
   } catch (err) {
     console.warn('Version check skipped or failed:', err);
