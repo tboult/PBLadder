@@ -1,4 +1,4 @@
-const CACHE_NAME = 'scpb-ladder-v20260927132851';
+const CACHE_NAME = 'scpb-ladder-v20260927133146';
 const ASSETS_TO_CACHE = [
   './',
   './manifest.json',
