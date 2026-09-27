@@ -2425,7 +2425,7 @@ function ensurePlayerCheckedIn(sheetName, targetPlayer) {
     success: found, 
     status: found ? "success" : "failed", 
     // FIX: Using backticks and the scoped matchedName
-    message: found ? `You are checked in successfully!<br> Loading everyone....` : "Player not found on sheet." 
+    message: found ? `You are  successfully checked in!<br> Loading everyone....` : "Player not found on sheet." 
   };
 }
 
