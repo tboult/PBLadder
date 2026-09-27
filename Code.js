@@ -1303,7 +1303,7 @@ function addNewUser(info) {
   
   return `✅ Success: Added ${info.first} ${info.last} (Inactive) to tab '${targetSheet.getName()}'.`;
 }
-f
+
 
 
 function getSCPBLadderFolder() {
