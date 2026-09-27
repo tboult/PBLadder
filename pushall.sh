@@ -19,30 +19,38 @@ PROD_DEPLOYMENT_ID="AKfycbweTOjVcY0R1sxXrYfbN2S9jqMz4yr5b1alVoz0gjVy3P3ty42rtHlf
 
 if [ "$TARGET_ENV" = "prod" ]; then
     DEPLOYMENT_ID="$PROD_DEPLOYMENT_ID"
-    CONFIG_FILE="prodclasp.json"
+    CLASP_FILE="prodclasp.json"
+    CONFIG_FILE="prodconfig.js"    
     THEME_FILE="prodtheme.css"
     echo "🚀 DEPLOYING TO PRODUCTION..."
 else
     DEPLOYMENT_ID="$DEV_DEPLOYMENT_ID"
-    CONFIG_FILE="devclasp.json"
+    CLASP_FILE="devclasp.json"
+    CONFIG_FILE="devconfig.js"        
     THEME_FILE="devtheme.css"    
     echo "🛠️ DEPLOYING TO DEVELOPMENT ($DEPLOYMENT_ID)..."
 fi
 
 # 4. Ensure target .clasp config file exists before proceeding
-if [ ! -f "$CONFIG_FILE" ]; then
-    echo "❌ Error: $CONFIG_FILE not found in root directory."
+if [ ! -f "$CLASP_FILE" ]; then
+    echo "❌ Error: $CLASP_FILE not found in root directory."
     exit 1
 fi
 
 # 5. Swap .clasp.json to target the correct Apps Script project
-cp "$CONFIG_FILE" .clasp.json
-echo "📋 Copied config to .clasp.json -> $CONFIG_FILE"
+cp "$CLASP_FILE" .clasp.json
+echo "📋 Copied config to .clasp.json -> $CLASP_FILE"
 
 # Swap appsscript.json if environment manifests exist
 if [ -f "${TARGET_ENV}manifest.json" ]; then
     cp "${TARGET_ENV}manifest.json" appsscript.json
     echo "📱 Copied ${TARGET_ENV}manifest.json -> appsscript.json"
+fi
+
+# Swap config.js
+if [ -f "${CONFIG_FILE}" ]; then
+    cp "${CONFIG_FILE}" config.js
+    echo "📱 Copied ${CONFIG_FILE} -> config.js"
 fi
 
 # Swap theme.css
