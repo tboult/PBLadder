@@ -2397,8 +2397,8 @@ function ensurePlayerCheckedIn(sheetName, targetPlayer) {
   
   let found = false;
   let matchedName = ""; // NEW: Variable to hold the actual name out of loop scope
-
-  for (let r = 1; r < data.length; r++) {
+ 
+   for (let r = 1; r < data.length; r++) {
     let pName = (data[r][nameIdx] || "").toString().trim().toLowerCase();
     let pPhone = phoneIdx !== -1 ? String(data[r][phoneIdx] || "").replace(/\D/g, "") : "";
 
@@ -2425,7 +2425,7 @@ function ensurePlayerCheckedIn(sheetName, targetPlayer) {
     success: found, 
     status: found ? "success" : "failed", 
     // FIX: Using backticks and the scoped matchedName
-    message: found ? `You are checked in successfully!` : "Player not found on sheet." 
+    message: found ? `You are checked in successfully!<br> Loading everyone....` : "Player not found on sheet." 
   };
 }
 
