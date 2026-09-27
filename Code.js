@@ -99,7 +99,7 @@ function isLoggingEnabled() {
 }
 
 function logDebug(fnName, msg, extra = "") {
-  if (!isLoggingEnabled()) return;
+  //if (!isLoggingEnabled()) return;
   let extraStr = "";
   if (extra !== undefined && extra !== null && extra !== "") {
     if (typeof extra === "object") {
