@@ -758,7 +758,7 @@ function doPost(e) { return handleApiRequest(e); }
 function handleApiRequest(e) {
   let requiresLock = false;
   let lock = null;
-
+ logDebug("HandelApiRequest", "Request received", e.postData.contents);
   try {
     e = e || {};
     let urlParams = e.parameter || {};
