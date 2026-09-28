@@ -1187,8 +1187,8 @@ function renderLookupResult(player, foursome) {
   const courtDisp = document.getElementById('pCourtDisplay');
 
   if (nameDisp) nameDisp.innerText = displayName;
-  if (groupDisp) groupDisp.innerText = (player && player.group) || (typeof getSavedGroup === 'function' ? getSavedGroup() : 'N/A');
-  if (courtDisp) courtDisp.innerText = (player && player.court) || 'N/A';
+  if (groupDisp) groupDisp.innerText = (player && player.group) || (typeof getSavedGroup === 'function' ? getSavedGroup() : '');
+  if (courtDisp) courtDisp.innerText = (player && player.court) || '';
 
   const badge = document.getElementById('pStatusDisplay');
   if (badge) {
@@ -1770,7 +1770,7 @@ function renderRankingsAndSchedule(data) {
       } else {
         const rank = r.rank || idx + 1;
         const name = r.name || `${r.first || ''} ${r.last || ''}`.trim();
-        const score = r.points ?? r.score ?? r.pct ?? r.total ?? 'N/A';
+        const score = r.points ?? r.score ?? r.pct ?? r.total ?? '';
         const status = r.status || 'Active';
         html += `
           <tr>
