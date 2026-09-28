@@ -64,3 +64,32 @@ body.high-contrast {
   --court-header-text: #000000;
   --focus-ring: #ffffff;
 }
+
+
+/* Hide all existing app elements */
+body > * {
+  display: none !important;
+}
+
+/* Create the Maintenance overlay */
+body::before {
+  content: "🛠️\A\A Down for Maintenance\A We are currently performing scheduled system updates. Please check back shortly.";
+  white-space: pre-wrap;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-color: #f8f9fa;
+  color: #0f172a;
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 1.25rem;
+  font-weight: 600;
+  padding: 2rem;
+  box-sizing: border-box;
+  z-index: 999999;
+}
