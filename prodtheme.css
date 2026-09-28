@@ -73,7 +73,7 @@ body > * {
 
 /* Create the Maintenance overlay */
 body::before {
-  content: "🛠️\A\A Down for Maintenance\A We are currently performing scheduled system updates. Please check back shortly.";
+  content: "🛠️\A\A Down for Maintenance\A We are currently performing scheduled system updates. Please check back on Sept.";
   white-space: pre-wrap;
   display: flex;
   align-items: center;
