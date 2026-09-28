@@ -43,6 +43,7 @@
   </div>
 
 
+
   <!-- TAB 1: CONFIG & SETUP (SINGLE SOURCE OF TRUTH FOR GROUPS) -->
   <div id="helpTab" class="tab-content active">
 
@@ -650,9 +651,6 @@ async function processApiQueue() {
 
 
 
-function getSavedGroup() {
-  return localStorage.getItem('scpb_selected_group');
-}
 
 /**
  * Unified storage helpers for player session data.
@@ -1838,87 +1836,6 @@ if (typeof refreshActiveTabData === 'function') {
 
 
 
-async function triggerAutoCheckIn() {
-    // 3. Display profile / check-in view
-
-  const savedGroup = (activeLookupPlayer && activeLookupPlayer.group) || localStorage.getItem('scpb_saved_group') || localStorage.getItem('scpb_selected_group') || '';
-  const savedPhone = (activeLookupPlayer && activeLookupPlayer.phone) || getSavedPhone();
-  const savedName  = (activeLookupPlayer && (activeLookupPlayer.name || activeLookupPlayer.playerName)) || getSavedName();
-
-    console.log('Trying autocheckin with', savedGroup, savedPhone,savedName);
-    
-
-  // Require both group, phone, and name
-  if (!savedGroup || !savedPhone || !savedName) return;
-
-  const sheetSelect = document.getElementById('sheetSelect');
-  if (sheetSelect && sheetSelect.value !== savedGroup) {
-    sheetSelect.value = savedGroup;
-    if (typeof onGroupChange === 'function') onGroupChange('sheetSelect');
-  }
-
-  const checkInStatus = document.getElementById('checkInStatus');
-  if (checkInStatus) checkInStatus.innerText = '📍 Verifying location...';
-
-  const isAdmin = isUserAdmin(savedPhone);
-  const isAtCourts = isAdmin ? true : (typeof checkGeofence === 'function' ? await checkGeofence(true) : true);
-
-  if (!isAtCourts) {
-    if (checkInStatus) {
-      checkInStatus.innerHTML = `
-        <div style="color: #856404; background-color: #fff3bf; border: 1px solid #ffeeba; padding: 0.75rem; border-radius: 0.5rem; text-align: left; margin-top: 0.5rem; line-height: 1.4;">
-          📍 <b>Check-In Restricted:</b> Auto check-in requires being physically at the courts.<br>
-          <i>Please reopen or refresh when you arrive!</i>
-        </div>`;
-    }
-    return;
-  }
-
-  if (checkInStatus) checkInStatus.innerText = '⚡ Auto-checking in...';
-
-  try {
-    const res = await apiCall('checkInPlayer', { 
-      group: savedGroup,
-      sheet: "Sched " + savedGroup,
-      playerName: savedName,
-      phone: savedPhone
-    });
-
-    const isSuccess = res && (res.success || res.status === 'already_checked_in');
-
-    if (checkInStatus) {
-      if (res && res.status === 'already_checked_in') {
-        checkInStatus.innerHTML = `<span style="color: #0c5460; font-weight: bold;">ℹ️ ${res.message || 'Already checked in for today.'}</span>`;
-      } else if (res && res.success) {
-        checkInStatus.innerHTML = `<span style="color: #2e7d32; font-weight: bold;">✅ ${res.message || 'Successfully checked in!'}</span>`;
-      } else {
-        checkInStatus.innerHTML = `<span style="color: #721c24; font-weight: bold;">⚠️ ${res?.message || 'Check-in failed.'}</span>`;
-      }
-    }
-
-    if (isSuccess && Array.isArray(checkInPlayersCache)) {
-      const matchName = savedName.toLowerCase().trim();
-      const matchPhone = savedPhone.replace(/\D/g, '');
-
-      const playerObj = checkInPlayersCache.find(p => {
-        const pPhone = String(p.phone || p.id || p.playerId || '').replace(/\D/g, '');
-        const pName = String(p.name || p.playerName || '').toLowerCase().trim();
-        return (matchPhone && pPhone === matchPhone) || (matchName && pName === matchName);
-      });
-
-      if (playerObj) {
-        playerObj.checkedIn = true;
-        playerObj.status = 'Checked In';
-      }
-
-    // 3. Display profile / check-in view
-    console.log('Checked in :', playerObj);
-
-    }
-  } catch (err) {
-    if (checkInStatus) checkInStatus.innerHTML = '<span style="color: #721c24; font-weight: bold;">⚠️ Auto check-in failed.</span>';
-  }
-}
 
 
 
@@ -2261,6 +2178,7 @@ function loadAdminPlayerData(group, isBackgroundPoll = false) {
 // ====================================================
 
 
+
 // Single source of truth for group player roster
 window.appPlayersCache = window.appPlayersCache || [];
 
@@ -2273,6 +2191,10 @@ function normalizePhone(phone) {
 /**
  * Loads roster data for Check-In and Admin tabs without phantom helper dependencies.
  */
+/**
+ * Strict 60-Second TTL Unified Roster Loader
+ * Only fetches from API if NO cache exists OR IF BOTH (cacheAge >= 60s AND forceRefresh === true).
+ */
 async function loadUnifiedRosterData(groupName, forceRefresh = false) {
   const targetGroup = groupName 
     || (document.getElementById('sheetSelect')?.value) 
@@ -2281,101 +2203,85 @@ async function loadUnifiedRosterData(groupName, forceRefresh = false) {
 
   if (!targetGroup) return;
 
+  const cleanGroup = String(targetGroup).trim();
   const playerListEl = document.getElementById('playerList');
   const adminListEl = document.getElementById('adminPlayerStatusList');
+  const now = Date.now();
 
-  const maxRetries = 2; // Retry 2 times (3 total attempts)
-  let attempt = 0;
+  const hasCache = Boolean(window.unifiedRosterCache.data && window.unifiedRosterCache.group === cleanGroup);
+  const cacheAge = now - window.unifiedRosterCache.timestamp;
+  const isOlderThan60s = cacheAge >= 60000;
+
+  // REFRESH CONDITION: Must have no cache OR (age >= 60s AND forceRefresh is true)
+  const shouldRefresh = !hasCache || (isOlderThan60s && forceRefresh);
+
+  // 1. USE CACHE IF REFRESH CONDITIONS ARE NOT MET
+  if (!shouldRefresh) {
+    console.log(`⚡ [Cache Locked - Age: ${Math.round(cacheAge / 1000)}s] Serving roster from local memory.`);
+    const cachedPlayers = window.unifiedRosterCache.data;
+    
+    if (typeof checkInPlayersCache !== 'undefined') checkInPlayersCache = cachedPlayers;
+    if (typeof adminPlayersCache !== 'undefined') adminPlayersCache = cachedPlayers;
+
+    if (playerListEl && typeof renderCheckInPlayers === 'function') {
+      playerListEl.innerHTML = '';
+      renderCheckInPlayers(cachedPlayers);
+    }
+    if (adminListEl && typeof filterAdminPlayers === 'function') {
+      adminListEl.innerHTML = '';
+      filterAdminPlayers();
+    }
+    return cachedPlayers;
+  }
+
+  // 2. FETCH FROM API (ONLY IF >60s AND forceRefresh IS TRUE, OR FIRST LOAD)
   let res = null;
   let extractedPlayers = null;
 
-  while (attempt <= maxRetries) {
-    // Show UI feedback for initial load vs retries
-    if (attempt > 0) {
-      const retryNotice = `<div style="padding:1rem; text-align:center; color:#0d6efd; font-weight:bold;">🔄 Retrying roster request (${attempt}/${maxRetries})...</div>`;
-      if (playerListEl) playerListEl.innerHTML = retryNotice;
-      if (adminListEl) adminListEl.innerHTML = retryNotice;
-      
-      // Delay 1.2 seconds before retrying
-      await new Promise(resolve => setTimeout(resolve, 1200));
-    } else {
-      if (playerListEl && !playerListEl.children.length) {
-        playerListEl.innerHTML = '<div style="padding: 1rem; text-align: center; color: #666;">Updating players...</div>';
-      }
-      if (adminListEl && !adminListEl.children.length) {
-        adminListEl.innerHTML = '<div style="padding: 1rem; text-align: center; color: #666;">Updating roster...</div>';
-      }
-    }
+  try {
+    res = await apiCall('getUnifiedRoster', { 
+      groupName: cleanGroup,
+      forceRefresh: forceRefresh 
+    });
 
-    try {
-      // Force refresh on retries to bypass deduplication/caching
-      res = await apiCall('getUnifiedRoster', { 
-        groupName: targetGroup.trim(),
-        forceRefresh: forceRefresh || attempt > 0 
-      });
+    if (Array.isArray(res)) extractedPlayers = res;
+    else if (res && Array.isArray(res.players)) extractedPlayers = res.players;
+    else if (res && res.data && Array.isArray(res.data.players)) extractedPlayers = res.data.players;
+    else if (res && Array.isArray(res.data)) extractedPlayers = res.data;
 
-      extractedPlayers = null;
-      if (Array.isArray(res)) {
-        extractedPlayers = res;
-      } else if (res && Array.isArray(res.players)) {
-        extractedPlayers = res.players;
-      } else if (res && res.data && Array.isArray(res.data.players)) {
-        extractedPlayers = res.data.players;
-      } else if (res && Array.isArray(res.data)) {
-        extractedPlayers = res.data;
-      }
-
-      // If valid data is returned, break out of the retry loop
-      if (extractedPlayers && extractedPlayers.length > 0) {
-        break;
-      }
-    } catch (err) {
-      console.warn(`⚠️ [getUnifiedRoster] Attempt ${attempt + 1} failed:`, err);
-    }
-
-    attempt++;
+  } catch (err) {
+    console.warn("⚠️ Error fetching roster data:", err);
   }
 
-  // Render UI after retry loop completes
   if (extractedPlayers && extractedPlayers.length > 0) {
-    if (typeof checkInPlayersCache !== 'undefined') {
-      checkInPlayersCache = extractedPlayers;
-    }
+    // Update Memory Cache & Reset Timestamp
+    window.unifiedRosterCache = {
+      data: extractedPlayers,
+      group: cleanGroup,
+      timestamp: Date.now()
+    };
 
-    const sortedPlayers = typeof processAndSortPlayers === 'function' 
-      ? processAndSortPlayers(extractedPlayers) 
-      : extractedPlayers;
+    if (typeof checkInPlayersCache !== 'undefined') checkInPlayersCache = extractedPlayers;
+    if (typeof adminPlayersCache !== 'undefined') adminPlayersCache = extractedPlayers;
 
-    // Render Check-In Tab
     if (playerListEl && typeof renderCheckInPlayers === 'function') {
       playerListEl.innerHTML = '';
-      renderCheckInPlayers(sortedPlayers);
+      renderCheckInPlayers(extractedPlayers);
     }
-
-    // Render Admin Tab
-    if (typeof adminPlayersCache !== 'undefined') {
-      adminPlayersCache = extractedPlayers;
-    }
-
-    if (adminListEl) {
+    if (adminListEl && typeof filterAdminPlayers === 'function') {
       adminListEl.innerHTML = '';
-      if (typeof filterAdminPlayers === 'function') {
-        filterAdminPlayers();
-      } else if (typeof renderAdminCourts === 'function') {
-        renderAdminCourts(targetGroup);
-      }
+      filterAdminPlayers();
     }
   } else {
-    // Show error notice only after all retries have given up
     const msg = (res && res.registered === false) 
-      ? "Selected group is not registered yet. Please complete setup above." 
+      ? "Selected group is not registered yet." 
       : "No roster data available for this group.";
-
     const notice = `<div style="padding:0.75rem; color:#856404; background:#fff3cd; border:1px solid #ffeeba; border-radius:0.25rem;">${msg}</div>`;
     if (playerListEl) playerListEl.innerHTML = notice;
     if (adminListEl) adminListEl.innerHTML = notice;
   }
 }
+
 
 /**
  * 1. TAB SWITCHING (Fixed Scoping & Fallback)
@@ -3476,7 +3382,7 @@ function checkGeofence(userPhoneOverride) {
 }      
 
   
-function checkRegistrationStatus(phone) {
+function checkRegistrationStatus(phone) { 
   // 1. Check the phone's local cache first
   const isLocallyCached = localStorage.getItem('registered_' + phone);
   
@@ -3504,6 +3410,248 @@ function checkRegistrationStatus(phone) {
     }
   }).lookupPlayerByPhone(phone); // Your backend function
 }
+
+
+// Global Roster Cache with Timestamp
+window.unifiedRosterCache = {
+  data: null,
+  group: null,
+  timestamp: 0
+};
+
+/**
+ * Strict 60-Second TTL Unified Roster Loader
+ * Only fetches from API if NO cache exists OR IF BOTH (cacheAge >= 60s AND forceRefresh === true).
+ */
+async function loadUnifiedRosterData(groupName, forceRefresh = false) {
+  const targetGroup = groupName 
+    || (document.getElementById('sheetSelect')?.value) 
+    || (document.getElementById('adminGlobalGroupSelect')?.value) 
+    || (typeof getSavedGroup === 'function' ? getSavedGroup() : null);
+
+  if (!targetGroup) return;
+
+  const cleanGroup = String(targetGroup).trim();
+  const playerListEl = document.getElementById('playerList');
+  const adminListEl = document.getElementById('adminPlayerStatusList');
+  const now = Date.now();
+
+  const hasCache = Boolean(window.unifiedRosterCache.data && window.unifiedRosterCache.group === cleanGroup);
+  const cacheAge = now - window.unifiedRosterCache.timestamp;
+  const isOlderThan60s = cacheAge >= 60000;
+
+  // REFRESH CONDITION: Must have no cache OR (age >= 60s AND forceRefresh is true)
+  const shouldRefresh = !hasCache || (isOlderThan60s && forceRefresh);
+
+  // 1. USE CACHE IF REFRESH CONDITIONS ARE NOT MET
+  if (!shouldRefresh) {
+    console.log(`⚡ [Cache Locked - Age: ${Math.round(cacheAge / 1000)}s] Serving roster from local memory.`);
+    const cachedPlayers = window.unifiedRosterCache.data;
+    
+    if (typeof checkInPlayersCache !== 'undefined') checkInPlayersCache = cachedPlayers;
+    if (typeof adminPlayersCache !== 'undefined') adminPlayersCache = cachedPlayers;
+
+    if (playerListEl && typeof renderCheckInPlayers === 'function') {
+      playerListEl.innerHTML = '';
+      renderCheckInPlayers(cachedPlayers);
+    }
+    if (adminListEl && typeof filterAdminPlayers === 'function') {
+      adminListEl.innerHTML = '';
+      filterAdminPlayers();
+    }
+    return cachedPlayers;
+  }
+
+  // 2. FETCH FROM API (ONLY IF >60s AND forceRefresh IS TRUE, OR FIRST LOAD)
+  let res = null;
+  let extractedPlayers = null;
+
+  try {
+    res = await apiCall('getUnifiedRoster', { 
+      groupName: cleanGroup,
+      forceRefresh: forceRefresh 
+    });
+
+    if (Array.isArray(res)) extractedPlayers = res;
+    else if (res && Array.isArray(res.players)) extractedPlayers = res.players;
+    else if (res && res.data && Array.isArray(res.data.players)) extractedPlayers = res.data.players;
+    else if (res && Array.isArray(res.data)) extractedPlayers = res.data;
+
+  } catch (err) {
+    console.warn("⚠️ Error fetching roster data:", err);
+  }
+
+  if (extractedPlayers && extractedPlayers.length > 0) {
+    // Update Memory Cache & Reset Timestamp
+    window.unifiedRosterCache = {
+      data: extractedPlayers,
+      group: cleanGroup,
+      timestamp: Date.now()
+    };
+
+    if (typeof checkInPlayersCache !== 'undefined') checkInPlayersCache = extractedPlayers;
+    if (typeof adminPlayersCache !== 'undefined') adminPlayersCache = extractedPlayers;
+
+    if (playerListEl && typeof renderCheckInPlayers === 'function') {
+      playerListEl.innerHTML = '';
+      renderCheckInPlayers(extractedPlayers);
+    }
+    if (adminListEl && typeof filterAdminPlayers === 'function') {
+      adminListEl.innerHTML = '';
+      filterAdminPlayers();
+    }
+  } else {
+    const msg = (res && res.registered === false) 
+      ? "Selected group is not registered yet." 
+      : "No roster data available for this group.";
+    const notice = `<div style="padding:0.75rem; color:#856404; background:#fff3cd; border:1px solid #ffeeba; border-radius:0.25rem;">${msg}</div>`;
+    if (playerListEl) playerListEl.innerHTML = notice;
+    if (adminListEl) adminListEl.innerHTML = notice;
+  }
+}
+
+
+/**
+ * Handles checking registration and auto-checking in based on user role
+ */
+async function savePhoneToCache() {
+  const phoneInput = document.getElementById('phoneInput');
+  let phone = (phoneInput ? phoneInput.value : '') || getSavedPhone();
+  phone = String(phone).replace(/\D/g, '');
+
+  if (phone.length !== 10) {
+    alert('Please enter a valid 10-digit phone number.');
+    return;
+  }
+
+  savePlayerCredentials(phone);
+  const currentGroup = getSavedGroup();
+
+  if (!currentGroup) {
+    alert('Please select a group first.');
+    return;
+  }
+
+  const saveBtn = document.getElementById('savePhoneBtn');
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '⏳ Checking...';
+  }
+
+  try {
+    // 1. Fetch current roster to check registration
+    const roster = await loadUnifiedRosterData(currentGroup, false) || [];
+    
+    const matchedPlayer = roster.find(p => {
+      const pPhone = String(p.phone || p.cell || p.id || p.playerId || '').replace(/\D/g, '');
+      return pPhone === phone;
+    });
+
+    const regAccordion = document.getElementById('registrationAccordion');
+
+    if (matchedPlayer) {
+      // --- REGISTERED PLAYER ---
+      // A. Keep "New Player" detail box collapsed
+      if (regAccordion) regAccordion.open = false;
+
+      const pName = `${matchedPlayer.first || ''} ${matchedPlayer.last || ''}`.trim() || matchedPlayer.name || matchedPlayer.playerName || '';
+      savePlayerCredentials(phone, pName);
+
+      // B. Auto Check-In
+      const checkinResult = await triggerAutoCheckIn();
+
+      // C. Routing logic based on Admin status
+      const isAdmin = isUserAdmin(phone);
+      if (isAdmin) {
+        checkAndUnlockAdmin(phone);
+        switchTab('admin');
+      } else {
+        switchTab('score');
+        const statusMsg = checkinResult?.message || "✅ Auto-checked in successfully!";
+        updateAutoCheckinBanner(statusMsg, 'success');
+      }
+
+    } else {
+      // --- UNREGISTERED PLAYER ---
+      // Expand detail box so they can register
+      if (regAccordion) regAccordion.open = true;
+      alert("⚠️ Phone number not registered. Please complete registration in the box below.");
+    }
+
+  } catch (err) {
+    console.error("Error checking registration:", err);
+  } finally {
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.innerHTML = 'Check Registration';
+    }
+  }
+}
+
+/**
+ * Updates status banner display at top of Enter Scores tab
+ */
+function updateAutoCheckinBanner(message, type = 'success') {
+  const banner = document.getElementById('autoCheckinStatusBanner');
+  if (!banner) return;
+
+  banner.style.display = 'block';
+  if (type === 'success') {
+    banner.style.backgroundColor = '#d1e7dd';
+    banner.style.color = '#0f5132';
+    banner.style.border = '1px solid #badbcc';
+  } else {
+    banner.style.backgroundColor = '#fff3cd';
+    banner.style.color = '#664d03';
+    banner.style.border = '1px solid #ffecb5';
+  }
+  banner.innerHTML = message;
+}
+
+/**
+ * Helper triggers auto-checkin and returns response payload
+ */
+async function triggerAutoCheckIn() {
+  const savedGroup = getSavedGroup();
+  const savedPhone = getSavedPhone();
+  const savedName = getSavedName();
+
+  if (!savedGroup || !savedPhone || !savedName) return null;
+
+  try {
+    const res = await apiCall('checkInPlayer', { 
+      group: savedGroup,
+      sheet: "Sched " + savedGroup,
+      playerName: savedName,
+      phone: savedPhone
+    });
+    return res;
+  } catch (err) {
+    console.warn("Auto check-in error:", err);
+    return null;
+  }
+}
+
+// Missing HTML Handler Aliases
+function onHelpGroupRadioChange(val) {
+  setSelectedGroup(val);
+  updateAllGroupDisplays(val);
+  loadUnifiedRosterData(val, false);
+}
+
+function toggleStatusFromSetup() {
+  if (typeof toggleStatus === 'function') toggleStatus();
+}
+
+function submitFrontPageRegistration() {
+  if (typeof submitUserRegistration === 'function') submitUserRegistration();
+}
+
+function forceRefresh() {
+  const currentGroup = getSavedGroup();
+  if (currentGroup) loadUnifiedRosterData(currentGroup, true);
+  }
+  
 
   </script>
   </body>
