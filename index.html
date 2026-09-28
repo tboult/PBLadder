@@ -1464,10 +1464,11 @@ async function submitUserRegistration() {
 }
 
 async function toggleStatus() {
+  console.log(`In togglestatus...`);
   if (!activeLookupPlayer) return;
   const statusEl = document.getElementById('phoneStatus');
   if (statusEl) statusEl.innerText = 'Updating status...';
-
+  console.log(`In togglestatus with activeLookupPlayer...`);
   try {
     const res = await apiCall('toggleUnifiedActiveStatus', {
       phone: activeLookupPlayer.phone,
@@ -2419,28 +2420,48 @@ function handleVersionCheck(serverVersion) {
 
 
 
-
 async function fetchGroupRoster(group, forceRefresh = false) {
-    const cachedGroup = localStorage.getItem("scpb_saved_group") || localStorage.getItem("scpb_selected_group");
-    if (!group) {
-        group = cachedGroup;
-        if (!group) {
-        return [];
-        }
-    }
+  const cachedGroup = localStorage.getItem("scpb_saved_group") || localStorage.getItem("scpb_selected_group");
+  const targetGroup = group || cachedGroup;
 
-  // 1. Check in-memory cache first
-  if (!forceRefresh && Array.isArray(window.appPlayersCache) && window.appPlayersCache.length > 0) {
-    const firstPlayerGroup = window.appPlayersCache[0]?.group || window.appPlayersCache[0]?.sheet;
-    if (!firstPlayerGroup || firstPlayerGroup.toLowerCase() === group.toLowerCase()) {
-      return window.appPlayersCache;
-    }
+  // 1. Missing Group
+  if (!targetGroup) {
+    console.warn("⚠️ [fetchGroupRoster] No group provided! Arguments and localStorage (scpb_saved_group / scpb_selected_group) are empty.");
+    return [];
   }
 
-  // 2. Delegate to unified roster loader
-  await loadUnifiedRosterData(group, forceRefresh);
-  return window.appPlayersCache || [];
+  // 2. Memory Cache Hit
+  if (!forceRefresh && Array.isArray(window.appPlayersCache) && window.appPlayersCache.length > 0) {
+    console.log(`⚡ [fetchGroupRoster] Cache Hit: Serving ${window.appPlayersCache.length} players from window.appPlayersCache for group "${targetGroup}".`);
+    return window.appPlayersCache;
+  }
+
+  console.log(`📡 [fetchGroupRoster] Fetching fresh roster for group: "${targetGroup}" (forceRefresh: ${forceRefresh})...`);
+
+  // 3. Delegate to unified loader & capture return value
+  const freshPlayers = await loadUnifiedRosterData(targetGroup, forceRefresh) || [];
+
+  // 4. Validate & Sync to window.appPlayersCache
+  if (Array.isArray(freshPlayers) && freshPlayers.length > 0) {
+    window.appPlayersCache = freshPlayers;
+    console.log(`✅ [fetchGroupRoster] Roster loaded successfully. Saved ${freshPlayers.length} players into window.appPlayersCache.`);
+    return freshPlayers;
+  }
+
+  console.warn(`⚠️ [fetchGroupRoster] loadUnifiedRosterData returned 0 players for "${targetGroup}". Checking window.unifiedRosterCache fallback...`);
+
+  // 5. Check Unified Cache Fallback
+  if (Array.isArray(window.unifiedRosterCache?.data) && window.unifiedRosterCache.data.length > 0) {
+    console.log(`🔄 [fetchGroupRoster] Recovered ${window.unifiedRosterCache.data.length} players from window.unifiedRosterCache.data fallback.`);
+    window.appPlayersCache = window.unifiedRosterCache.data;
+    return window.appPlayersCache;
+  }
+
+  // 6. Complete Failure
+  console.error(`❌ [fetchGroupRoster] Critical: No player records found for group "${targetGroup}". Returning empty array.`);
+  return [];
 }
+
 
 
 
@@ -2642,8 +2663,12 @@ function setAppViewState(isRegistered, phone = "") {
 
   if (phoneInput && phone) {
     phoneInput.value = phone;
+    } else     {
+    phoneInput.value = getSavedPhone();
   }
-
+  phone = phoneInput.value;
+  console.log('SetAppView Phone is...',phone,phoneInput,badge);
+    
   // Always show status card wrapper
   if (statusCard) statusCard.style.display = "block";
 
@@ -2722,13 +2747,15 @@ async function loadPlayerStatusFromCache(phone) {
                         localStorage.getItem('scpb_saved_group') || 
                         localStorage.getItem('scpb_selected_group') || '';
 
+  console.log(`LPlayer group ...`,selectedGroup);                        
+
   const cleanPhone = typeof normalizePhone === "function" ? normalizePhone(phone) : phone.replace(/\D/g, "");
   if (!cleanPhone || cleanPhone.length < 7) {
     setAppViewState(false, phone);
     return;
   }
-
-  showStatusLoading("⏳ LOOKING UP...");
+  console.log(`LPlayer phone ...`,cleanPhone);                        
+  showStatusLoading("⏳ LOOKING..");
 
   let roster = window.appPlayersCache;
   if (!Array.isArray(roster) || roster.length === 0 || (roster[0] && roster[0].group !== selectedGroup)) {
@@ -2737,19 +2764,27 @@ async function loadPlayerStatusFromCache(phone) {
     }
   }
 
-  const found = Array.isArray(roster) ? roster.find(p => {
-    const pPhone = typeof normalizePhone === "function" 
-      ? normalizePhone(p.phone || p.cell || p.mobile || p.phoneNumber) 
-      : (p.phone || p.cell || p.mobile || p.phoneNumber || "").replace(/\D/g, "");
-    return pPhone.length >= 7 && cleanPhone.length >= 7 && pPhone.endsWith(cleanPhone.slice(-7));
-  }) : null;
+  console.log(`LPlayer roster ...`,Array.isArray(roster), roster);                        
+  // Ensure cleanPhone is strictly numeric digits
+  const cleanDigits = String(cleanPhone || "").replace(/\D/g, "");
 
+  const found = Array.isArray(roster) ? roster.find(p => {
+     // Extract field value safely (handles numbers or strings)
+     const rawValue = p.phone || p.cell || p.mobile || p.phoneNumber || p.id || "";
+      console.log(`LPlayer rawvalue ...`,rawValue);                        
+
+     // Strip non-digits directly (bypasses normalizePhone display formatting)
+     const pDigits = String(rawValue).replace(/\D/g, "");
+  
+     return pDigits.length >= 7 && cleanDigits.length >= 7 && pDigits.endsWith(cleanDigits.slice(-7));
+  }) : null;
+  console.log(`LPlayer found ...`,found);                        
   if (found) {
+
     const rawName = found.name || `${found.first || ''} ${found.last || ''}`.trim();
     const isActive = found.active === true || 
                      String(found.active).toLowerCase() === 'true' || 
                      String(found.status).toUpperCase() === 'ACTIVE';
-
     window.activeLookupPlayer = {
       ...found,
       name: rawName,
@@ -2766,6 +2801,9 @@ async function loadPlayerStatusFromCache(phone) {
       localStorage.setItem('scpb_saved_player_name', rawName);
       localStorage.setItem('scpb_saved_name', rawName);
     }
+    showStatusLoading("Player Found...");  
+    console.log(`LS Player found ...`,window.activeLookupPlayer);
+
 
     setAppViewState(true, phone);
     updateFrontStatusBadge(isActive ? "ACTIVE" : "INACTIVE");
@@ -2776,7 +2814,8 @@ async function loadPlayerStatusFromCache(phone) {
       if (welcomeBanner) welcomeBanner.style.display = "block";
     }
 
-  } else {
+    } else {
+    console.log(`LS Player notfound ...`);    
     window.activeLookupPlayer = {
       phone: phone,
       group: selectedGroup,
@@ -2802,6 +2841,8 @@ async function toggleStatusFromSetup() {
 
   const cleanPhone = typeof normalizePhone === "function" ? normalizePhone(phone) : phone.replace(/\D/g, "");
 
+     console.log(`In togglestatus from Setup 2842...`);
+    
   if (!cleanPhone || cleanPhone.length < 7) {
     alert("Please enter a valid phone number first.");
     return;
@@ -3089,6 +3130,7 @@ document.addEventListener("DOMContentLoaded", async function () {
       
       if (exists) {
         console.log('Found player:', player);
+        showStatusLoading("Player Found...");
         if (typeof setSaveButtonState === "function") setSaveButtonState(true);
         if (typeof loadPlayerStatusFromCache === "function") await loadPlayerStatusFromCache(scpb_saved_phone);
       } else if (scpb_saved_phone.replace(/\D/g, "").length >= 10) {
@@ -3423,48 +3465,55 @@ window.unifiedRosterCache = {
  * Strict 60-Second TTL Unified Roster Loader
  * Only fetches from API if NO cache exists OR IF BOTH (cacheAge >= 60s AND forceRefresh === true).
  */
+/**
+ * Strict Unified Roster Loader
+ * Never serves empty arrays from cache.
+ */
 async function loadUnifiedRosterData(groupName, forceRefresh = false) {
   const targetGroup = groupName 
     || (document.getElementById('sheetSelect')?.value) 
     || (document.getElementById('adminGlobalGroupSelect')?.value) 
     || (typeof getSavedGroup === 'function' ? getSavedGroup() : null);
 
-  if (!targetGroup) return;
+  if (!targetGroup) return [];
 
   const cleanGroup = String(targetGroup).trim();
   const playerListEl = document.getElementById('playerList');
   const adminListEl = document.getElementById('adminPlayerStatusList');
   const now = Date.now();
 
-  const hasCache = Boolean(window.unifiedRosterCache.data && window.unifiedRosterCache.group === cleanGroup);
-  const cacheAge = now - window.unifiedRosterCache.timestamp;
+  const cachedData = window.unifiedRosterCache?.data;
+  const isSameGroup = window.unifiedRosterCache?.group === cleanGroup;
+  
+  // 1. VALIDATE CACHE: Must be an array AND contain at least 1 player
+  const hasValidNonEmptyCache = isSameGroup && Array.isArray(cachedData) && cachedData.length > 0;
+  const cacheAge = now - (window.unifiedRosterCache?.timestamp || 0);
   const isOlderThan60s = cacheAge >= 60000;
 
-  // REFRESH CONDITION: Must have no cache OR (age >= 60s AND forceRefresh is true)
-  const shouldRefresh = !hasCache || (isOlderThan60s && forceRefresh);
+  // Serve cache ONLY if we have actual player records and refresh conditions aren't met
+  const shouldRefresh = !hasValidNonEmptyCache || (isOlderThan60s && forceRefresh);
 
-  // 1. USE CACHE IF REFRESH CONDITIONS ARE NOT MET
   if (!shouldRefresh) {
-    console.log(`⚡ [Cache Locked - Age: ${Math.round(cacheAge / 1000)}s] Serving roster from local memory.`);
-    const cachedPlayers = window.unifiedRosterCache.data;
+    console.log(`⚡ [Cache Hit - Age: ${Math.round(cacheAge / 1000)}s] Serving ${cachedData.length} players from local memory.`);
     
-    if (typeof checkInPlayersCache !== 'undefined') checkInPlayersCache = cachedPlayers;
-    if (typeof adminPlayersCache !== 'undefined') adminPlayersCache = cachedPlayers;
+    if (typeof checkInPlayersCache !== 'undefined') checkInPlayersCache = cachedData;
+    if (typeof adminPlayersCache !== 'undefined') adminPlayersCache = cachedData;
 
     if (playerListEl && typeof renderCheckInPlayers === 'function') {
       playerListEl.innerHTML = '';
-      renderCheckInPlayers(cachedPlayers);
+      renderCheckInPlayers(cachedData);
     }
     if (adminListEl && typeof filterAdminPlayers === 'function') {
       adminListEl.innerHTML = '';
       filterAdminPlayers();
     }
-    return cachedPlayers;
+    return cachedData;
   }
 
-  // 2. FETCH FROM API (ONLY IF >60s AND forceRefresh IS TRUE, OR FIRST LOAD)
+  // 2. FETCH FROM API IF CACHE IS EMPTY OR EXPIRED WITH FORCE REFRESH
+  console.log(`📡 Fetching fresh roster for group: "${cleanGroup}"...`);
   let res = null;
-  let extractedPlayers = null;
+  let extractedPlayers = [];
 
   try {
     res = await apiCall('getUnifiedRoster', { 
@@ -3481,8 +3530,8 @@ async function loadUnifiedRosterData(groupName, forceRefresh = false) {
     console.warn("⚠️ Error fetching roster data:", err);
   }
 
+  // 3. ONLY STORE IN CACHE IF WE RECEIVED REAL PLAYERS
   if (extractedPlayers && extractedPlayers.length > 0) {
-    // Update Memory Cache & Reset Timestamp
     window.unifiedRosterCache = {
       data: extractedPlayers,
       group: cleanGroup,
@@ -3500,13 +3549,18 @@ async function loadUnifiedRosterData(groupName, forceRefresh = false) {
       adminListEl.innerHTML = '';
       filterAdminPlayers();
     }
+    return extractedPlayers;
   } else {
+    // DO NOT cache empty arrays so subsequent calls can retry the network
+    window.unifiedRosterCache = { data: null, group: null, timestamp: 0 };
+    
     const msg = (res && res.registered === false) 
       ? "Selected group is not registered yet." 
       : "No roster data available for this group.";
     const notice = `<div style="padding:0.75rem; color:#856404; background:#fff3cd; border:1px solid #ffeeba; border-radius:0.25rem;">${msg}</div>`;
     if (playerListEl) playerListEl.innerHTML = notice;
     if (adminListEl) adminListEl.innerHTML = notice;
+    return [];
   }
 }
 
@@ -3639,9 +3693,6 @@ function onHelpGroupRadioChange(val) {
   loadUnifiedRosterData(val, false);
 }
 
-function toggleStatusFromSetup() {
-  if (typeof toggleStatus === 'function') toggleStatus();
-}
 
 function submitFrontPageRegistration() {
   if (typeof submitUserRegistration === 'function') submitUserRegistration();
