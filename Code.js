@@ -879,7 +879,11 @@ function handleApiRequest(e) {
         break;
 
       case 'toggleSingleCheckIn':
-        result = toggleSingleCheckIn(payload.sheet || payload.schedSheetName || payload.tab || payload.group, payload.playerName || payload.name || payload.phone, payload.isCheckedIn !== undefined ? payload.isCheckedIn : payload.checkedIn);
+        result = toggleSingleCheckIn(
+            payload.groupName || payload.group || payload.sheet || payload.schedSheetName || payload.tab,
+            payload.playerName || payload.name || payload.phone,
+            payload.isCheckedIn ?? payload.checkedIn ?? payload.status ?? true
+        );
         break;
 
       case 'saveCheckIns':

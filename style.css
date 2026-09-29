@@ -436,6 +436,20 @@ table.data-table td {
   font-size: 0.9rem;
 }
 
+/* Compact styling for buttons inside the Admin Player Roster & Score list */
+#adminPlayerStatusList button,
+#adminPlayerStatusList .btn-save,
+#adminPlayerStatusList .save-score-btn {
+  width: auto !important;          /* Prevents full-width stretch */
+  display: inline-block !important;
+  padding: 4px 10px !important;    /* Tight padding */
+  font-size: 0.85rem !important;   /* Compact font size */
+  line-height: 1.2 !important;
+  height: auto !important;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
 @media (max-width: 768px) {
   .desktop-only { display: none !important; }
 }
