@@ -2096,56 +2096,51 @@ async function submitUserRegistration() {
 // 8. INITIALIZER ON DOM LOAD
 // ==========================================
 document.addEventListener("DOMContentLoaded", async function () {
-  // Restore saved text size or default to normal
   const savedSize = localStorage.getItem('pwa-text-size') || 'normal';
   if (typeof applyTextSize === "function") applyTextSize(savedSize);
 
   const scpb_saved_phone = localStorage.getItem("userPhone") || localStorage.getItem("scpb_saved_phone") || "";
-  const cachedGroup = localStorage.getItem("scpb_saved_group") || localStorage.getItem("scpb_selected_group");
+  const cachedGroup = localStorage.getItem("scpb_saved_group") || localStorage.getItem("scpb_selected_group") || "Mixed";
   const phoneInput = document.getElementById("phoneInput");
 
+  // 1. MUST AWAIT ROSTER LOAD FIRST
   if (cachedGroup) {
     const radio = document.querySelector(`input[name="helpGroupRadio"][value="${cachedGroup}"]`);
     if (radio) radio.checked = true;
-    if (typeof fetchGroupRoster === "function") {
+    
+    // Await roster fetch so window.cachedRoster is populated before running checkPlayerExists
+    if (typeof loadUnifiedRosterData === "function") {
+      await loadUnifiedRosterData(cachedGroup);
+    } else if (typeof fetchGroupRoster === "function") {
       await fetchGroupRoster(cachedGroup);
     }
   }
 
-  console.log(`In DomContentload group ${cachedGroup}, Phone ${scpb_saved_phone}...`);
+  console.log(`In DomContentLoaded group ${cachedGroup}, Phone ${scpb_saved_phone}...`);
 
   if (phoneInput) {
-    // Populate the input field immediately if cache exists
-    if (scpb_saved_phone) {
-      phoneInput.value = scpb_saved_phone;
-    }
+    if (scpb_saved_phone) phoneInput.value = scpb_saved_phone;
 
-
-    // 1. INITIAL LOAD CHECK
+    // 2. CHECK PLAYER NOW THAT ROSTER IS GUARANTEED READY
     if (scpb_saved_phone) {
       const currentGroup = document.querySelector('input[name="helpGroupRadio"]:checked')?.value || cachedGroup;
       const { exists, player } = checkPlayerExists(scpb_saved_phone, currentGroup); 
       
       if (exists) {
         console.log('Found player:', player);
-        showStatusLoading("Player Found...");
+        if (typeof showStatusLoading === "function") showStatusLoading("Player Found...");
         if (typeof setSaveButtonState === "function") setSaveButtonState(true);
         if (typeof loadPlayerStatusFromCache === "function") await loadPlayerStatusFromCache(scpb_saved_phone);
       } else if (scpb_saved_phone.replace(/\D/g, "").length >= 10) {
-        // Apply your "Unknown Player" logic if they have a full cached number but aren't in the group
-        const saveBtn = document.getElementById('savePhoneBtn');
-        if (saveBtn) {
-          saveBtn.innerHTML = "Register New Player";
-          saveBtn.disabled = false;
+        // Player truly not in this group -> search other groups
+        if (typeof handlePlayerNotFoundInCurrentGroup === "function") {
+          await handlePlayerNotFoundInCurrentGroup(scpb_saved_phone, currentGroup);
         }
-        if (typeof showStatusLoading === "function") showStatusLoading("Player not found. Please register.");
-        if (typeof setAppViewState === "function") setAppViewState(false, scpb_saved_phone);
       }
     }
 
+    // 3. LIVE TYPING DEBOUNCE
     let phoneDebounceTimer = null;
-    
-    // 2. LIVE TYPING CHECK
     phoneInput.addEventListener("input", function () {
       if (typeof setSaveButtonState === "function") setSaveButtonState(false);
       const rawPhone = phoneInput.value.trim();
@@ -2162,29 +2157,28 @@ document.addEventListener("DOMContentLoaded", async function () {
           
           if (exists) {
             if (typeof setSaveButtonState === "function") setSaveButtonState(true);
-              if (typeof loadPlayerStatusFromCache === "function") await loadPlayerStatusFromCache(digits);
-              savePhoneToCache(digits);
-              const saveBtn = document.getElementById('savePhoneBtn');              
-              saveBtn.innerHTML = "Registration found";
-              saveBtn.disabled = false;              
-                  
-          } else {
-            const saveBtn = document.getElementById('savePhoneBtn');
+            if (typeof loadPlayerStatusFromCache === "function") await loadPlayerStatusFromCache(digits);
+            if (typeof savePhoneToCache === "function") savePhoneToCache(digits);
+            const saveBtn = document.getElementById('savePhoneBtn');             
             if (saveBtn) {
-              saveBtn.innerHTML = "Register New Player";
-              saveBtn.disabled = false;
+              saveBtn.innerHTML = "Registration found";
+              saveBtn.disabled = false;             
             }
-            if (typeof showStatusLoading === "function") showStatusLoading("Player not found. Please register.");
-            if (typeof setAppViewState === "function") setAppViewState(false, rawPhone);
+          } else {
+            if (typeof handlePlayerNotFoundInCurrentGroup === "function") {
+              await handlePlayerNotFoundInCurrentGroup(digits, currentGroup);
+            }
           }
-        }, 300);
-      } else if (digits.length < 10) {
-        if (typeof setAppViewState === "function") setAppViewState(false, rawPhone);
+        }, 400);
       }
     }); 
   }
-  bindGroupRadioListeners();    
+
+  if (typeof bindGroupRadioListeners === "function") {
+    bindGroupRadioListeners();    
+  }
 });
+
 
 
 (function loadTheme() {
@@ -2491,100 +2485,34 @@ window.unifiedRosterCache = {
  * Strict Unified Roster Loader
  * Never serves empty arrays from cache.
  */
+let currentRosterFetchPromise = null;
+let lastFetchedGroup = null;
+
 async function loadUnifiedRosterData(groupName, forceRefresh = false) {
-    console.log(`start loadunified group "${groupName}" `);
-  const targetGroup = groupName 
-    || (document.getElementById('sheetSelect')?.value) 
-    || (document.getElementById('adminGlobalGroupSelect')?.value) 
-    || (typeof getSavedGroup === 'function' ? getSavedGroup() : null);
+  // Return existing in-flight promise if already requesting the same group
+  if (currentRosterFetchPromise && lastFetchedGroup === groupName && !forceRefresh) {
+    return currentRosterFetchPromise;
+  }
 
-  if (!targetGroup) return [];
-
-  const cleanGroup = String(targetGroup).trim();
-  const playerListEl = document.getElementById('playerList');
-  const adminListEl = document.getElementById('adminPlayerStatusList');
-  const now = Date.now();
-
-  const cachedData = window.unifiedRosterCache?.data;
-  const isSameGroup = window.unifiedRosterCache?.group === cleanGroup;
+  lastFetchedGroup = groupName;
   
-  // 1. VALIDATE CACHE: Must be an array AND contain at least 1 player
-  const hasValidNonEmptyCache = isSameGroup && Array.isArray(cachedData) && cachedData.length > 0;
-  const cacheAge = now - (window.unifiedRosterCache?.timestamp || 0);
-  const isOlderThan60s = cacheAge >= 60000;
-
-  // Serve cache ONLY if we have actual player records and refresh conditions aren't met
-  const shouldRefresh = !hasValidNonEmptyCache || (isOlderThan60s && forceRefresh);
-
-  if (!shouldRefresh) {
-    console.log(`⚡ [Cache Hit - Age: ${Math.round(cacheAge / 1000)}s] Serving ${cachedData.length} players from local memory.`);
-    
-    if (typeof checkInPlayersCache !== 'undefined') checkInPlayersCache = cachedData;
-    if (typeof adminPlayersCache !== 'undefined') adminPlayersCache = cachedData;
-
-//    if (typeof renderCheckInPlayers === 'function') {
-//      renderCheckInPlayers(cachedData);
-//    }
-    if (adminListEl && typeof filterAdminPlayers === 'function') {
-      adminListEl.innerHTML = '';
-      filterAdminPlayers();
+  currentRosterFetchPromise = (async () => {
+    try {
+      console.log(`📡 Fetching fresh roster for group: "${groupName}"...`);
+      const res = await apiCall('getUnifiedRoster', { group: groupName, forceRefresh: forceRefresh });
+      if (res && res.success && Array.isArray(res.players)) {
+        window.cachedRoster = res.players;
+        window.unifiedRoster = res.players;
+      }
+      return res;
+    } finally {
+      currentRosterFetchPromise = null; // Clear lock when done
     }
-    return cachedData;
-  }
+  })();
 
-  // 2. FETCH FROM API IF CACHE IS EMPTY OR EXPIRED WITH FORCE REFRESH
-  console.log(`📡 Fetching fresh roster for group: "${cleanGroup}"...`);
-  let res = null;
-  let extractedPlayers = [];
-
-  try {
-    res = await apiCall('getUnifiedRoster', { 
-      groupName: cleanGroup,
-      forceRefresh: forceRefresh 
-    });
-
-    if (Array.isArray(res)) extractedPlayers = res;
-    else if (res && Array.isArray(res.players)) extractedPlayers = res.players;
-    else if (res && res.data && Array.isArray(res.data.players)) extractedPlayers = res.data.players;
-    else if (res && Array.isArray(res.data)) extractedPlayers = res.data;
-
-  } catch (err) {
-    console.warn("⚠️ Error fetching roster data:", err);
-  }
-
-  // 3. ONLY STORE IN CACHE IF WE RECEIVED REAL PLAYERS
-  if (extractedPlayers && extractedPlayers.length > 0) {
-    window.unifiedRosterCache = {
-      data: extractedPlayers,
-      group: cleanGroup,
-      timestamp: Date.now()
-    };
-
-    if (typeof checkInPlayersCache !== 'undefined') checkInPlayersCache = extractedPlayers;
-    if (typeof adminPlayersCache !== 'undefined') adminPlayersCache = extractedPlayers;
-
-//    if (playerListEl && typeof renderCheckInPlayers === 'function') {
-//      playerListEl.innerHTML = '';
-//      renderCheckInPlayers(extractedPlayers);
-//    }
-    if (adminListEl && typeof filterAdminPlayers === 'function') {
-      adminListEl.innerHTML = '';
-      filterAdminPlayers();
-    }
-    return extractedPlayers;
-  } else {
-    // DO NOT cache empty arrays so subsequent calls can retry the network
-    window.unifiedRosterCache = { data: null, group: null, timestamp: 0 };
-    
-    const msg = (res && res.registered === false) 
-      ? "Selected group is not registered yet." 
-      : "No roster data available for this group.";
-    const notice = `<div style="padding:0.75rem; color:#856404; background:#fff3cd; border:1px solid #ffeeba; border-radius:0.25rem;">${msg}</div>`;
-    if (playerListEl) playerListEl.innerHTML = notice;
-    if (adminListEl) adminListEl.innerHTML = notice;
-    return [];
-  }
+  return currentRosterFetchPromise;
 }
+
 
 
 /**
@@ -3129,4 +3057,36 @@ async function handlePlayerNotFoundInCurrentGroup(searchedPhone, currentGroup) {
   } catch (err) {
     console.error("Error during cross-group lookup:", err);
   }
+}
+
+async function checkRegistrationStatus(phone) {
+  console.log("checkregistrationstatus:", phone);
+  const cleanPhoneInput = String(phone || '').replace(/\D/g, '');
+  const statusMsg = document.getElementById('phoneStatus') || document.getElementById('checkInStatus');
+
+  if (!cleanPhoneInput || cleanPhoneInput.length < 7) {
+    if (statusMsg) {
+      statusMsg.innerText = "Please enter a valid phone number.";
+      statusMsg.style.color = "#dc3545";
+    }
+    return;
+  }
+
+  // 1. Check current group roster in frontend memory
+  const roster = window.cachedRoster || window.unifiedRoster || [];
+  const foundInCurrent = roster.find(p => {
+    const pPhone = String(p.phone || '').replace(/\D/g, '');
+    return pPhone && pPhone.endsWith(cleanPhoneInput.slice(-7));
+  });
+
+  if (foundInCurrent) {
+    // Found in current group -> Load Dashboard
+    localStorage.setItem('registered_' + cleanPhoneInput, 'true');
+    localStorage.setItem('scpb_saved_phone', cleanPhoneInput);
+    if (typeof loadActivePlayerDashboard === 'function') loadActivePlayerDashboard();
+    return;
+  }
+
+  // 2. NOT in current group -> Call handlePlayerNotFoundInCurrentGroup
+  await handlePlayerNotFoundInCurrentGroup(cleanPhoneInput);
 }
