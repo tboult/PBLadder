@@ -14,10 +14,13 @@ async function apiCall(action, payload = {}) {
   const isDuplicateRosterQueued = typeof apiQueue !== 'undefined' && action === 'getUnifiedRoster' && 
       apiQueue.some(q => q.action === 'getUnifiedRoster' && q.payload?.group === payload?.group);
 
-  if ((!isForceRefresh || isDuplicateRosterQueued) && typeof apiQueue !== 'undefined' && action === 'getUnifiedRoster') {
-    const cachedPlayers = (Array.isArray(window.appPlayersCache) && window.appPlayersCache.length > 0) 
-      ? window.appPlayersCache 
-      : (window.cachedRoster || []);
+  const cachedPlayers = (Array.isArray(window.appPlayersCache) && window.appPlayersCache.length > 0) 
+    ? window.appPlayersCache 
+    : (window.cachedRoster || []);
+  const hasCachedPlayers = Array.isArray(cachedPlayers) && cachedPlayers.length > 0;
+
+  // Only return early if duplicate is queued or if cached players actually exist in memory
+  if ((isDuplicateRosterQueued || (!isForceRefresh && hasCachedPlayers)) && typeof apiQueue !== 'undefined' && action === 'getUnifiedRoster') {
     console.log(`⚡ [API Cache Hit] Deduplicating "${action}", returning cached players.`, cachedPlayers);
     return Promise.resolve({ success: true, registered: true, players: cachedPlayers });
   }
@@ -62,12 +65,14 @@ async function loadUnifiedRosterData(groupName, forceRefresh = false) {
       console.log(`📡 Fetching fresh roster for group: "${groupName}"...`);
       const res = await apiCall('getUnifiedRoster', { group: groupName, forceRefresh: forceRefresh });
       
+      const playersList = (res && res.success) ? (Array.isArray(res.players) ? res.players : (Array.isArray(res.data) ? res.data : null)) : null;
+
       // FIX: Guard against race condition if group changed while request was in-flight
-      if (lastFetchedGroup === groupName && res && res.success && Array.isArray(res.players)) {
-        window.cachedRoster = res.players;
-        window.unifiedRoster = res.players;
-        window.appPlayersCache = res.players;
-        return res.players;
+      if (lastFetchedGroup === groupName && playersList) {
+        window.cachedRoster = playersList;
+        window.unifiedRoster = playersList;
+        window.appPlayersCache = playersList;
+        return playersList;
       }
       return window.cachedRoster || [];
     } catch (err) {
@@ -82,6 +87,7 @@ async function loadUnifiedRosterData(groupName, forceRefresh = false) {
 
   return currentRosterFetchPromise;
 }
+
 
 async function onGroupRadioChange(selectedGroup) {
   console.log(`onGroupRadioChange ${selectedGroup}`);
