@@ -9,10 +9,12 @@ async function apiCall(action, payload = {}) {
     time: new Date().toLocaleTimeString()
   });
 
-  // FIX: Bypass deduplication when forceRefresh is true
+  // FIX: Bypass deduplication when forceRefresh is true, unless an identical roster request is already queued
   const isForceRefresh = Boolean(payload && payload.forceRefresh);
-  if (!isForceRefresh && typeof apiQueue !== 'undefined' && action === 'getUnifiedRoster' && 
-      apiQueue.some(q => q.action === 'getUnifiedRoster' && JSON.stringify(q.payload) === JSON.stringify(payload))) {
+  const isDuplicateRosterQueued = typeof apiQueue !== 'undefined' && action === 'getUnifiedRoster' && 
+      apiQueue.some(q => q.action === 'getUnifiedRoster' && q.payload?.group === payload?.group);
+
+  if ((!isForceRefresh || isDuplicateRosterQueued) && typeof apiQueue !== 'undefined' && action === 'getUnifiedRoster') {
     const cachedPlayers = (Array.isArray(window.appPlayersCache) && window.appPlayersCache.length > 0) 
       ? window.appPlayersCache 
       : (window.cachedRoster || []);
@@ -35,6 +37,380 @@ async function apiCall(action, payload = {}) {
   });
 
   return result;
+}
+
+let currentRosterFetchPromise = null;
+let lastFetchedGroup = null;
+
+async function loadUnifiedRosterData(groupName, forceRefresh = false) {
+  if (!groupName) return [];
+
+  // 1. Return in-flight request if currently fetching for the target group (prevents duplicate network requests)
+  if (currentRosterFetchPromise && lastFetchedGroup === groupName) {
+    return currentRosterFetchPromise;
+  }
+
+  // 2. Return memory roster if already fetched for this group and not force-refreshing
+  if (!forceRefresh && lastFetchedGroup === groupName && Array.isArray(window.cachedRoster) && window.cachedRoster.length > 0) {
+    return window.cachedRoster;
+  }
+
+  lastFetchedGroup = groupName;
+
+  currentRosterFetchPromise = (async () => {
+    try {
+      console.log(`📡 Fetching fresh roster for group: "${groupName}"...`);
+      const res = await apiCall('getUnifiedRoster', { group: groupName, forceRefresh: forceRefresh });
+      
+      // FIX: Guard against race condition if group changed while request was in-flight
+      if (lastFetchedGroup === groupName && res && res.success && Array.isArray(res.players)) {
+        window.cachedRoster = res.players;
+        window.unifiedRoster = res.players;
+        window.appPlayersCache = res.players;
+        return res.players;
+      }
+      return window.cachedRoster || [];
+    } catch (err) {
+      console.error("Error fetching roster:", err);
+      return [];
+    } finally {
+      if (lastFetchedGroup === groupName) {
+        currentRosterFetchPromise = null;
+      }
+    }
+  })();
+
+  return currentRosterFetchPromise;
+}
+
+async function onGroupRadioChange(selectedGroup) {
+  console.log(`onGroupRadioChange ${selectedGroup}`);
+  const cleanGroup = String(selectedGroup).replace(/^(Sched|Score)\s*/i, '').trim();
+
+  // 1. Force DOM elements directly to show loading immediately
+  const statusDisplay = document.getElementById("frontStatusDisplay");
+  const statusBadge = document.getElementById("frontStatusBadge") || document.getElementById("statusBadge");
+
+  if (statusDisplay) {
+    statusDisplay.textContent = "⏳ LOOKING UP...";
+    statusDisplay.className = "badge bg-warning text-dark";
+    statusDisplay.style.setProperty("background-color", "#ffc107", "important");
+    statusDisplay.style.setProperty("color", "#000000", "important");
+  }
+  if (statusBadge) statusBadge.textContent = "LOOKING UP...";
+  if (typeof showStatusLoading === 'function') {
+    showStatusLoading("⏳ LOOKING UP...");
+  }
+
+  // Check-in Tab Elements
+  const checkinBadge = document.getElementById("checkinPlayerStatusBadge");
+  const checkinStatus = document.getElementById("checkInStatus");
+  const checkinName = document.getElementById("checkinPlayerName");
+  const userCheckinBtn = document.getElementById("userCheckinBtn");
+
+  if (checkinBadge) {
+    checkinBadge.innerText = "⏳ LOOKING UP...";
+    checkinBadge.className = "status-badge status-warning";
+    checkinBadge.style.backgroundColor = "#ffc107";
+    checkinBadge.style.color = "#000000";
+  }
+  if (checkinStatus) {
+    checkinStatus.innerText = `⏳ Loading status for group "${cleanGroup}"...`;
+  }
+  if (checkinName) {
+    checkinName.innerText = `⏳ Loading ${cleanGroup}...`;
+  }
+  if (userCheckinBtn) {
+    userCheckinBtn.innerText = "⏳ Loading...";
+    userCheckinBtn.disabled = true;
+  }
+
+  await new Promise(resolve => setTimeout(resolve, 50));
+
+  // 2. Sync group selection across storage
+  if (typeof setSelectedGroup === 'function') {
+    setSelectedGroup(cleanGroup);
+  } else {
+    localStorage.setItem('scpb_selected_group', cleanGroup);
+    localStorage.setItem('scpb_saved_group', cleanGroup);
+  }
+
+  // 3. Clear ALL existing group caches & active player references
+  window.appPlayersCache = [];
+  window.cachedRoster = [];
+  window.unifiedRoster = [];
+  window.unifiedRosterCache = { data: null, group: null, timestamp: 0 };
+  window.activeLookupPlayer = null;
+  window.activeLookupFoursome = null;
+
+  // 4. Sync UI elements (Radios/Dropdowns)
+  const allGroupRadios = document.querySelectorAll(
+    'input[name="helpGroupRadio"], input[name="checkinGroupRadio"]'
+  );
+  allGroupRadios.forEach(radio => {
+    radio.checked = (radio.value === cleanGroup);
+  });
+  if (typeof syncAllGroupDropdowns === 'function') syncAllGroupDropdowns(cleanGroup);
+  if (typeof updateAllGroupDisplays === 'function') updateAllGroupDisplays(cleanGroup);
+
+  // FIX: 5. Fetch fresh roster FIRST before attempting lookup or tab renders
+  if (typeof loadUnifiedRosterData === 'function') {
+    await loadUnifiedRosterData(cleanGroup, true);
+  }
+
+  // FIX: 6. Run lookup with newly updated roster populated in memory
+  const savedPhone = typeof getSavedPhone === 'function' ? getSavedPhone() : (localStorage.getItem('scpb_saved_phone') || '');
+  if (savedPhone && typeof loadPlayerStatusFromCache === 'function') {
+    await loadPlayerStatusFromCache(savedPhone);
+  } else if (typeof setAppViewState === 'function') {
+    setAppViewState(false, '');
+  }
+
+  // 7. Refresh active tab UI elements using cached data
+  if (typeof refreshActiveTabData === 'function') {
+    await refreshActiveTabData(false);
+  }
+    
+  if (checkinStatus && checkinStatus.innerText.includes("Loading status")) {
+    checkinStatus.innerText = "";
+  }    
+}
+
+async function loadPlayerStatusFromCache(phone) {
+  const statusCard = document.getElementById("frontStatusCard");
+  const statusDisplay = document.getElementById("frontStatusDisplay");
+
+  if (!statusCard || !statusDisplay) return;
+
+  // Show loading indicator immediately before doing any lookup logic
+  if (typeof showStatusLoading === "function") {
+    showStatusLoading("⏳ LOOKING UP...");
+  }
+
+  const selectedGroup = (typeof getSavedGroup === 'function' ? getSavedGroup() : '') || 
+                        document.querySelector('input[name="helpGroupRadio"]:checked, input[name="checkinGroupRadio"]:checked')?.value || '';
+
+  const cleanPhone = typeof normalizePhone === "function" ? normalizePhone(phone) : phone.replace(/\D/g, "");
+  if (!cleanPhone || cleanPhone.length < 7) {
+    setAppViewState(false, phone);
+    return;
+  }
+
+  // FIXED: Automatically unlock admin if user is an admin
+  if (typeof checkAndUnlockAdmin === "function" && phone) {
+    checkAndUnlockAdmin(phone);
+  }
+
+  // Await roster loading to ensure lookup evaluates against complete data
+  let roster = window.appPlayersCache;
+  const isRosterForGroup = Array.isArray(roster) && roster.length > 0 && 
+    (roster[0]?.group === selectedGroup || roster[0]?.groupName === selectedGroup);
+
+  if (!isRosterForGroup && selectedGroup && typeof loadUnifiedRosterData === "function") {
+    roster = await loadUnifiedRosterData(selectedGroup, false);
+  }
+
+  const cleanDigits = String(cleanPhone || "").replace(/\D/g, "");
+
+  const found = Array.isArray(roster) ? roster.find(p => {
+     const rawValue = p.phone || p.cell || p.mobile || p.phoneNumber || p.id || "";
+     const pDigits = String(rawValue).replace(/\D/g, "");
+     return pDigits.length >= 7 && cleanDigits.length >= 7 && pDigits.endsWith(cleanDigits.slice(-7));
+  }) : null;
+
+  if (found) {
+    const rawName = found.name || `${found.first || ''} ${found.last || ''}`.trim();
+    const isActive = found.active === true || 
+                     String(found.active).toLowerCase() === 'true' || 
+                     String(found.status).toUpperCase() === 'ACTIVE';
+
+    window.activeLookupPlayer = {
+      ...found,
+      name: rawName,
+      phone: phone,
+      group: selectedGroup,
+      status: isActive ? "ACTIVE" : "INACTIVE",
+      active: isActive,
+      existsOnRoster: true,
+      checkedIn: found.checkedIn || found.isCheckedIn || false
+    };
+
+    if (found.first) localStorage.setItem('scpb_saved_first_name', found.first);
+    if (rawName) {
+      localStorage.setItem('scpb_saved_player_name', rawName);
+      localStorage.setItem('scpb_saved_name', rawName);
+    }
+
+    // FIXED: Pass player object instead of phone string to avoid "undefined" display name
+    setAppViewState(true, window.activeLookupPlayer);
+    updateFrontStatusBadge(isActive ? "ACTIVE" : "INACTIVE");
+
+    if (rawName && document.getElementById("welcomeName")) {
+      document.getElementById("welcomeName").textContent = rawName;
+      const welcomeBanner = document.getElementById("welcomeBanner");
+      if (welcomeBanner) welcomeBanner.style.display = "block";
+    }
+
+  } else {
+    window.activeLookupPlayer = {
+      phone: phone,
+      group: selectedGroup,
+      status: "UNREGISTERED",
+      existsOnRoster: false
+    };
+
+    setAppViewState(false, phone);
+    redirectToRegistrationTab(phone, selectedGroup);
+  }
+}
+
+async function triggerAutoCheckIn() {
+  const scoreBanner = document.getElementById("scoreAutoCheckinBanner");
+  const scoreBadge = document.getElementById("pStatusDisplay");
+  const checkinBadge = document.getElementById("checkinPlayerStatusBadge");
+  const checkinStatusMsg = document.getElementById("checkInStatus");
+  const frontBadge = document.getElementById("frontStatusDisplay");
+
+  function updateAllTabStatuses(message, badgeText, bgHex, textHex) {
+    if (scoreBanner) {
+      scoreBanner.style.display = "block";
+      scoreBanner.innerText = message;
+      scoreBanner.style.backgroundColor = bgHex;
+      scoreBanner.style.color = textHex;
+    }
+    if (scoreBadge) scoreBadge.innerText = badgeText;
+
+    if (checkinBadge) {
+      checkinBadge.innerText = badgeText;
+      checkinBadge.style.backgroundColor = bgHex;
+      checkinBadge.style.color = textHex;
+    }
+    if (checkinStatusMsg) checkinStatusMsg.innerText = message;
+
+    if (frontBadge) {
+      frontBadge.innerText = badgeText;
+      frontBadge.style.setProperty("background-color", bgHex, "important");
+      frontBadge.style.setProperty("color", textHex, "important");
+    }
+  }
+
+  updateAllTabStatuses("⏳ Auto checking in...", "Checking In...", "#ffc107", "#000000");
+
+  try {
+    const savedPhone = typeof getSavedPhone === 'function' ? getSavedPhone() : (localStorage.getItem('scpb_saved_phone') || '');
+    const savedName = typeof getSavedName === 'function' ? getSavedName() : (localStorage.getItem('scpb_saved_name') || localStorage.getItem('scpb_player_name') || '');
+    const currentGroup = typeof getSavedGroup === 'function' ? getSavedGroup() : (localStorage.getItem('scpb_selected_group') || '');
+
+    if (!savedPhone && !savedName) {
+      updateAllTabStatuses("⚠️ No saved player details found.", "Not Registered", "#6c757d", "#ffffff");
+      return;
+    }
+
+    // Ensure current group roster is loaded into memory before checking status
+    if ((!window.cachedRoster || window.cachedRoster.length === 0) && currentGroup && typeof loadUnifiedRosterData === 'function') {
+      await loadUnifiedRosterData(currentGroup, false);
+    }
+
+    // Validate player existence and active/check-in status locally before hitting backend
+    if (window.cachedRoster && Array.isArray(window.cachedRoster)) {
+      const targetPhoneDigits = savedPhone.replace(/\D/g, '');
+      const player = window.cachedRoster.find(p => 
+        (p.phone && String(p.phone).replace(/\D/g, '') === targetPhoneDigits) ||
+        (p.name && p.name.toLowerCase() === savedName.toLowerCase())
+      );
+
+      if (player) {
+        if (player.active === false || player.active === 'false' || player.status === 'Inactive') {
+          updateAllTabStatuses("⛔ Inactive cannot check in", "Inactive", "#6c757d", "#ffffff");
+          return;
+        }
+        const isChecked = player.checkedIn === true || player.checkedIn === 'true' || player.isCheckedIn === true;
+        if (isChecked) {
+          updateAllTabStatuses("✅ Auto Checked-In Successfully", "Checked In", "#198754", "#ffffff");
+          return;
+        }
+      } else if (targetPhoneDigits && window.cachedRoster.length > 0) {
+        updateAllTabStatuses("⚠️ Player not found in this group.", "Not Registered", "#6c757d", "#ffffff");
+        return;
+      }
+    }
+
+    // Call check-in API
+    const res = await apiCall('toggleSingleCheckIn', {
+      sheet: "Sched " + currentGroup,
+      playerName: savedName,
+      phone: savedPhone,
+      groupName: currentGroup,
+      isCheckedIn: true
+    });
+
+    // Check for Inactive state from backend response
+    if (res && (res.isInactive || res.message?.toLowerCase().includes("inactive"))) {
+      updateAllTabStatuses("⛔ Inactive cannot check in", "Inactive", "#6c757d", "#ffffff");
+      return;
+    }
+
+    if (res && (res.success || res.status === 'Checked In' || res.checkedIn)) {
+      updateAllTabStatuses("✅ Auto Checked-In Successfully", "Checked In", "#198754", "#ffffff");
+    } else {
+      const msg = res?.message || "Check-in failed";
+      updateAllTabStatuses(`⚠️ Auto Check-In: ${msg}`, "Not Checked In", "#dc3545", "#ffffff");
+    }
+  } catch (err) {
+    console.error("Auto check-in error:", err);
+    updateAllTabStatuses("❌ Network Error during Auto Check-In", "Error", "#dc3545", "#ffffff");
+  }
+}
+
+// Single Consolidated Tab Refresh Handler
+async function refreshActiveTabData(forceRefresh = false) {
+  const activeTab = localStorage.getItem('activeTab') || 'help';
+  const currentGroup = getSavedGroup();
+
+  if (typeof renderHelpGroupRadios === 'function') {
+    renderHelpGroupRadios();
+  }
+
+  // Ensure radio buttons reflect stored group
+  if (currentGroup) {
+    setSavedGroup(currentGroup);
+  }
+
+  if (typeof updateGlobalLoaderStatus === 'function') updateGlobalLoaderStatus();
+
+  try {
+    // FIX: Always ensure roster is fetched FIRST before attempting child tab updates
+    if (currentGroup && typeof loadUnifiedRosterData === 'function') {
+      await loadUnifiedRosterData(currentGroup, forceRefresh);
+    }
+
+    if (activeTab === 'checkin') {
+      if (typeof triggerAutoCheckIn === 'function') await triggerAutoCheckIn();
+    } else if (activeTab === 'admin') {
+      if (typeof triggerAutoCheckIn === 'function') await triggerAutoCheckIn();
+      if (typeof renderAdminCourts === 'function') await renderAdminCourts(currentGroup);
+      if (typeof loadAdminTabData === 'function') await loadAdminTabData(currentGroup);
+      if (typeof loadAdminPlayerStatusCache === 'function') await loadAdminPlayerStatusCache(currentGroup);
+    } else if (activeTab === 'ranksched' || activeTab === 'schedule') {
+      if (typeof loadRankingsAndSched === 'function') {
+        await loadRankingsAndSched(currentGroup);
+      }
+    } else if (activeTab === 'scoreTab' || activeTab === 'score' || activeTab === 'phone') {
+      if (typeof triggerAutoCheckIn === 'function') await triggerAutoCheckIn();
+      if (typeof lookupPhone === 'function') {
+        await lookupPhone();
+      }
+    } else if (activeTab === 'help') {
+      const savedPhone = typeof getSavedPhone === 'function' ? getSavedPhone() : '';
+      if (savedPhone && typeof loadPlayerStatusFromCache === 'function') {
+        await loadPlayerStatusFromCache(savedPhone);
+      }
+    }
+  } catch (err) {
+    console.error(`💥 [Tab Refresh Error] Failed rendering tab "${activeTab}":`, err);
+  } finally {
+    if (typeof updateGlobalLoaderStatus === 'function') updateGlobalLoaderStatus();
+  }
 }
 
 
@@ -616,98 +992,6 @@ function setSelectedGroup(groupName) {
   }
 }
 
-async function onGroupRadioChange(selectedGroup) {
-  console.log(`onGroupRadioChange ${selectedGroup}`);
-  const cleanGroup = String(selectedGroup).replace(/^(Sched|Score)\s*/i, '').trim();
-
-  // 1. Force DOM elements directly to show loading immediately
-  const statusDisplay = document.getElementById("frontStatusDisplay");
-  const statusBadge = document.getElementById("frontStatusBadge") || document.getElementById("statusBadge");
-
-  if (statusDisplay) {
-    statusDisplay.textContent = "⏳ LOOKING UP...";
-    statusDisplay.className = "badge bg-warning text-dark";
-    statusDisplay.style.setProperty("background-color", "#ffc107", "important");
-    statusDisplay.style.setProperty("color", "#000000", "important");
-  }
-  if (statusBadge) statusBadge.textContent = "LOOKING UP...";
-  if (typeof showStatusLoading === 'function') {
-    showStatusLoading("⏳ LOOKING UP...");
-  }
-
-  // Check-in Tab Elements
-  const checkinBadge = document.getElementById("checkinPlayerStatusBadge");
-  const checkinStatus = document.getElementById("checkInStatus");
-  const checkinName = document.getElementById("checkinPlayerName");
-  const userCheckinBtn = document.getElementById("userCheckinBtn");
-
-  if (checkinBadge) {
-    checkinBadge.innerText = "⏳ LOOKING UP...";
-    checkinBadge.className = "status-badge status-warning";
-    checkinBadge.style.backgroundColor = "#ffc107";
-    checkinBadge.style.color = "#000000";
-  }
-  if (checkinStatus) {
-    checkinStatus.innerText = `⏳ Loading status for group "${cleanGroup}"...`;
-  }
-  if (checkinName) {
-    checkinName.innerText = `⏳ Loading ${cleanGroup}...`;
-  }
-  if (userCheckinBtn) {
-    userCheckinBtn.innerText = "⏳ Loading...";
-    userCheckinBtn.disabled = true;
-  }
-
-  await new Promise(resolve => setTimeout(resolve, 50));
-
-  // 2. Sync group selection across storage
-  if (typeof setSelectedGroup === 'function') {
-    setSelectedGroup(cleanGroup);
-  } else {
-    localStorage.setItem('scpb_selected_group', cleanGroup);
-    localStorage.setItem('scpb_saved_group', cleanGroup);
-  }
-
-  // 3. Clear ALL existing group caches & active player references
-  window.appPlayersCache = [];
-  window.cachedRoster = [];
-  window.unifiedRoster = [];
-  window.unifiedRosterCache = { data: null, group: null, timestamp: 0 };
-  window.activeLookupPlayer = null;
-  window.activeLookupFoursome = null;
-
-  // 4. Sync UI elements (Radios/Dropdowns)
-  const allGroupRadios = document.querySelectorAll(
-    'input[name="helpGroupRadio"], input[name="checkinGroupRadio"]'
-  );
-  allGroupRadios.forEach(radio => {
-    radio.checked = (radio.value === cleanGroup);
-  });
-  if (typeof syncAllGroupDropdowns === 'function') syncAllGroupDropdowns(cleanGroup);
-  if (typeof updateAllGroupDisplays === 'function') updateAllGroupDisplays(cleanGroup);
-
-  // FIX: 5. Fetch fresh roster FIRST before attempting lookup or tab renders
-  if (typeof loadUnifiedRosterData === 'function') {
-    await loadUnifiedRosterData(cleanGroup, true);
-  }
-
-  // FIX: 6. Run lookup with newly updated roster populated in memory
-  const savedPhone = typeof getSavedPhone === 'function' ? getSavedPhone() : (localStorage.getItem('scpb_saved_phone') || '');
-  if (savedPhone && typeof loadPlayerStatusFromCache === 'function') {
-    await loadPlayerStatusFromCache(savedPhone);
-  } else if (typeof setAppViewState === 'function') {
-    setAppViewState(false, '');
-  }
-
-  // 7. Refresh active tab UI elements
-  if (typeof refreshActiveTabData === 'function') {
-    await refreshActiveTabData(false);
-  }
-    
-  if (checkinStatus && checkinStatus.innerText.includes("Loading status")) {
-    checkinStatus.innerText = "";
-  }    
-}
 
 
 
@@ -890,12 +1174,6 @@ function onGroupContextUpdated(groupName) {
   }
 }
 
-let refreshing = false;
-navigator.serviceWorker.addEventListener('controllerchange', () => {
-  if (refreshing) return;
-  refreshing = true;
-  window.location.reload();
-});  
 
 
 
@@ -1352,94 +1630,6 @@ function showStatusLoading(message) {
 }
 
 
-async function loadPlayerStatusFromCache(phone) {
-  const statusCard = document.getElementById("frontStatusCard");
-  const statusDisplay = document.getElementById("frontStatusDisplay");
-
-  if (!statusCard || !statusDisplay) return;
-
-  // Show loading indicator immediately before doing any lookup logic
-  if (typeof showStatusLoading === "function") {
-    showStatusLoading("⏳ LOOKING UP...");
-  }
-
-  const selectedGroup = (typeof getSavedGroup === 'function' ? getSavedGroup() : '') || 
-                        document.querySelector('input[name="helpGroupRadio"]:checked, input[name="checkinGroupRadio"]:checked')?.value || '';
-
-  const cleanPhone = typeof normalizePhone === "function" ? normalizePhone(phone) : phone.replace(/\D/g, "");
-  if (!cleanPhone || cleanPhone.length < 7) {
-    setAppViewState(false, phone);
-    return;
-  }
-
-  // FIXED: Automatically unlock admin if user is an admin
-  if (typeof checkAndUnlockAdmin === "function" && phone) {
-    checkAndUnlockAdmin(phone);
-  }
-
-  let roster = window.appPlayersCache;
-  const isRosterForGroup = Array.isArray(roster) && roster.length > 0 && 
-    (roster[0]?.group === selectedGroup || roster[0]?.groupName === selectedGroup);
-
-  if (!isRosterForGroup) {
-    if (typeof fetchGroupRoster === "function") {
-      roster = await fetchGroupRoster(selectedGroup, true);
-    }
-  }
-
-  const cleanDigits = String(cleanPhone || "").replace(/\D/g, "");
-
-  const found = Array.isArray(roster) ? roster.find(p => {
-     const rawValue = p.phone || p.cell || p.mobile || p.phoneNumber || p.id || "";
-     const pDigits = String(rawValue).replace(/\D/g, "");
-     return pDigits.length >= 7 && cleanDigits.length >= 7 && pDigits.endsWith(cleanDigits.slice(-7));
-  }) : null;
-
-  if (found) {
-    const rawName = found.name || `${found.first || ''} ${found.last || ''}`.trim();
-    const isActive = found.active === true || 
-                     String(found.active).toLowerCase() === 'true' || 
-                     String(found.status).toUpperCase() === 'ACTIVE';
-
-    window.activeLookupPlayer = {
-      ...found,
-      name: rawName,
-      phone: phone,
-      group: selectedGroup,
-      status: isActive ? "ACTIVE" : "INACTIVE",
-      active: isActive,
-      existsOnRoster: true,
-      checkedIn: found.checkedIn || found.isCheckedIn || false
-    };
-
-    if (found.first) localStorage.setItem('scpb_saved_first_name', found.first);
-    if (rawName) {
-      localStorage.setItem('scpb_saved_player_name', rawName);
-      localStorage.setItem('scpb_saved_name', rawName);
-    }
-
-    // FIXED: Pass player object instead of phone string to avoid "undefined" display name
-    setAppViewState(true, window.activeLookupPlayer);
-    updateFrontStatusBadge(isActive ? "ACTIVE" : "INACTIVE");
-
-    if (rawName && document.getElementById("welcomeName")) {
-      document.getElementById("welcomeName").textContent = rawName;
-      const welcomeBanner = document.getElementById("welcomeBanner");
-      if (welcomeBanner) welcomeBanner.style.display = "block";
-    }
-
-  } else {
-    window.activeLookupPlayer = {
-      phone: phone,
-      group: selectedGroup,
-      status: "UNREGISTERED",
-      existsOnRoster: false
-    };
-
-    setAppViewState(false, phone);
-    redirectToRegistrationTab(phone, selectedGroup);
-  }
-}
 
 
 
@@ -1842,57 +2032,6 @@ window.unifiedRosterCache = {
   timestamp: 0
 };
 
-/**
- * Strict 60-Second TTL Unified Roster Loader
- * Only fetches from API if NO cache exists OR IF BOTH (cacheAge >= 60s AND forceRefresh === true).
- */
-/**
- * Strict Unified Roster Loader
- * Never serves empty arrays from cache.
- */
-let currentRosterFetchPromise = null;
-let lastFetchedGroup = null;
-
-async function loadUnifiedRosterData(groupName, forceRefresh = false) {
-  if (!groupName) return [];
-
-  // 1. Return memory roster if already fetched for this group and not force-refreshing
-  if (!forceRefresh && lastFetchedGroup === groupName && Array.isArray(window.cachedRoster) && window.cachedRoster.length > 0) {
-    return window.cachedRoster;
-  }
-
-  // 2. Return in-flight request if currently fetching for the target group
-  if (currentRosterFetchPromise && lastFetchedGroup === groupName && !forceRefresh) {
-    return currentRosterFetchPromise;
-  }
-
-  lastFetchedGroup = groupName;
-
-  currentRosterFetchPromise = (async () => {
-    try {
-      console.log(`📡 Fetching fresh roster for group: "${groupName}"...`);
-      const res = await apiCall('getUnifiedRoster', { group: groupName, forceRefresh: forceRefresh });
-      
-      // FIX: Guard against race condition if group changed while request was in-flight
-      if (lastFetchedGroup === groupName && res && res.success && Array.isArray(res.players)) {
-        window.cachedRoster = res.players;
-        window.unifiedRoster = res.players;
-        window.appPlayersCache = res.players;
-        return res.players;
-      }
-      return window.cachedRoster || [];
-    } catch (err) {
-      console.error("Error fetching roster:", err);
-      return [];
-    } finally {
-      if (lastFetchedGroup === groupName) {
-        currentRosterFetchPromise = null;
-      }
-    }
-  })();
-
-  return currentRosterFetchPromise;
-}
 
 
 
@@ -1917,91 +2056,6 @@ function updateAutoCheckinBanner(message, type = 'success') {
   banner.innerHTML = message;
 }
 
-/**
- * Helper triggers auto-checkin and returns response payload
- */
-async function triggerAutoCheckIn() {
-  const scoreBanner = document.getElementById("scoreAutoCheckinBanner");
-  const scoreBadge = document.getElementById("pStatusDisplay");
-  const checkinBadge = document.getElementById("checkinPlayerStatusBadge");
-  const checkinStatusMsg = document.getElementById("checkInStatus");
-  const frontBadge = document.getElementById("frontStatusDisplay");
-
-  function updateAllTabStatuses(message, badgeText, bgHex, textHex) {
-    if (scoreBanner) {
-      scoreBanner.style.display = "block";
-      scoreBanner.innerText = message;
-      scoreBanner.style.backgroundColor = bgHex;
-      scoreBanner.style.color = textHex;
-    }
-    if (scoreBadge) scoreBadge.innerText = badgeText;
-
-    if (checkinBadge) {
-      checkinBadge.innerText = badgeText;
-      checkinBadge.style.backgroundColor = bgHex;
-      checkinBadge.style.color = textHex;
-    }
-    if (checkinStatusMsg) checkinStatusMsg.innerText = message;
-
-    if (frontBadge) {
-      frontBadge.innerText = badgeText;
-      frontBadge.style.setProperty("background-color", bgHex, "important");
-      frontBadge.style.setProperty("color", textHex, "important");
-    }
-  }
-
-  updateAllTabStatuses("⏳ Auto checking in...", "Checking In...", "#ffc107", "#000000");
-
-  try {
-    const savedPhone = typeof getSavedPhone === 'function' ? getSavedPhone() : (localStorage.getItem('scpb_saved_phone') || '');
-    const savedName = typeof getSavedName === 'function' ? getSavedName() : (localStorage.getItem('scpb_saved_name') || localStorage.getItem('scpb_player_name') || '');
-    const currentGroup = typeof getSavedGroup === 'function' ? getSavedGroup() : (localStorage.getItem('scpb_selected_group') || '');
-
-    if (!savedPhone && !savedName) {
-      updateAllTabStatuses("⚠️ No saved player details found.", "Not Registered", "#6c757d", "#ffffff");
-      return;
-    }
-
-    // Optional: Pre-check cached roster for active status
-    if (window.cachedRoster && Array.isArray(window.cachedRoster)) {
-      const targetPhoneDigits = savedPhone.replace(/\D/g, '');
-      const player = window.cachedRoster.find(p => 
-        (p.phone && p.phone.replace(/\D/g, '') === targetPhoneDigits) ||
-        (p.name && p.name.toLowerCase() === savedName.toLowerCase())
-      );
-
-      if (player && (player.active === false || player.active === 'false' || player.status === 'Inactive')) {
-        updateAllTabStatuses("⛔ Inactive cannot check in", "Inactive", "#6c757d", "#ffffff");
-        return;
-      }
-    }
-
-    // Call check-in API
-    const res = await apiCall('toggleSingleCheckIn', {
-      sheet: "Sched " + currentGroup,
-      playerName: savedName,
-      phone: savedPhone,
-      groupName: currentGroup,
-      isCheckedIn: true
-    });
-
-    // Check for Inactive state from backend response
-    if (res && (res.isInactive || res.message?.toLowerCase().includes("inactive"))) {
-      updateAllTabStatuses("⛔ Inactive cannot check in", "Inactive", "#6c757d", "#ffffff");
-      return;
-    }
-
-    if (res && (res.success || res.status === 'Checked In' || res.checkedIn)) {
-      updateAllTabStatuses("✅ Auto Checked-In Successfully", "Checked In", "#198754", "#ffffff");
-    } else {
-      const msg = res?.message || "Check-in failed";
-      updateAllTabStatuses(`⚠️ Auto Check-In: ${msg}`, "Not Checked In", "#dc3545", "#ffffff");
-    }
-  } catch (err) {
-    console.error("Auto check-in error:", err);
-    updateAllTabStatuses("❌ Network Error during Auto Check-In", "Error", "#dc3545", "#ffffff");
-  }
-}
 
 
 
@@ -2058,57 +2112,6 @@ function updateGlobalLoaderStatus() {
   }
 }
 
-async function refreshActiveTabData(forceRefresh = false) {
-  const activeTab = localStorage.getItem('activeTab') || 'help';
-  const currentGroup = getSavedGroup();
-
-  if (typeof renderHelpGroupRadios === 'function') {
-    renderHelpGroupRadios();
-  }
-
-  // Ensure radio buttons reflect stored group
-  if (currentGroup) {
-    setSavedGroup(currentGroup);
-  }
-
-  if (typeof updateGlobalLoaderStatus === 'function') updateGlobalLoaderStatus();
-
-  try {
-    if (activeTab === 'checkin') {
-      if (typeof triggerAutoCheckIn === 'function') await triggerAutoCheckIn();
-      if (currentGroup && typeof loadUnifiedRosterData === 'function') {
-        await loadUnifiedRosterData(currentGroup, forceRefresh);
-      }
-    } else if (activeTab === 'admin') {
-      if (typeof triggerAutoCheckIn === 'function') await triggerAutoCheckIn();
-      // FIX: Fetch group roster data FIRST before rendering admin courts or admin tabs
-      if (currentGroup && typeof loadUnifiedRosterData === 'function') {
-        await loadUnifiedRosterData(currentGroup, forceRefresh);
-      }
-      if (typeof renderAdminCourts === 'function') await renderAdminCourts(currentGroup);
-      if (typeof loadAdminTabData === 'function') await loadAdminTabData(currentGroup);
-      if (typeof loadAdminPlayerStatusCache === 'function') await loadAdminPlayerStatusCache(currentGroup);
-    } else if (activeTab === 'ranksched' || activeTab === 'schedule') {
-      if (typeof loadRankingsAndSched === 'function') {
-        await loadRankingsAndSched(currentGroup);
-      }
-    } else if (activeTab === 'scoreTab' || activeTab === 'score' || activeTab === 'phone') {
-      if (typeof triggerAutoCheckIn === 'function') await triggerAutoCheckIn();
-      if (typeof lookupPhone === 'function') {
-        await lookupPhone();
-      }
-    } else if (activeTab === 'help') {
-      const savedPhone = typeof getSavedPhone === 'function' ? getSavedPhone() : '';
-      if (savedPhone && typeof loadPlayerStatusFromCache === 'function') {
-        await loadPlayerStatusFromCache(savedPhone);
-      }
-    }
-  } catch (err) {
-    console.error(`💥 [Tab Refresh Error] Failed rendering tab "${activeTab}":`, err);
-  } finally {
-    if (typeof updateGlobalLoaderStatus === 'function') updateGlobalLoaderStatus();
-  }
-}
 
 
 
@@ -2532,16 +2535,6 @@ function setSavedGroup(groupName) {
   });
 }
 
-// Global listener: Persist group selection immediately when clicked on any tab
-document.addEventListener('change', (e) => {
-  if (e.target && (e.target.name === 'helpGroupRadio' || e.target.name === 'checkinGroupRadio')) {
-    setSavedGroup(e.target.value);
-    if (typeof refreshActiveTabData === 'function') {
-      refreshActiveTabData(true);
-    }
-  }
-});
-
 // 1. Update restoreActiveTabOnLoad to ensure saved group is loaded into memory first
 function restoreActiveTabOnLoad() {
   const hashTab = window.location.hash.replace('#', '').trim();
@@ -2557,8 +2550,24 @@ function restoreActiveTabOnLoad() {
   switchTab(initialTab, true);
 }
 
-// 2. Add auto-initialization listener at the bottom of api_4.js
+
+let refreshing = false;
+navigator.serviceWorker.addEventListener('controllerchange', () => {
+  if (refreshing) return;
+  refreshing = true;
+  window.location.reload();
+});  
+
+// Global listener: Persist group selection immediately when clicked on any tab
+document.addEventListener('change', (e) => {
+  if (e.target && (e.target.name === 'helpGroupRadio' || e.target.name === 'checkinGroupRadio')) {
+    setSavedGroup(e.target.value);
+    // Note: onGroupRadioChange handles full roster fetch, status check, and tab refresh cleanly
+  }
+});
+
+// Auto-initialization on page load
 document.addEventListener('DOMContentLoaded', () => {
   if (typeof syncGroupRadioUI === 'function') syncGroupRadioUI();
-  restoreActiveTabOnLoad();
+  if (typeof restoreActiveTabOnLoad === 'function') restoreActiveTabOnLoad();
 });

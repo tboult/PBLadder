@@ -44,28 +44,32 @@ function filterAdminPlayers() {
     const playerScore = player.points ?? player.score ?? player.total ?? 0;
 
     return `
-      <div style="display:flex; justify-space-between; align-items:center; padding:0.6rem; border-bottom:1px solid #eee; gap:0.5rem; flex-wrap:wrap;">
-        <div style="flex:1; min-width:150px;">
-          <div style="font-weight:bold; font-size:0.95rem; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">
-            ${attrName}${player.court ? `, Ct ${escapeHtmlAttr(player.court)}` : ''}, ${cleanPhone || 'No phone'}
-          </div>
-          <div style="margin-top:0.35rem; display:flex; align-items:center; gap:0.5rem;">
-             <span style="font-size:0.85rem; font-weight:bold;">Total:</span>
-             <input type="number" id="admin_score_${attrPhone}" value="${playerScore}" style="width: 60px; padding: 0.2rem; border: 1px solid #ccc; border-radius: 4px;">
-             <button class="btn-sub" style="padding: 0.2rem 0.5rem; font-size: 0.8rem; background-color:#6c757d; color:#fff;" onclick="updateAdminPlayerScore('${attrName}', '${attrPhone}')">Save</button>
-          </div>
-        </div>
+<div style="display:flex; justify-content:space-between; align-items:center; padding:0.6rem; border-bottom:1px solid #eee; gap:0.75rem; flex-wrap:wrap;">
+  <!-- Player Details (Left) -->
+  <div style="font-weight:bold; font-size:0.95rem; text-overflow:ellipsis; overflow:hidden; white-space:nowrap; flex:1; min-width:180px;">
+    ${attrName}${player.court ? `, ${escapeHtmlAttr(player.court)}` : ''},${cleanPhone || 'No phone'}
+  </div>
 
-        <div style="display:flex; gap:0.4rem; align-items:center;">
-          <button type="button" class="btn-main" style="padding:0.35rem 0.6rem; font-size:0.8rem; background-color:${isCheckedIn ? '#2e7d32' : '#757575'}; color:white;" onclick="toggleAdminCheckIn(this, '${attrName}', '${attrPhone}', ${isCheckedIn})">
-            ${isCheckedIn ? '✅ Checked In' : '⬜ Check In'}
-          </button>
-          <button type="button" class="btn-sub" style="padding:0.35rem 0.6rem; font-size:0.8rem; background-color:${isActive ? '#1976d2' : '#d32f2f'}; color:white;" onclick="toggleAdminPlayerActive(this, '${attrName}', '${attrPhone}', ${isActive})">
-            ${isActive ? 'Active' : 'Inactive'}
-          </button>
-        </div>
-      </div>
-    `;
+  <!-- Score & Action Controls (Right - All on same line) -->
+  <div style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap; margin-left:auto;">
+    <!-- Score Input & Save -->
+    <div style="display:flex; align-items:center; gap:0.3rem; white-space:nowrap;">
+      <span style="font-size:0.85rem; font-weight:bold;">Total:</span>
+      <input type="number" id="admin_score_${attrPhone}" value="${playerScore}" style="width: 55px; padding: 0.2rem; border: 1px solid #ccc; border-radius: 4px;">
+      <button type="button" class="btn-sub" style="padding: 0.35rem 0.5rem; font-size: 0.8rem; background-color:#6c757d; color:#fff;" onclick="updateAdminPlayerScore('${attrName}', '${attrPhone}')">Save</button>
+    </div>
+
+    <!-- Check-In Button -->
+    <button type="button" class="btn-main" style="padding:0.35rem 0.6rem; font-size:0.8rem; background-color:${isCheckedIn ? '#2e7d32' : '#757575'}; color:white; white-space:nowrap;" onclick="toggleAdminCheckIn(this, '${attrName}', '${attrPhone}',${isCheckedIn})">
+      ${isCheckedIn ? '✅ Checked In' : '⬜ Check In'}
+    </button>
+
+    <!-- Active/Inactive Button -->
+    <button type="button" class="btn-sub" style="padding:0.35rem 0.6rem; font-size:0.8rem; background-color:${isActive ? '#1976d2' : '#d32f2f'}; color:white; white-space:nowrap;" onclick="toggleAdminPlayerActive(this, '${attrName}', '${attrPhone}',${isActive})">
+      ${isActive ? 'Active' : 'Inactive'}
+    </button>
+  </div>
+</div>    `;
   }).join('');
 }
 
