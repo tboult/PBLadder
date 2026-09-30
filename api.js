@@ -2419,32 +2419,84 @@ function checkGeofence(userPhoneOverride) {
 
   
 function checkRegistrationStatus(phone) { 
-  // 1. Check the phone's local cache first
+  // 1. Check local cache first
   const isLocallyCached = localStorage.getItem('registered_' + phone);
   
   if (isLocallyCached === 'true') {
-    // Instant success! They are cached. Load the app.
+    // Instant success!
     loadActivePlayerDashboard();
     return; 
   }
 
-  // 2. Not in cache, check the server (Google Sheet)
-  // (Optional: change your button text to "Checking..." or show a spinner here)
-  document.getElementById('actionButton').innerText = "Checking...";
+  // 2. Not in local cache, check current group sheet
+  const actionBtn = document.getElementById('actionButton');
+  if (actionBtn) actionBtn.innerText = "Checking...";
 
   google.script.run.withSuccessHandler(function(serverResult) {
-    if (serverResult.isFound) {
-      // Found on the server! Save to local cache for next time.
+    if (serverResult && serverResult.isFound) {
+      // Found in current group! Save to cache and load dashboard
       localStorage.setItem('registered_' + phone, 'true');
       loadActivePlayerDashboard();
     } else {
-      // 3. Not found locally or on the server. NOW they need to register.
-      // Change the button and show the rest of the registration form.
-      document.getElementById('actionButton').innerText = "Register";
-      document.getElementById('actionButton').onclick = submitNewRegistration; 
+      
+      // =========================================================
+      // 3. Not in current group: Check across ALL OTHER groups
+      // =========================================================
+      google.script.run.withSuccessHandler(function(crossRes) {
+        const currentGroup = typeof getSavedGroup === 'function' ? getSavedGroup() : (localStorage.getItem('scpb_selected_group') || 'this group');
+        const statusMsg = document.getElementById('phoneStatus') || document.getElementById('checkInStatus');
+
+        if (crossRes && crossRes.found && crossRes.player) {
+          const p = crossRes.player;
+
+          // Auto-fill input fields on active registration form
+          const firstInput = document.getElementById('frontRegFirst') || document.getElementById('regFirst');
+          const lastInput = document.getElementById('frontRegLast') || document.getElementById('regLast');
+          const phoneInput = document.getElementById('frontRegPhone') || document.getElementById('regPhone');
+          const emailInput = document.getElementById('frontRegEmail') || document.getElementById('regEmail');
+
+          if (firstInput) firstInput.value = p.firstName || '';
+          if (lastInput) lastInput.value = p.lastName || '';
+          if (phoneInput) phoneInput.value = p.phone || phone;
+          if (emailInput) emailInput.value = p.email || '';
+
+          // Reveal registration form/accordion
+          const helpAccordion = document.getElementById('registrationAccordion');
+          if (helpAccordion) helpAccordion.open = true;
+
+          const regSection = document.getElementById('registrationSection');
+          if (regSection) regSection.style.display = 'block';
+
+          // User guidance message
+          if (statusMsg) {
+            statusMsg.innerHTML = `ℹ️ Found profile in group <strong>"${p.foundInGroup}"</strong>! Details filled below. Click <strong>Register</strong> to join <strong>"${currentGroup}"</strong>.`;
+            statusMsg.style.color = "#0d6efd";
+          }
+        } else {
+          // Not found in any group -> show blank registration form
+          const helpAccordion = document.getElementById('registrationAccordion');
+          if (helpAccordion) helpAccordion.open = true;
+
+          const regSection = document.getElementById('registrationSection');
+          if (regSection) regSection.style.display = 'block';
+
+          if (statusMsg) {
+            statusMsg.innerText = "Phone number not registered. Please fill out details below to register.";
+            statusMsg.style.color = "#dc3545";
+          }
+        }
+
+        // Set button to Register
+        if (actionBtn) {
+          actionBtn.innerText = "Register";
+          actionBtn.onclick = typeof submitNewRegistration === 'function' ? submitNewRegistration : submitFrontPageRegistration; 
+        }
+      }).findPlayerAcrossGroups(phone); // <--- Calls backend cross-group lookup
+
     }
-  }).lookupPlayerByPhone(phone); // Your backend function
+  }).lookupPlayerByPhone(phone);
 }
+
 
 
 // Global Roster Cache with Timestamp
@@ -2716,6 +2768,7 @@ async function triggerAutoCheckIn() {
 
     // Call check-in API
     const res = await apiCall('toggleSingleCheckIn', {
+      sheet: "Sched " + currentGroup,
       playerName: savedName,
       phone: savedPhone,
       groupName: currentGroup,
@@ -3047,3 +3100,56 @@ window.addEventListener('hashchange', () => {
     switchTab(hashTab, true);
   }
 });
+
+
+async function handlePlayerNotFoundInCurrentGroup(searchedPhone, currentGroup) {
+  console.log("handlePlayerNotFoundInCurrentGroup:", searchedPhone,currentGroup);
+  const statusMsg = document.getElementById('phoneStatus') || document.getElementById('checkInStatus');
+
+  try {
+    // 1. Search all other groups for this phone number
+    const crossRes = await apiCall('findPlayerAcrossGroups', { phone: searchedPhone });
+
+    if (crossRes && crossRes.found && crossRes.player) {
+      const p = crossRes.player;
+
+      // 2. Auto-fill registration input fields on active tab
+      const firstInput = document.getElementById('frontRegFirst') || document.getElementById('regFirst');
+      const lastInput = document.getElementById('frontRegLast') || document.getElementById('regLast');
+      const phoneInput = document.getElementById('frontRegPhone') || document.getElementById('regPhone');
+      const emailInput = document.getElementById('frontRegEmail') || document.getElementById('regEmail');
+
+      if (firstInput) firstInput.value = p.firstName;
+      if (lastInput) lastInput.value = p.lastName;
+      if (phoneInput) phoneInput.value = p.phone || searchedPhone;
+      if (emailInput) emailInput.value = p.email || '';
+
+      // 3. Reveal and expand registration form
+      const helpAccordion = document.getElementById('registrationAccordion');
+      if (helpAccordion) helpAccordion.open = true;
+
+      const regSection = document.getElementById('registrationSection');
+      if (regSection) regSection.style.display = 'block';
+
+      // 4. Prompt user with auto-fill notification
+      if (statusMsg) {
+        statusMsg.innerHTML = `ℹ️ Found profile in group <strong>"${p.foundInGroup}"</strong>! Details filled below. Click <strong>Register</strong> to join <strong>"${currentGroup}"</strong>.`;
+        statusMsg.style.color = "#0d6efd"; // Info blue
+      }
+    } else {
+      // Standard new player registration prompt
+      if (statusMsg) {
+        statusMsg.innerText = `Phone number not registered. Please complete registration below for ${currentGroup}.`;
+        statusMsg.style.color = "#dc3545";
+      }
+
+      const helpAccordion = document.getElementById('registrationAccordion');
+      if (helpAccordion) helpAccordion.open = true;
+
+      const regSection = document.getElementById('registrationSection');
+      if (regSection) regSection.style.display = 'block';
+    }
+  } catch (err) {
+    console.error("Error during cross-group lookup:", err);
+  }
+}

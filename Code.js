@@ -956,6 +956,9 @@ function handleApiRequest(e) {
         result = webExportSchedulePdf(payload.group || payload.groupName);
         break;
 
+      case 'findPlayerAcrossGroups':
+        return findPlayerAcrossGroups(payload.phone || payload.targetPlayer);        
+
       default:
         throw new Error("Invalid or missing API action: " + action);
     }
@@ -3128,3 +3131,84 @@ function executeWithLock(actionFn, maxRetries = 3, timeoutMs = 4000) {
   };
 }
  
+
+/**
+ * Searches across all group sheets for an existing player by phone number.
+ */
+/**
+ * Helper to discover all group names dynamically from sheet names.
+ * Example: "Score MENS", "Sched WOMENS" -> ["MENS", "WOMENS"]
+ */
+function getAllGroupNames() {
+  const ss = getDb();
+  const sheets = ss.getSheets();
+  const groupSet = new Set();
+  
+  sheets.forEach(sheet => {
+    const sName = sheet.getName();
+    const match = sName.match(/^(Score|Sched)\s+(.+)$/i);
+    if (match && match[2]) {
+      groupSet.add(match[2].trim().toUpperCase());
+    }
+  });
+  
+  return Array.from(groupSet);
+}
+
+/**
+ * Searches across all groups using getUnifiedRoster() to benefit from CacheService.
+ */
+function findPlayerAcrossGroups(payload) {
+  try {
+    const rawPhone = typeof payload === 'object' ? (payload.phone || payload.targetPlayer) : payload;
+    const cleanPhone = String(rawPhone || "").replace(/\D/g, "");
+    
+    if (!cleanPhone || cleanPhone.length < 7) {
+      return { found: false, message: "Invalid phone number." };
+    }
+
+    // 1. Get all group names in the Spreadsheet
+    const groupNames = getAllGroupNames();
+
+    // 2. Loop through each group's unified roster
+    for (let i = 0; i < groupNames.length; i++) {
+      const g = groupNames[i];
+      
+      // REUSE getUnifiedRoster -> Hits CacheService first!
+      const rosterRes = getUnifiedRoster({ group: g });
+
+      if (rosterRes && rosterRes.success && Array.isArray(rosterRes.players)) {
+        // Search player list for phone match
+        const matchedPlayer = rosterRes.players.find(p => {
+          const pPhone = String(p.phone || "").replace(/\D/g, "");
+          return pPhone && pPhone.endsWith(cleanPhone.slice(-7));
+        });
+
+        if (matchedPlayer) {
+          // Parse first and last name from raw display name
+          const fullName = matchedPlayer.name || "";
+          const nameParts = fullName.trim().split(/\s+/);
+          const firstName = nameParts[0] || "";
+          const lastName = nameParts.slice(1).join(" ") || "";
+
+          return {
+            found: true,
+            player: {
+              firstName: firstName,
+              lastName: lastName,
+              fullName: fullName,
+              phone: cleanPhone,
+              email: matchedPlayer.email || "",
+              foundInGroup: g
+            }
+          };
+        }
+      }
+    }
+
+    return { found: false };
+  } catch (err) {
+    return { found: false, error: err.toString() };
+  }
+}
+
