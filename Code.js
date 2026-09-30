@@ -2801,7 +2801,6 @@ function toggleSingleCheckIn(sheetNameOrData, playerName, isCheckedIn) {
 }
 
 
-
 function updatePlayerCheckInInSheet(sheetName, targetPlayer, checkedState, timestamp) {
   logDebug("updatePlayerCheckInInSheet", "Updating check-in", { sheetName, targetPlayer, checkedState });
   if (!sheetName || !targetPlayer) return { success: false, message: "Missing parameter" };
@@ -2820,6 +2819,7 @@ function updatePlayerCheckInInSheet(sheetName, targetPlayer, checkedState, times
   let headerRowIdx = 0;
   let nameIdx = -1;
   let checkInIdx = -1;
+  let activeIdx = -1; // Added: Track Active column index
 
   for (let r = 0; r < Math.min(data.length, 5); r++) {
     const rowHeaders = data[r].map(h => cleanStr(h).replace(/[\s\-_]/g, ""));
@@ -2829,6 +2829,7 @@ function updatePlayerCheckInInSheet(sheetName, targetPlayer, checkedState, times
       headerRowIdx = r;
       nameIdx = tempNameIdx;
       checkInIdx = rowHeaders.findIndex(h => h.includes("checkin") || h.includes("status") || h === "x");
+      activeIdx = rowHeaders.findIndex(h => h.includes("active") || h === "act"); // Added: Identify Active column
       break;
     }
   }
@@ -2846,10 +2847,40 @@ function updatePlayerCheckInInSheet(sheetName, targetPlayer, checkedState, times
     if (!pName) continue;
 
     if (pName === targetNorm || pName.includes(targetNorm) || targetNorm.includes(pName)) {
+      
+      // =========================================================
+      // ⚡ INACTIVE PLAYER CHECK
+      // =========================================================
+      if (activeIdx !== -1) {
+        const activeVal = data[r][activeIdx];
+        const cleanActive = cleanStr(activeVal);
+        const isInactive = (
+          activeVal === false || 
+          cleanActive === "false" || 
+          cleanActive === "inactive" || 
+          cleanActive === "no" || 
+          cleanActive === "n"
+        );
+
+        if (isInactive) {
+          logDebug("updatePlayerCheckInInSheet", "Check-in blocked: Player is inactive", { targetPlayer });
+          return { 
+            success: false, 
+            isInactive: true, 
+            message: "Inactive cannot check in" 
+          };
+        }
+      }
+      // =========================================================
+
       schedSheet.getRange(r + 1, checkInIdx + 1).setValue(checkedState ? "X" : "");
       found = true;
       break;
     }
+  }
+
+  if (!found) {
+    return { success: false, message: `Player '${targetPlayer}' not found on sheet` };
   }
 
   // 2. Write long-term timestamp to "Last Check-In" on master Score Sheet
@@ -2857,8 +2888,9 @@ function updatePlayerCheckInInSheet(sheetName, targetPlayer, checkedState, times
     updateScoreSheetTimestamp(cleanGroupName, targetPlayer, "Last Check-In", updateTime);
   }
 
-  return { success: found, message: found ? "Updated check-in" : `Player '${targetPlayer}' not found on sheet` };
+  return { success: true, message: "Updated check-in" };
 }
+
 
 
 function saveCheckIns(schedSheetName, checkedPlayerNames) {

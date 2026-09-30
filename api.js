@@ -447,9 +447,23 @@ async function lookupPhone(cachedPhone) {
     } else {
       if (phoneBtn) {
          phoneBtn.innerHTML = 'Register New Player';
-         phoneBtn.onclick = showRegistrationForm;
       }
-      renderLookupResult(null, []);
+        const statusMsg = document.getElementById('phoneStatus');
+        if (statusMsg) {
+            statusMsg.innerText = "Phone number not registered. Please complete registration below.";
+            statusMsg.style.color = "#dc3545";
+        }        
+        const scoreRegSection = document.getElementById('registrationSection');
+          if (scoreRegSection) {
+              scoreRegSection.style.display = 'block';
+          }
+
+          const helpRegAccordion = document.getElementById('registrationAccordion');
+          if (helpRegAccordion) {
+              helpRegAccordion.open = true; // Automatically expands <details> on Tab 1
+          }
+         //phoneBtn.onclick =       showRegistrationFields(); // show name, email, etc.
+        renderLookupResult(null, []);
     }
   } catch (err) {
     console.error("Error during lookup:", err);
@@ -796,7 +810,27 @@ async function toggleStatus() {
 
 
 function cancelRegistration() {
-  document.getElementById('registrationSection').style.display = 'none';
+  // --- Tab 3 (Enter Scores) Form ---
+  const scoreRegSection = document.getElementById('registrationSection');
+  if (scoreRegSection) scoreRegSection.style.display = 'none';
+
+  ['regFirst', 'regLast', 'regPhone', 'regEmail'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+
+  // --- Tab 1 (Register & Help) Form ---
+  const helpAccordion = document.getElementById('registrationAccordion');
+  if (helpAccordion) helpAccordion.open = false; // Close accordion
+
+  ['frontRegFirst', 'frontRegLast', 'frontRegPhone', 'frontRegEmail'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+
+  // Clear any active status messages
+  const phoneStatus = document.getElementById('phoneStatus');
+  if (phoneStatus) phoneStatus.innerText = '';
 }
 
 
@@ -2056,10 +2090,6 @@ async function submitUserRegistration() {
   }
 }
 
-// Wrapper function to ensure buttons calling 'submitFrontPageRegistration()' execute the right function
-function submitFrontPageRegistration() {
-  submitUserRegistration();
-}
 
 
 // ==========================================
@@ -2412,7 +2442,6 @@ function checkRegistrationStatus(phone) {
       // Change the button and show the rest of the registration form.
       document.getElementById('actionButton').innerText = "Register";
       document.getElementById('actionButton').onclick = submitNewRegistration; 
-      showRegistrationFields(); // show name, email, etc.
     }
   }).lookupPlayerByPhone(phone); // Your backend function
 }
@@ -2464,9 +2493,9 @@ async function loadUnifiedRosterData(groupName, forceRefresh = false) {
     if (typeof checkInPlayersCache !== 'undefined') checkInPlayersCache = cachedData;
     if (typeof adminPlayersCache !== 'undefined') adminPlayersCache = cachedData;
 
-    if (typeof renderCheckInPlayers === 'function') {
-      renderCheckInPlayers(cachedData);
-    }
+//    if (typeof renderCheckInPlayers === 'function') {
+//      renderCheckInPlayers(cachedData);
+//    }
     if (adminListEl && typeof filterAdminPlayers === 'function') {
       adminListEl.innerHTML = '';
       filterAdminPlayers();
@@ -2505,10 +2534,10 @@ async function loadUnifiedRosterData(groupName, forceRefresh = false) {
     if (typeof checkInPlayersCache !== 'undefined') checkInPlayersCache = extractedPlayers;
     if (typeof adminPlayersCache !== 'undefined') adminPlayersCache = extractedPlayers;
 
-    if (playerListEl && typeof renderCheckInPlayers === 'function') {
-      playerListEl.innerHTML = '';
-      renderCheckInPlayers(extractedPlayers);
-    }
+//    if (playerListEl && typeof renderCheckInPlayers === 'function') {
+//      playerListEl.innerHTML = '';
+//      renderCheckInPlayers(extractedPlayers);
+//    }
     if (adminListEl && typeof filterAdminPlayers === 'function') {
       adminListEl.innerHTML = '';
       filterAdminPlayers();
@@ -2630,37 +2659,28 @@ function updateAutoCheckinBanner(message, type = 'success') {
  * Helper triggers auto-checkin and returns response payload
  */
 async function triggerAutoCheckIn() {
-  // Grab status elements across all tabs
   const scoreBanner = document.getElementById("scoreAutoCheckinBanner");
   const scoreBadge = document.getElementById("pStatusDisplay");
   const checkinBadge = document.getElementById("checkinPlayerStatusBadge");
   const checkinStatusMsg = document.getElementById("checkInStatus");
   const frontBadge = document.getElementById("frontStatusDisplay");
 
-  // Helper function to update status UI elements everywhere
   function updateAllTabStatuses(message, badgeText, bgHex, textHex) {
-    // 1. Enter Scores Tab
     if (scoreBanner) {
       scoreBanner.style.display = "block";
       scoreBanner.innerText = message;
       scoreBanner.style.backgroundColor = bgHex;
       scoreBanner.style.color = textHex;
     }
-    if (scoreBadge) {
-      scoreBadge.innerText = badgeText;
-    }
+    if (scoreBadge) scoreBadge.innerText = badgeText;
 
-    // 2. Check-In Tab
     if (checkinBadge) {
       checkinBadge.innerText = badgeText;
       checkinBadge.style.backgroundColor = bgHex;
       checkinBadge.style.color = textHex;
     }
-    if (checkinStatusMsg) {
-      checkinStatusMsg.innerText = message;
-    }
+    if (checkinStatusMsg) checkinStatusMsg.innerText = message;
 
-    // 3. Register & Help Tab
     if (frontBadge) {
       frontBadge.innerText = badgeText;
       frontBadge.style.setProperty("background-color", bgHex, "important");
@@ -2668,30 +2688,49 @@ async function triggerAutoCheckIn() {
     }
   }
 
-  // A. Loading State
   updateAllTabStatuses("⏳ Auto checking in...", "Checking In...", "#ffc107", "#000000");
 
   try {
-    const savedPhone = typeof getSavedPhone === 'function' ? getSavedPhone() : localStorage.getItem('scpb_saved_phone');
-    const currentGroup = typeof getSavedGroup === 'function' ? getSavedGroup() : localStorage.getItem('scpb_selected_group');
+    const savedPhone = typeof getSavedPhone === 'function' ? getSavedPhone() : (localStorage.getItem('scpb_saved_phone') || '');
+    const savedName = typeof getSavedName === 'function' ? getSavedName() : (localStorage.getItem('scpb_saved_name') || localStorage.getItem('scpb_player_name') || '');
+    const currentGroup = typeof getSavedGroup === 'function' ? getSavedGroup() : (localStorage.getItem('scpb_selected_group') || '');
 
-    if (!savedPhone) {
-      updateAllTabStatuses("⚠️ No saved phone number found.", "Not Registered", "#6c757d", "#ffffff");
+    if (!savedPhone && !savedName) {
+      updateAllTabStatuses("⚠️ No saved player details found.", "Not Registered", "#6c757d", "#ffffff");
       return;
     }
 
-      // In triggerAutoCheckIn() inside api.js:
-      const res = await apiCall('toggleSingleCheckIn', {
-          group: currentGroup,
-          playerName: savedPhone, // Passes saved phone or player name
-          isCheckedIn: true       // Matches the 3rd parameter expected by toggleSingleCheckIn
-      });
+    // Optional: Pre-check cached roster for active status
+    if (window.cachedRoster && Array.isArray(window.cachedRoster)) {
+      const targetPhoneDigits = savedPhone.replace(/\D/g, '');
+      const player = window.cachedRoster.find(p => 
+        (p.phone && p.phone.replace(/\D/g, '') === targetPhoneDigits) ||
+        (p.name && p.name.toLowerCase() === savedName.toLowerCase())
+      );
+
+      if (player && (player.active === false || player.active === 'false' || player.status === 'Inactive')) {
+        updateAllTabStatuses("⛔ Inactive cannot check in", "Inactive", "#6c757d", "#ffffff");
+        return;
+      }
+    }
+
+    // Call check-in API
+    const res = await apiCall('toggleSingleCheckIn', {
+      playerName: savedName,
+      phone: savedPhone,
+      groupName: currentGroup,
+      isCheckedIn: true
+    });
+
+    // Check for Inactive state from backend response
+    if (res && (res.isInactive || res.message?.toLowerCase().includes("inactive"))) {
+      updateAllTabStatuses("⛔ Inactive cannot check in", "Inactive", "#6c757d", "#ffffff");
+      return;
+    }
 
     if (res && (res.success || res.status === 'Checked In' || res.checkedIn)) {
-      // C. Checked-In Success
       updateAllTabStatuses("✅ Auto Checked-In Successfully", "Checked In", "#198754", "#ffffff");
     } else {
-      // D. Checked-In Failed or Warning
       const msg = res?.message || "Check-in failed";
       updateAllTabStatuses(`⚠️ Auto Check-In: ${msg}`, "Not Checked In", "#dc3545", "#ffffff");
     }
@@ -2700,6 +2739,7 @@ async function triggerAutoCheckIn() {
     updateAllTabStatuses("❌ Network Error during Auto Check-In", "Error", "#dc3545", "#ffffff");
   }
 }
+
 
 
 
