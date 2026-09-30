@@ -2548,6 +2548,8 @@ function getUnifiedRoster(payload) {
         const fullNameIdx = headers.findIndex(h => /(full\s*name|^name$\vert{}^player$|player\s*name)/i.test(h) && !/first|last/i.test(h));
         const phoneIdx = headers.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
         const activeIdx = headers.findIndex(h => /status|active/i.test(h));
+        const emailIdx = headers.findIndex(h => /email|mail/i.test(h));
+
 
         for (let r = 1; r < scoreData.length; r++) {
           let fName = firstIdx !== -1 ? cleanStr(scoreData[r][firstIdx]) : "";
@@ -2568,7 +2570,8 @@ function getUnifiedRoster(payload) {
           if (!pName) continue;
 
           const cleanPhone = phoneIdx !== -1 ? cleanStr(scoreData[r][phoneIdx]).replace(/\D/g, "") : "";
-          
+            const cleanEmail = emailIdx !== -1 ? cleanStr(scoreData[r][emailIdx]) : "";
+            
           let isActive = true;
           if (activeIdx !== -1) {
             const rawStatus = cleanStr(scoreData[r][activeIdx]).toUpperCase();
@@ -2583,6 +2586,7 @@ function getUnifiedRoster(payload) {
             normFull: normFull,
             normLast: normLast,
             phone: cleanPhone,
+            email: cleanEmail, 
             active: isActive,
             used: false // Flag to ensure 1-to-1 matching
           });
@@ -2643,6 +2647,7 @@ function getUnifiedRoster(payload) {
             finalRoster.push({
               name: pName, // Use display name from Sched Sheet
               phone: schedPhone || match.phone,
+              email: match ? match.email : cleanEmail,
               active: match.active,
               checkedIn: isCheckedIn,
               court: courtVal || "BYE"
@@ -2653,6 +2658,7 @@ function getUnifiedRoster(payload) {
               name: pName,
               phone: schedPhone,
               active: true,
+              email: "",
               checkedIn: isCheckedIn,
               court: courtVal || "BYE"
             });
@@ -3167,25 +3173,21 @@ function findPlayerAcrossGroups(payload) {
       return { found: false, message: "Invalid phone number." };
     }
 
-    // 1. Get all group names in the Spreadsheet
     const groupNames = getAllGroupNames();
 
-    // 2. Loop through each group's unified roster
     for (let i = 0; i < groupNames.length; i++) {
       const g = groupNames[i];
       
-      // REUSE getUnifiedRoster -> Hits CacheService first!
-      const rosterRes = getUnifiedRoster({ group: g });
+      // Pass forceRefresh: false to use cache, or true if debugging
+      const rosterRes = getUnifiedRoster({ group: g, forceRefresh: false });
 
       if (rosterRes && rosterRes.success && Array.isArray(rosterRes.players)) {
-        // Search player list for phone match
         const matchedPlayer = rosterRes.players.find(p => {
           const pPhone = String(p.phone || "").replace(/\D/g, "");
-          return pPhone && pPhone.endsWith(cleanPhone.slice(-7));
+          return pPhone && pPhone.length >= 7 && pPhone.endsWith(cleanPhone.slice(-7));
         });
 
         if (matchedPlayer) {
-          // Parse first and last name from raw display name
           const fullName = matchedPlayer.name || "";
           const nameParts = fullName.trim().split(/\s+/);
           const firstName = nameParts[0] || "";

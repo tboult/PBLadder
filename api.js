@@ -2418,84 +2418,61 @@ function checkGeofence(userPhoneOverride) {
 }      
 
   
-function checkRegistrationStatus(phone) { 
-  // 1. Check local cache first
-  const isLocallyCached = localStorage.getItem('registered_' + phone);
-  
-  if (isLocallyCached === 'true') {
-    // Instant success!
-    loadActivePlayerDashboard();
-    return; 
-  }
-
-  // 2. Not in local cache, check current group sheet
-  const actionBtn = document.getElementById('actionButton');
-  if (actionBtn) actionBtn.innerText = "Checking...";
-
-  google.script.run.withSuccessHandler(function(serverResult) {
-    if (serverResult && serverResult.isFound) {
-      // Found in current group! Save to cache and load dashboard
-      localStorage.setItem('registered_' + phone, 'true');
-      loadActivePlayerDashboard();
-    } else {
-      
-      // =========================================================
-      // 3. Not in current group: Check across ALL OTHER groups
-      // =========================================================
-      google.script.run.withSuccessHandler(function(crossRes) {
-        const currentGroup = typeof getSavedGroup === 'function' ? getSavedGroup() : (localStorage.getItem('scpb_selected_group') || 'this group');
-        const statusMsg = document.getElementById('phoneStatus') || document.getElementById('checkInStatus');
-
-        if (crossRes && crossRes.found && crossRes.player) {
-          const p = crossRes.player;
-
-          // Auto-fill input fields on active registration form
-          const firstInput = document.getElementById('frontRegFirst') || document.getElementById('regFirst');
-          const lastInput = document.getElementById('frontRegLast') || document.getElementById('regLast');
-          const phoneInput = document.getElementById('frontRegPhone') || document.getElementById('regPhone');
-          const emailInput = document.getElementById('frontRegEmail') || document.getElementById('regEmail');
-
-          if (firstInput) firstInput.value = p.firstName || '';
-          if (lastInput) lastInput.value = p.lastName || '';
-          if (phoneInput) phoneInput.value = p.phone || phone;
-          if (emailInput) emailInput.value = p.email || '';
-
-          // Reveal registration form/accordion
-          const helpAccordion = document.getElementById('registrationAccordion');
-          if (helpAccordion) helpAccordion.open = true;
-
-          const regSection = document.getElementById('registrationSection');
-          if (regSection) regSection.style.display = 'block';
-
-          // User guidance message
-          if (statusMsg) {
-            statusMsg.innerHTML = `ℹ️ Found profile in group <strong>"${p.foundInGroup}"</strong>! Details filled below. Click <strong>Register</strong> to join <strong>"${currentGroup}"</strong>.`;
-            statusMsg.style.color = "#0d6efd";
-          }
-        } else {
-          // Not found in any group -> show blank registration form
-          const helpAccordion = document.getElementById('registrationAccordion');
-          if (helpAccordion) helpAccordion.open = true;
-
-          const regSection = document.getElementById('registrationSection');
-          if (regSection) regSection.style.display = 'block';
-
-          if (statusMsg) {
-            statusMsg.innerText = "Phone number not registered. Please fill out details below to register.";
-            statusMsg.style.color = "#dc3545";
-          }
-        }
-
-        // Set button to Register
-        if (actionBtn) {
-          actionBtn.innerText = "Register";
-          actionBtn.onclick = typeof submitNewRegistration === 'function' ? submitNewRegistration : submitFrontPageRegistration; 
-        }
-      }).findPlayerAcrossGroups(phone); // <--- Calls backend cross-group lookup
-
+function findPlayerAcrossGroups(payload) {
+  try {
+    const rawPhone = typeof payload === 'object' ? (payload.phone || payload.targetPlayer) : payload;
+    const cleanPhone = String(rawPhone || "").replace(/\D/g, "");
+    
+    if (!cleanPhone || cleanPhone.length < 7) {
+      return { found: false, message: "Invalid phone number." };
     }
-  }).lookupPlayerByPhone(phone);
+
+    // 1. Get all group names in the Spreadsheet
+    const groupNames = getAllGroupNames();
+
+    // 2. Loop through each group's unified roster
+    for (let i = 0; i < groupNames.length; i++) {
+      const g = groupNames[i];
+      
+      // REUSE getUnifiedRoster -> Hits CacheService first!
+      const rosterRes = getUnifiedRoster({ group: g });
+
+      if (rosterRes && rosterRes.success && Array.isArray(rosterRes.players)) {
+        // Search player list for phone match
+        const matchedPlayer = rosterRes.players.find(p => {
+          const pPhone = String(p.phone || "").replace(/\D/g, "");
+          return pPhone && pPhone.endsWith(cleanPhone.slice(-7));
+        });
+
+        if (matchedPlayer) {
+          // Parse first and last name from raw display name
+          const fullName = matchedPlayer.name || "";
+          const nameParts = fullName.trim().split(/\s+/);
+          const firstName = nameParts[0] || "";
+          const lastName = nameParts.slice(1).join(" ") || "";
+
+          return {
+            found: true,
+            player: {
+              firstName: firstName,
+              lastName: lastName,
+              fullName: fullName,
+              phone: cleanPhone,
+              email: matchedPlayer.email || "",
+              foundInGroup: g
+            }
+          };
+        }
+      }
+    }
+
+    return { found: false };
+  } catch (err) {
+    return { found: false, error: err.toString() };
+  }
 }
+
+
 
 
 
