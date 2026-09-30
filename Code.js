@@ -2828,13 +2828,19 @@ function updatePlayerCheckInInSheet(sheetName, targetPlayer, checkedState, times
 
   const cleanStr = str => String(str || "").replace(/[\u00A0\s]+/g, " ").trim().toLowerCase();
 
+  // Robust Phone Digits Extractor (handles Numbers, Scientific Notation & Strings)
+  const getDigits = val => {
+    if (val === null || val === undefined) return "";
+    if (typeof val === 'number') return val.toFixed(0); 
+    return String(val).replace(/\D/g, "");
+  };
+
   let headerRowIdx = 0;
   let nameIdx = -1;
   let phoneIdx = -1;
   let checkInIdx = -1;
   let activeIdx = -1;
 
-  // Header discovery across top rows
   for (let r = 0; r < Math.min(data.length, 5); r++) {
     const rowHeaders = data[r].map(h => cleanStr(h).replace(/[\s\-_]/g, ""));
     const tempNameIdx = rowHeaders.findIndex(h => h.includes("player") || h.includes("name"));
@@ -2853,15 +2859,14 @@ function updatePlayerCheckInInSheet(sheetName, targetPlayer, checkedState, times
   if (checkInIdx === -1) checkInIdx = 2;
 
   const targetNorm = cleanStr(targetPlayer);
-  const targetDigits = String(targetPlayer).replace(/\D/g, ""); // Extract digits for phone comparison
+  const targetDigits = getDigits(targetPlayer);
   
   let found = false;
   const updateTime = timestamp || new Date();
 
-  // Search rows for target player by Name OR Phone
   for (let r = headerRowIdx + 1; r < data.length; r++) {
     let pName = cleanStr(data[r][nameIdx]);
-    let pPhone = phoneIdx !== -1 ? String(data[r][phoneIdx] || "").replace(/\D/g, "") : "";
+    let pPhone = phoneIdx !== -1 ? getDigits(data[r][phoneIdx]) : "";
     
     if (!pName && !pPhone) continue;
 
@@ -2870,9 +2875,7 @@ function updatePlayerCheckInInSheet(sheetName, targetPlayer, checkedState, times
 
     if (nameMatch || phoneMatch) {
       
-      // =========================================================
-      // ⚡ INACTIVE PLAYER GUARDRAIL
-      // =========================================================
+      // ⚡ Active Guardrail
       if (activeIdx !== -1) {
         const rawActive = data[r][activeIdx];
         const cleanActive = cleanStr(rawActive);
@@ -2894,9 +2897,7 @@ function updatePlayerCheckInInSheet(sheetName, targetPlayer, checkedState, times
           };
         }
       }
-      // =========================================================
 
-      // Update check-in column with "X" or clear
       schedSheet.getRange(r + 1, checkInIdx + 1).setValue(checkedState ? "X" : "");
       found = true;
       break;
@@ -2907,13 +2908,18 @@ function updatePlayerCheckInInSheet(sheetName, targetPlayer, checkedState, times
     return { success: false, message: `Player '${targetPlayer}' not found on sheet` };
   }
 
-  // Write long-term timestamp to "Last Check-In" on master Score Sheet
-  if (checkedState) {
-    updateScoreSheetTimestamp(cleanGroupName, targetPlayer, "Last Check-In", updateTime);
+  // Safe execution for Score Sheet timestamp update
+  if (checkedState && typeof updateScoreSheetTimestamp === 'function') {
+    try {
+      updateScoreSheetTimestamp(cleanGroupName, targetPlayer, "Last Check-In", updateTime);
+    } catch (e) {
+      logDebug("updatePlayerCheckInInSheet", "Warning: Failed to update Score Sheet timestamp", e.toString());
+    }
   }
 
   return { success: true, message: "Updated check-in" };
 }
+
 
 
 
