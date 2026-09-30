@@ -2747,18 +2747,26 @@ function updateScoreSheetTimestamp(groupName, targetPlayer, colHeaderName, times
 
 function toggleSingleCheckIn(sheetNameOrData, playerName, isCheckedIn) {
   let sheetName, targetPlayer, checkedState;
+  
   if (typeof sheetNameOrData === 'object' && sheetNameOrData !== null) {
-    sheetName = sheetNameOrData.sheet || sheetNameOrData.schedSheetName || sheetNameOrData.tab || sheetNameOrData.group || "";
+    sheetName = sheetNameOrData.sheet || sheetNameOrData.schedSheetName || sheetNameOrData.groupName || sheetNameOrData.group || sheetNameOrData.tab || "";
     targetPlayer = sheetNameOrData.playerName || sheetNameOrData.name || sheetNameOrData.phone || "";
-    checkedState = sheetNameOrData.isCheckedIn !== undefined ? sheetNameOrData.isCheckedIn : sheetNameOrData.checkedIn;
+    
+    // Fall back through isCheckedIn -> checkedIn -> status -> default to true
+    checkedState = sheetNameOrData.isCheckedIn !== undefined 
+      ? sheetNameOrData.isCheckedIn 
+      : (sheetNameOrData.checkedIn !== undefined ? sheetNameOrData.checkedIn : (sheetNameOrData.status !== undefined ? sheetNameOrData.status : true));
   } else {
     sheetName = sheetNameOrData;
     targetPlayer = playerName;
-    checkedState = isCheckedIn;
+    checkedState = isCheckedIn !== undefined ? isCheckedIn : true;
   }
 
+  // Coerce to explicit boolean
+  const isCheckedInBool = (checkedState === true || checkedState === 'true' || checkedState === 1);
+
   const now = new Date();
-  const result = updatePlayerCheckInInSheet(sheetName, targetPlayer, checkedState, now);
+  const result = updatePlayerCheckInInSheet(sheetName, targetPlayer, isCheckedInBool, now);
 
   const cacheKey = getCheckInCacheKey(sheetName);
   const cache = CacheService.getScriptCache();
@@ -2766,12 +2774,21 @@ function toggleSingleCheckIn(sheetNameOrData, playerName, isCheckedIn) {
     const cachedData = cache.get(cacheKey);
     if (cachedData) {
       let players = JSON.parse(cachedData);
-      const target = String(targetPlayer).trim().toLowerCase();
+      const targetStr = String(targetPlayer).trim().toLowerCase();
+      const targetDigits = String(targetPlayer).replace(/\D/g, ''); // Extract digits only
+
       players = players.map(p => {
-        if (String(p.name).trim().toLowerCase() === target || String(p.phone).trim() === target) {
-          p.checkedIn = !!checkedState;
-          p.checked = !!checkedState;
-          p.lastCheckIn = checkedState ? now.toISOString() : p.lastCheckIn;
+        const pName = String(p.name || '').trim().toLowerCase();
+        const pPhoneDigits = String(p.phone || '').replace(/\D/g, '');
+
+        // Match by Name OR by formatted/unformatted Phone digits
+        const nameMatch = targetStr && pName === targetStr;
+        const phoneMatch = targetDigits && targetDigits.length >= 7 && pPhoneDigits === targetDigits;
+
+        if (nameMatch || phoneMatch) {
+          p.checkedIn = isCheckedInBool;
+          p.checked = isCheckedInBool;
+          p.lastCheckIn = isCheckedInBool ? now.toISOString() : p.lastCheckIn;
         }
         return p;
       });
@@ -2782,6 +2799,7 @@ function toggleSingleCheckIn(sheetNameOrData, playerName, isCheckedIn) {
   }
   return result;
 }
+
 
 
 function updatePlayerCheckInInSheet(sheetName, targetPlayer, checkedState, timestamp) {
