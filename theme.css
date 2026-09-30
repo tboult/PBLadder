@@ -66,14 +66,14 @@ body.high-contrast {
 }
 
 
-/* Hide all existing app elements and Create the Maintenance overlay 
+/* Hide all existing app elements and Create the Maintenance overlay  */
 body > * {
   display: none !important;
 }
 
 
 body::before {
-  content: "🛠️\A\A Down for Maintenance\A We are currently performing scheduled system updates. Please check back on Sept.";
+  content: "🛠️\A\A Down for Maintenance\A We are currently performing unscheduled system fixes. Please check back on later.";
   white-space: pre-wrap;
   display: flex;
   align-items: center;
@@ -93,4 +93,4 @@ body::before {
   box-sizing: border-box;
   z-index: 999999;
 }
-*/
+
