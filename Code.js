@@ -958,7 +958,7 @@ function handleApiRequest(e) {
 
       case 'findPlayerAcrossGroups':
         return findPlayerAcrossGroups(payload.phone || payload.targetPlayer);        
-
+        
       default:
         throw new Error("Invalid or missing API action: " + action);
     }
