@@ -1,6 +1,9 @@
 # Ignore frontend files when running 'clasp push'
 index.html
 sw.js
+api.js
+api-fixed.js
+admin.js
 manifest.json
 .git/
 README.md
