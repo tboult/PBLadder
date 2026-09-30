@@ -66,7 +66,7 @@ body.high-contrast {
 }
 
 
-/* Hide all existing app elements and Create the Maintenance overlay  */
+/* Hide all existing app elements and Create the Maintenance overlay  
 body > * {
   display: none !important;
 }
@@ -94,3 +94,4 @@ body::before {
   z-index: 999999;
 }
 
+*/
