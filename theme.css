@@ -66,12 +66,12 @@ body.high-contrast {
 }
 
 
-/* Hide all existing app elements */
+/* Hide all existing app elements and Create the Maintenance overlay 
 body > * {
   display: none !important;
 }
 
-/* Create the Maintenance overlay 
+
 body::before {
   content: "🛠️\A\A Down for Maintenance\A We are currently performing scheduled system updates. Please check back on Sept.";
   white-space: pre-wrap;
