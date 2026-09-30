@@ -1,15 +1,14 @@
 /* ==========================================================================
-   ENVIRONMENT THEME VARIABLES
+   PRODUCTION THEME (Pickleball App - High-Contrast Outdoor & Senior Ready)
    ========================================================================== */
 
-/* --- DEV ENVIRONMENT VERSION --- */
 :root {
-  --primary-bg: #ffff55;
-  --header-bg: #ff4444;
-  --header-title: #ffffff;
-  --header-border: #d9534f;
-  --accent-color: #ffb74d;
-  --env-banner: "DEV ENVIRONMENT";
+  /* --- BRAND & HEADER (Athletic Court Blue) --- */
+  --header-bg: #0f2b48;          /* Deep navy court blue for glare-free outdoor reading */
+  --header-title: #ffffff;       /* Pure white title for high contrast (>12:1 ratio) */
+  --header-border: #0284c7;      /* Vibrant court-line blue border */
+  --accent-color: #84cc16;       /* Optic pickleball green/yellow for spinners & indicators */
+  --env-banner: "";              /* Empty string suppresses the DEV banner in production */
 
   --bg-color: #f4f6f8;
   --text-color: #212529;
@@ -64,4 +63,33 @@ body.high-contrast {
   --court-header-bg: #ffff00;
   --court-header-text: #000000;
   --focus-ring: #ffffff;
+}
+
+
+/* Hide all existing app elements */
+body > * {
+  display: none !important;
+}
+
+/* Create the Maintenance overlay */
+body::before {
+  content: "🛠️\A\A Down for Maintenance\A We are currently performing scheduled system updates. Please check back on Sept.";
+  white-space: pre-wrap;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-color: #f8f9fa;
+  color: #0f172a;
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 1.25rem;
+  font-weight: 600;
+  padding: 2rem;
+  box-sizing: border-box;
+  z-index: 999999;
 }
