@@ -1,4 +1,3 @@
-
 let checkInPlayersCache = [];
 
 
@@ -55,7 +54,7 @@ async function toggleUserCheckin() {
    // Enforce geofencing if turning ON checkin
    if (newState) {
       const savedPhone = getSavedPhone();
-      const allowed = isUserAdmin(savedPhone) ? true : await checkGeofence();
+      const allowed = (typeof isUserAdmin === 'function' && isUserAdmin(savedPhone)) ? true : await checkGeofence();
       if (!allowed) return;
    }
 
@@ -572,10 +571,9 @@ function setSelectedGroup(groupName) {
   const cleanGroup = String(groupName).replace(/^(Sched|Score)\s*/i, '').trim();
   localStorage.setItem('scpb_selected_group', cleanGroup);
   localStorage.setItem('scpb_saved_group', cleanGroup);
-}
-// Helper to retrieve saved group from your apps key
-function getSavedGroup() { 
-  return localStorage.getItem('scpb_selected_group');
+  if (typeof setSavedGroup === 'function') {
+    setSavedGroup(cleanGroup);
+  }
 }
 
 async function onGroupRadioChange(selectedGroup) {
@@ -648,7 +646,7 @@ async function onGroupRadioChange(selectedGroup) {
   window.activeLookupFoursome = null;
 
   // -------------------------------------------------------------
-  // 4. Sync radio buttons UI
+  // 4. Sync radio buttons UI across all tabs
   // -------------------------------------------------------------
   const allGroupRadios = document.querySelectorAll(
     'input[name="helpGroupRadio"], input[name="checkinGroupRadio"]'
@@ -691,7 +689,7 @@ async function onGroupRadioChange(selectedGroup) {
 
 // 2. Sync UI state on page load
 function syncGroupRadioUI() {
-  const currentGroup = localStorage.getItem('scpb_selected_group');
+  const currentGroup = localStorage.getItem('scpb_selected_group') || localStorage.getItem('scpb_saved_group') || '';
   const cleanGroup = String(currentGroup).replace(/^(Sched|Score)\s*/i, '').trim();
 
   const allGroupRadios = document.querySelectorAll(
@@ -704,8 +702,9 @@ function syncGroupRadioUI() {
   document.querySelectorAll('.active-group-label').forEach(el => {
     el.textContent = cleanGroup;
   });
-  loadUnifiedRosterData(cleanGroup);
-    
+  if (cleanGroup && typeof loadUnifiedRosterData === 'function') {
+    loadUnifiedRosterData(cleanGroup);
+  }
 }
 
 // 3. Manual Retry Check-In Action
@@ -817,7 +816,7 @@ function renderRankingsAndSchedule(data) {
   }
 
   viewerContent.innerHTML = html;
-      }
+}
 
 
 function loadSavedPhone() {
@@ -828,20 +827,20 @@ function loadSavedPhone() {
   if (phoneEntry) phoneEntry.style.display = 'block';
   if (phoneInput && savedPhone) {
     phoneInput.value = savedPhone;
-    checkAndUnlockAdmin(savedPhone); // NEW: Auto-show tab on load
   }
+  // FIXED: Check and unlock admin if phone exists regardless of phoneInput DOM presence
+  if (savedPhone && typeof checkAndUnlockAdmin === 'function') {
+    checkAndUnlockAdmin(savedPhone);
   }
-  
 
-
-
-// 2. Add to your active tab refresh logic so it stays populated when switching tabs
-if (typeof refreshActiveTabData === 'function') {
-  const oldRefresh = refreshActiveTabData;
-  refreshActiveTabData = async function() {
-    await oldRefresh();
-  };
-}  
+  // 2. Add to your active tab refresh logic so it stays populated when switching tabs
+  if (typeof refreshActiveTabData === 'function') {
+      const oldRefresh = refreshActiveTabData;
+      refreshActiveTabData = async function() {
+          await oldRefresh();
+      };
+  }
+}
 
 
 
@@ -1016,55 +1015,57 @@ async function switchTab(tabId, skipHashUpdate = false) {
  */
 async function refreshActiveTabData(forceRefresh = false) {
   const activeTab = localStorage.getItem('activeTab') || 'help';
-  const currentGroup = typeof getSavedGroup === 'function' ? getSavedGroup() : null;
+  const currentGroup = getSavedGroup();
 
   if (typeof renderHelpGroupRadios === 'function') {
     renderHelpGroupRadios();
   }
 
-  if (!currentGroup) return;
-
-  if (typeof updateGlobalLoaderStatus === 'function') updateGlobalLoaderStatus();
-
-  if (activeTab === 'checkin' || activeTab === 'admin') {
-    if (typeof triggerAutoCheckIn === 'function') await triggerAutoCheckIn();
-    if (activeTab === 'admin') {
-        if (typeof loadAdminTabData === 'function') await loadAdminTabData(currentGroup);
-        if (typeof loadAdminPlayerStatusCache === 'function') await loadAdminPlayerStatusCache(currentGroup);
-        if (typeof renderAdminCourts === 'function') await renderAdminCourts(currentGroup);
-    }
-
-    }
-    if (typeof loadUnifiedRosterData === 'function') {
-      await loadUnifiedRosterData(currentGroup, forceRefresh);
-    }
-  } else if (activeTab === 'ranksched') {
-    if (typeof loadRankingsAndSched === 'function') {
-      await loadRankingsAndSched();
-    }
-  } else if (activeTab === 'scoreTab' || activeTab === 'score' || activeTab === 'phone') {
-      if (typeof triggerAutoCheckIn === 'function') await triggerAutoCheckIn();
-    if (typeof lookupPhone === 'function') {
-      await lookupPhone();
-    }
-    if (typeof triggerAutoCheckIn === 'function') await triggerAutoCheckIn();             
-  } else if (activeTab === 'help') {
-    const savedPhone = typeof getSavedPhone === 'function' ? getSavedPhone() : '';
-    if (savedPhone && typeof loadPlayerStatusFromCache === 'function') {
-      await loadPlayerStatusFromCache(savedPhone);
-    }
+  // Ensure radio buttons reflect stored group
+  if (currentGroup) {
+    setSavedGroup(currentGroup);
   }
 
   if (typeof updateGlobalLoaderStatus === 'function') updateGlobalLoaderStatus();
+
+  try {
+    if (activeTab === 'checkin') {
+      if (typeof triggerAutoCheckIn === 'function') await triggerAutoCheckIn();
+      if (currentGroup && typeof loadUnifiedRosterData === 'function') {
+        await loadUnifiedRosterData(currentGroup, forceRefresh);
+      }
+    } else if (activeTab === 'admin') {
+      if (typeof triggerAutoCheckIn === 'function') await triggerAutoCheckIn();
+      if (typeof renderAdminCourts === 'function') await renderAdminCourts(currentGroup);
+      if (typeof loadAdminTabData === 'function') await loadAdminTabData(currentGroup);
+      if (typeof loadAdminPlayerStatusCache === 'function') await loadAdminPlayerStatusCache(currentGroup);
+      if (currentGroup && typeof loadUnifiedRosterData === 'function') {
+        await loadUnifiedRosterData(currentGroup, forceRefresh);
+      }
+    } else if (activeTab === 'ranksched' || activeTab === 'schedule') {
+      if (typeof loadRankingsAndSched === 'function') {
+        await loadRankingsAndSched(currentGroup);
+      }
+    } else if (activeTab === 'scoreTab' || activeTab === 'score' || activeTab === 'phone') {
+      if (typeof triggerAutoCheckIn === 'function') await triggerAutoCheckIn();
+      if (typeof lookupPhone === 'function') {
+        await lookupPhone();
+      }
+    } else if (activeTab === 'help') {
+      const savedPhone = typeof getSavedPhone === 'function' ? getSavedPhone() : '';
+      if (savedPhone && typeof loadPlayerStatusFromCache === 'function') {
+        await loadPlayerStatusFromCache(savedPhone);
+      }
+    }
+  } catch (err) {
+    console.error(`💥 [Tab Refresh Error] Failed rendering tab "${activeTab}":`, err);
+  } finally {
+    if (typeof updateGlobalLoaderStatus === 'function') updateGlobalLoaderStatus();
+  }
 }
 
 
-
-
-/**
- * 3. VERSION CHECK FIX (Fixed Bitwise Syntax Error)
- */
-function handleVersionCheck(serverVersion) {
+async function handleVersionCheck(serverVersion) {
   if (typeof CURRENT_APP_VERSION !== 'undefined' && serverVersion !== CURRENT_APP_VERSION) {
     const errorMsg = `Version Mismatch!\nClient: v${CURRENT_APP_VERSION}\nServer: v${serverVersion}`;
     console.error(errorMsg);
@@ -1257,13 +1258,15 @@ function setAppViewState(isFound, playerData) {
   const checkinBadge = document.getElementById("checkinPlayerStatusBadge");
   const userCheckinBtn = document.getElementById("userCheckinBtn");
 
-  if (isFound && playerData) {
+  if (isFound && playerData && typeof playerData === 'object') {
     // Player found in current group
-    if (checkinName) checkinName.innerText = playerData.name || playerData.playerName;
+    const displayName = playerData.name || playerData.playerName || `${playerData.first || ''} ${playerData.last || ''}`.trim();
+    if (checkinName) checkinName.innerText = displayName;
     if (checkinStatus) checkinStatus.innerText = ""; // Reset/clear status text
     if (userCheckinBtn) {
       userCheckinBtn.disabled = false;
-      userCheckinBtn.innerText = playerData.isCheckedIn ? "Cancel Check-in" : "Check In";
+      const isChecked = playerData.checkedIn || playerData.isCheckedIn;
+      userCheckinBtn.innerText = isChecked ? "Cancel Check-in" : "Check In";
     }
   } else {
     // Player NOT found in current group
@@ -1291,11 +1294,13 @@ function setSaveButtonState(isSaved) {
   if (isSaved) {
     saveBtn.style.backgroundColor = "#2d6a4f";
     saveBtn.style.color = "#ffffff";
-      saveBtn.innerHTML = "✓ Registered";
-      const savedPhone = localStorage.getItem("userPhone") || localStorage.getItem("scpb_saved_phone") || "";      
-      const isAdmin = isUserAdmin(savedPhone);
+    saveBtn.innerHTML = "✓ Registered";
+    const savedPhone = localStorage.getItem("userPhone") || localStorage.getItem("scpb_saved_phone") || localStorage.getItem("saved_phone") || "";      
+    const isAdmin = (typeof isUserAdmin === 'function') && isUserAdmin(savedPhone);
+    if (isAdmin) {
+      if (typeof checkAndUnlockAdmin === 'function') checkAndUnlockAdmin(savedPhone);
       saveBtn.textContent = "Admin Reg. ✓";
-      
+    }
   } else {
     saveBtn.style.backgroundColor = "#ffc107";
     saveBtn.style.color = "#000000";
@@ -1340,12 +1345,17 @@ async function loadPlayerStatusFromCache(phone) {
   }
 
   const selectedGroup = (typeof getSavedGroup === 'function' ? getSavedGroup() : '') || 
-                        document.querySelector('input[name="helpGroupRadio"]:checked')?.value || '';
+                        document.querySelector('input[name="helpGroupRadio"]:checked, input[name="checkinGroupRadio"]:checked')?.value || '';
 
   const cleanPhone = typeof normalizePhone === "function" ? normalizePhone(phone) : phone.replace(/\D/g, "");
   if (!cleanPhone || cleanPhone.length < 7) {
     setAppViewState(false, phone);
     return;
+  }
+
+  // FIXED: Automatically unlock admin if user is an admin
+  if (typeof checkAndUnlockAdmin === "function" && phone) {
+    checkAndUnlockAdmin(phone);
   }
 
   let roster = window.appPlayersCache;
@@ -1389,7 +1399,8 @@ async function loadPlayerStatusFromCache(phone) {
       localStorage.setItem('scpb_saved_name', rawName);
     }
 
-    setAppViewState(true, phone);
+    // FIXED: Pass player object instead of phone string to avoid "undefined" display name
+    setAppViewState(true, window.activeLookupPlayer);
     updateFrontStatusBadge(isActive ? "ACTIVE" : "INACTIVE");
 
     if (rawName && document.getElementById("welcomeName")) {
@@ -1422,7 +1433,7 @@ async function toggleStatusFromSetup() {
   const phone = localStorage.getItem("userPhone") || 
                 localStorage.getItem("scpb_saved_phone") || 
                 document.getElementById("phoneInput")?.value.trim() || "";
-  const selectedGroup = document.querySelector('input[name="helpGroupRadio"]:checked')?.value || 
+  const selectedGroup = document.querySelector('input[name="helpGroupRadio"]:checked, input[name="checkinGroupRadio"]:checked')?.value || 
                         localStorage.getItem('scpb_saved_group') || '';
 
   const cleanPhone = typeof normalizePhone === "function" ? normalizePhone(phone) : phone.replace(/\D/g, "");
@@ -1545,13 +1556,41 @@ function isValidEmail(emailStr) {
   }
 })();      
 
-
-async function loadRankingsAndSched() {
+/**
+ * Loads schedule and rankings data for the active group and renders into viewerContent
+ */
+/**
+ * Loads schedule and rankings data for the active group and renders into viewerContent
+ */
+async function loadRankingsAndSched(targetGroup = null) {
   const groupSelect = document.getElementById('groupViewerSelect');
-  const group = (groupSelect && groupSelect.value) ? groupSelect.value : (typeof getSavedGroup === 'function' ? getSavedGroup() : '');
-  
+  const group = targetGroup || (groupSelect && groupSelect.value ? groupSelect.value : (typeof getSavedGroup === 'function' ? getSavedGroup() : ''));
+
   const statusEl = document.getElementById('viewerStatus');
   const contentEl = document.getElementById('viewerContent');
+
+  if (!contentEl) {
+    console.error('💥 [Rankings Error] Target element "#viewerContent" not found in DOM.');
+    return;
+  }
+
+  // =========================================================================
+  // 📍 BEST INSERTION POINT: Unhide #viewerContent and all parent tab wrappers
+  // =========================================================================
+  if (statusEl) statusEl.style.display = 'block';
+  contentEl.style.display = 'block';
+
+  let parent = contentEl.parentElement;
+  while (parent && parent !== document.body) {
+    if (window.getComputedStyle(parent).display === 'none') {
+      console.warn(`⚠️ [Visibility Fix] Unhiding parent container <${parent.tagName.toLowerCase()}> (id="${parent.id}", class="${parent.className}")`);
+      parent.style.display = 'block';
+      parent.classList.add('active', 'show');
+      parent.classList.remove('hidden', 'd-none');
+    }
+    parent = parent.parentElement;
+  }
+  // =========================================================================
 
   if (!group) {
     if (statusEl) statusEl.innerText = 'Please select a group.';
@@ -1561,28 +1600,43 @@ async function loadRankingsAndSched() {
   if (statusEl) statusEl.innerHTML = '<span class="loading-spinner"></span>Loading schedule & standings...';
 
   try {
+    console.log(`📊 [Rankings & Sched] Requesting data for group: "${group}"`);
     const res = await apiCall('getRankingsAndSchedData', { group: group });
-    
-    // Clear loading status
+
     if (statusEl) statusEl.innerText = '';
 
-    // Extract the HTML string returned by backend (handling optional wrapper objects)
+    // Extract payload string
     let htmlContent = '';
     if (typeof res === 'string') {
       htmlContent = res;
-    } else if (res && res.html) {
+    } else if (res && typeof res.html === 'string') {
       htmlContent = res.html;
-    } else if (res && res.data && res.data.html) {
+    } else if (res && typeof res.data === 'string') {
+      htmlContent = res.data;
+    } else if (res && res.data && typeof res.data.html === 'string') {
       htmlContent = res.data.html;
+    } else if (res && typeof res.result === 'string') {
+      htmlContent = res.result;
     } else {
-      htmlContent = '<i>No data returned for ' + group + '.</i>';
+      htmlContent = `<i>No renderable schedule data returned for group "${group}".</i>`;
     }
 
-    // Render the server-built tables directly into the container
-    if (contentEl) contentEl.innerHTML = htmlContent;
+    // Inject HTML
+    contentEl.innerHTML = htmlContent;
+
+    // Diagnostic check
+    const computed = window.getComputedStyle(contentEl);
+    console.log('🔍 [DOM Visibility Diagnostic]:', {
+      display: computed.display,
+      visibility: computed.visibility,
+      opacity: computed.opacity,
+      offsetHeight: contentEl.offsetHeight,
+      offsetWidth: contentEl.offsetWidth,
+      injectedCharacterCount: contentEl.innerHTML.length
+    });
 
   } catch (e) {
-    console.error("Error loading schedule & standings:", e);
+    console.error("💥 Error loading schedule & standings:", e);
     if (statusEl) statusEl.innerText = e.message || "Network error loading data.";
   }
 }
@@ -1642,7 +1696,7 @@ function checkGeofence(userPhoneOverride) {
     const rawUserPhone = userPhoneOverride || getCurrentUserPhone();
     const cleanUser = cleanPhoneNumber(rawUserPhone);
 
-    if (cleanUser) {
+    if (cleanUser && typeof ADMIN_PHONES !== 'undefined' && Array.isArray(ADMIN_PHONES)) {
       const isAdmin = ADMIN_PHONES.some(adminPhone => {
         const cleanAdmin = cleanPhoneNumber(adminPhone);
         return cleanAdmin && (cleanUser === cleanAdmin || cleanUser.endsWith(cleanAdmin));
@@ -1940,7 +1994,7 @@ function forceRefresh() {
 
 
   function getCourtsForGroup(groupName) {
-    return GROUP_COURT_MAP[groupName] || GROUP_COURT_MAP["Default"];
+    return (typeof GROUP_COURT_MAP !== 'undefined' && GROUP_COURT_MAP[groupName]) || (typeof GROUP_COURT_MAP !== 'undefined' && GROUP_COURT_MAP["Default"]) || [];
   }
 
 
@@ -1966,11 +2020,11 @@ function updateGlobalLoaderStatus() {
   const loaderText = document.getElementById('globalLoaderText');
   if (!loader || !loaderText) return;
 
-  if (isInitialLoading) {
+  if (typeof isInitialLoading !== 'undefined' && isInitialLoading) {
     loaderText.innerText = "Loading app...";
       loader.style.display = "flex";
       isInitialLoading = false;      
-  } else if (isProcessingQueue || apiQueue.length > 0) {
+  } else if (typeof isProcessingQueue !== 'undefined' && typeof apiQueue !== 'undefined' && (isProcessingQueue || apiQueue.length > 0)) {
     const pending = apiQueue.length;
     loaderText.innerText = pending > 0 ? `Syncing (${pending + 1})...` : "Syncing...";
     loader.style.display = "flex";
@@ -1992,14 +2046,18 @@ async function apiCall(action, payload = {}) {
 
   // [CHANGE]: Return an explicit success/registered structure on cache hits.
   // Previously, returning { players: checkInPlayersCache } lacked 'success: true', causing loadUnifiedRosterData to evaluate 'res.success' as undefined and clear the UI.
-  if (action === 'getUnifiedRoster' && apiQueue.some(q => q.action === 'getUnifiedRoster' && JSON.stringify(q.payload) === JSON.stringify(payload))) {
+  if (typeof apiQueue !== 'undefined' && action === 'getUnifiedRoster' && apiQueue.some(q => q.action === 'getUnifiedRoster' && JSON.stringify(q.payload) === JSON.stringify(payload))) {
     console.log(`⚡ [API Cache Hit] Deduplicating "${action}", returning cached players.`, checkInPlayersCache);
     return Promise.resolve({ success: true, registered: true, players: checkInPlayersCache || [] });
   }
 
   const result = await new Promise((resolve, reject) => {
-    apiQueue.push({ action, payload, resolve, reject });
-    if (!isProcessingQueue) processApiQueue();
+    if (typeof apiQueue !== 'undefined') {
+      apiQueue.push({ action, payload, resolve, reject });
+      if (typeof isProcessingQueue !== 'undefined' && !isProcessingQueue && typeof processApiQueue === 'function') processApiQueue();
+    } else {
+      resolve({ success: false, error: 'apiQueue not initialized' });
+    }
   });
 
   console.log(`✅ [API result] "${action}"`, {
@@ -2011,7 +2069,7 @@ async function apiCall(action, payload = {}) {
 }
 
 async function processApiQueue() {
-  if (isProcessingQueue || apiQueue.length === 0) return;
+  if ((typeof isProcessingQueue !== 'undefined' && isProcessingQueue) || typeof apiQueue === 'undefined' || apiQueue.length === 0) return;
   isProcessingQueue = true;
 
   if (typeof updateGlobalLoaderStatus === 'function') updateGlobalLoaderStatus();
@@ -2111,7 +2169,7 @@ async function processApiQueue() {
     // [CHANGE]: Guarantees that processing flags are reset and loader state is updated regardless of network outcomes.
     isProcessingQueue = false;
     if (typeof updateGlobalLoaderStatus === 'function') updateGlobalLoaderStatus();
-    if (apiQueue.length > 0) {
+    if (typeof apiQueue !== 'undefined' && apiQueue.length > 0) {
       processApiQueue();
     }
   }
@@ -2133,7 +2191,7 @@ function getSavedPhone() {
     localStorage.removeItem('cachedPhone'); // Clean up redundant key
     return legacyPhone;
   }
-  return localStorage.getItem('scpb_saved_phone') || '';
+  return localStorage.getItem('scpb_saved_phone') || localStorage.getItem('saved_phone') || '';
 }
 
 /**
@@ -2143,7 +2201,7 @@ function getSavedPhone() {
  */
 function getSavedName() {
   // 1. Direct check in localStorage
-  let savedName = localStorage.getItem('scpb_saved_name') || '';
+  let savedName = localStorage.getItem('scpb_saved_name') || localStorage.getItem('scpb_saved_player_name') || '';
   if (savedName) {
     return savedName;
   }
@@ -2183,14 +2241,19 @@ function getSavedName() {
 }
 
 function savePlayerCredentials(phone, name) {
+  console.log(` in SavePlayerCredential:`, phone, name);                  
   if (phone) {
+    console.log(` caching phone:`, phone, phone.length);                      
     const cleanPhone = String(phone).replace(/\D/g, '');
     if (cleanPhone.length === 10) {
       localStorage.setItem('scpb_saved_phone', cleanPhone);
+      localStorage.setItem('saved_phone', cleanPhone);
+      console.log(` caching phone:`, cleanPhone);              
     }
   }
   if (name && typeof name === 'string') {
     localStorage.setItem('scpb_saved_name', name.trim());
+    console.log(` caching name:`, name);      
   }
 }  
 
@@ -2232,13 +2295,13 @@ window.addEventListener('hashchange', () => {
 
 
 async function handlePlayerNotFoundInCurrentGroup(searchedPhone, currentGroup) {
-  console.log("handlePlayerNotFoundInCurrentGroup:", searchedPhone,currentGroup);
+  console.log("handlePlayerNotFoundInCurrentGroup:", searchedPhone, currentGroup);
   const statusMsg = document.getElementById('phoneStatus') || document.getElementById('checkInStatus');
 
   try {
     // 1. Search all other groups for this phone number
 //    const crossRes = await apiCall('findPlayerAcrossGroups', { phone: searchedPhone });
-      const crossRes=null;
+      const crossRes = null;
     if (crossRes && crossRes.found && crossRes.player) {
       const p = crossRes.player;
 
@@ -2366,9 +2429,9 @@ async function savePhoneToCache() {
       const checkinResult = await triggerAutoCheckIn();
 
       // C. Routing logic based on Admin status
-      const isAdmin = isUserAdmin(phone);
+      const isAdmin = (typeof isUserAdmin === 'function') && isUserAdmin(phone);
       if (isAdmin) {
-        checkAndUnlockAdmin(phone);
+        if (typeof checkAndUnlockAdmin === 'function') checkAndUnlockAdmin(phone);
         switchTab('admin');
       } else {
         switchTab('score');
@@ -2376,10 +2439,13 @@ async function savePhoneToCache() {
         updateAutoCheckinBanner(statusMsg, 'success');
       }
 
+      setSaveButtonState(true);
+
     } else {
       // --- UNREGISTERED PLAYER ---
       // Expand detail box so they can register
       if (regAccordion) regAccordion.open = true;
+      setSaveButtonState(false);
       alert("⚠️ Phone number not registered. Please complete registration in the box below.");
     }
 
@@ -2388,76 +2454,67 @@ async function savePhoneToCache() {
   } finally {
     if (saveBtn) {
       saveBtn.disabled = false;
-      saveBtn.innerHTML = 'Check Registration';
+      const savedPhone = getSavedPhone();
+      const isAdmin = (typeof isUserAdmin === 'function') && isUserAdmin(savedPhone);
+      saveBtn.innerHTML = isAdmin ? 'Admin Reg. ✓' : 'Registered ✓';
     }
   }
 }
 
+/**
+ * Synchronizes group state between localStorage and UI radio inputs across all tabs
+ */
+function getSavedGroup() {
+  const selectedRadio = document.querySelector('input[name="helpGroupRadio"]:checked, input[name="checkinGroupRadio"]:checked');
+  if (selectedRadio && selectedRadio.value) {
+    const cleanGroup = String(selectedRadio.value).replace(/^(Sched|Score)\s*/i, '').trim();
+    localStorage.setItem('scpb_saved_group', cleanGroup);
+    localStorage.setItem('scpb_selected_group', cleanGroup);
+    return cleanGroup;
+  }
+  return localStorage.getItem('scpb_saved_group') || localStorage.getItem('scpb_selected_group') || '';
+}
+
+function setSavedGroup(groupName) {
+  if (!groupName) return;
+  const cleanGroup = String(groupName).replace(/^(Sched|Score)\s*/i, '').trim();
+  localStorage.setItem('scpb_saved_group', cleanGroup);
+  localStorage.setItem('scpb_selected_group', cleanGroup);
   
-// 4. Save Phone Number to LocalStorage & Load Status
-function savePhoneToCache() {
-  const phoneInput = document.getElementById("phoneInput");
-  const savePhoneBtn = document.getElementById("savePhoneBtn");
-
-  // Grab selected radio button group (Womens, Mixed, Mens)
-  const selectedRadio = document.querySelector('input[name="helpGroupRadio"]:checked');
-  const selectedGroup = selectedRadio ? selectedRadio.value : "";
-
-  const phone = phoneInput ? phoneInput.value.trim() : "";
-
-  if (!phone) {
-    alert("Please enter a phone number.");
-    return;
-  }
-
-  console.log('SavephonebtoCache  Phone ${phone}');
-    
-
-  // Fixed: Destructuring `exists` instead of `isRegistered`
-  const { exists, player } = checkPlayerExists(phone, selectedGroup);
-
-  if (exists) {
-    // ==========================================
-    // ✅ SUCCESS STATE: GREEN / "Registered ✓"
-    // ==========================================
-    console.log('Found player:', player);
-
-      // 1. Save valid phone & group to localStorage
-        localStorage.setItem("scpb_saved_group", selectedGroup);
-        savePlayerCredentials(phone, player.name);
-
-    // 2. Update button styling
-    if (savePhoneBtn) {
-      savePhoneBtn.style.backgroundColor = "#2d6a4f"; // Green
-      savePhoneBtn.style.color = "#ffffff";
-      savePhoneBtn.textContent = "Registered ✓";
-      savePhoneBtn.onclick = savePhoneToCache;
-    }
-
-    checkAndUnlockAdmin(phone);        
-      
-    // 3. Update status
-    if (typeof updateGlobalLoaderStatus === 'function') updateGlobalLoaderStatus();
-
-  } else {
-    // ==========================================
-    // ❌ FAILURE STATE: RED / "Must register"
-    // ==========================================
-
-    // 1. Update button styling & rebind click to open registration form
-    if (savePhoneBtn) {
-      savePhoneBtn.style.backgroundColor = "#d90429"; // Red
-      savePhoneBtn.style.color = "#ffffff";
-      savePhoneBtn.textContent = "Must register";
-
-      savePhoneBtn.onclick = function () {
-        redirectToRegistrationTab(phone, selectedGroup);
-      };
-    }
-
-    // 2. Direct user immediately to registration tab
-    console.log('Not registered in group. Directing to registration...');
-    redirectToRegistrationTab(phone, selectedGroup);
-  }
-    if (typeof updateGlobalLoaderStatus === 'function') updateGlobalLoaderStatus();    
+  // Sync all radio elements matching this group name across all tabs
+  const radios = document.querySelectorAll('input[name="helpGroupRadio"], input[name="checkinGroupRadio"]');
+  radios.forEach(radio => {
+    radio.checked = (radio.value.toLowerCase() === cleanGroup.toLowerCase());
+  });
 }
+
+// Global listener: Persist group selection immediately when clicked on any tab
+document.addEventListener('change', (e) => {
+  if (e.target && (e.target.name === 'helpGroupRadio' || e.target.name === 'checkinGroupRadio')) {
+    setSavedGroup(e.target.value);
+    if (typeof refreshActiveTabData === 'function') {
+      refreshActiveTabData(true);
+    }
+  }
+});
+
+// 1. Update restoreActiveTabOnLoad to ensure saved group is loaded into memory first
+function restoreActiveTabOnLoad() {
+  const hashTab = window.location.hash.replace('#', '').trim();
+  const savedTab = localStorage.getItem('activeTab');
+  const initialTab = hashTab || savedTab || 'help';
+
+  // Restore saved group into memory before evaluating switchTab guards
+  const savedGroup = localStorage.getItem('scpb_selected_group') || localStorage.getItem('scpb_saved_group');
+  if (savedGroup && typeof setSavedGroup === 'function') {
+    setSavedGroup(savedGroup);
+  }
+
+  switchTab(initialTab, true);
+}
+
+// 2. Add auto-initialization listener at the bottom of api_4.js
+document.addEventListener('DOMContentLoaded', () => {
+  if (typeof syncGroupRadioUI === 'function') syncGroupRadioUI();
+  restoreActiveTabOnLoad();
+});

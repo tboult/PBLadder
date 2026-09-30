@@ -1,4 +1,3 @@
-
 // --- ADMIN CONFIGURATION ---
   const ADMIN_PHONES = ['7199630573', '7196490138','8055506356','4147586069',"6025701430"]; 
   // --- ADMIN ROSTER CACHE SYSTEM ---
@@ -45,16 +44,13 @@ function filterAdminPlayers() {
     const playerScore = player.points ?? player.score ?? player.total ?? 0;
 
     return `
-      <div style="display:flex; justify-content:space-between; align-items:center; padding:0.6rem; border-bottom:1px solid #eee; gap:0.5rem; flex-wrap:wrap;">
+      <div style="display:flex; justify-space-between; align-items:center; padding:0.6rem; border-bottom:1px solid #eee; gap:0.5rem; flex-wrap:wrap;">
         <div style="flex:1; min-width:150px;">
           <div style="font-weight:bold; font-size:0.95rem; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">
-            ${attrName}
-          </div>
-          <div style="font-size:0.8rem; color:#666;">
-            ${player.court ? `Court: <b>${escapeHtmlAttr(player.court)}</b> | ` : ''}${cleanPhone || 'No phone'}
+            ${attrName}${player.court ? `, Ct ${escapeHtmlAttr(player.court)}` : ''}, ${cleanPhone || 'No phone'}
           </div>
           <div style="margin-top:0.35rem; display:flex; align-items:center; gap:0.5rem;">
-             <span style="font-size:0.85rem; font-weight:bold;">Total Score:</span>
+             <span style="font-size:0.85rem; font-weight:bold;">Total:</span>
              <input type="number" id="admin_score_${attrPhone}" value="${playerScore}" style="width: 60px; padding: 0.2rem; border: 1px solid #ccc; border-radius: 4px;">
              <button class="btn-sub" style="padding: 0.2rem 0.5rem; font-size: 0.8rem; background-color:#6c757d; color:#fff;" onclick="updateAdminPlayerScore('${attrName}', '${attrPhone}')">Save</button>
           </div>
@@ -111,11 +107,11 @@ async function updateAdminPlayerScore(playerName, phone) {
 
 
 async function submitAdminRegistration() {
-  const first = document.getElementById('adminRegFirst').value.trim();
-  const last = document.getElementById('adminRegLast').value.trim();
-  const phone = document.getElementById('adminRegPhone').value.trim();
-  const email = document.getElementById('adminRegEmail').value.trim();
-  const group = document.getElementById('adminGlobalGroupSelect').value || getSavedGroup();
+  const first = document.getElementById('adminRegFirst')?.value.trim() || '';
+  const last = document.getElementById('adminRegLast')?.value.trim() || '';
+  const phone = document.getElementById('adminRegPhone')?.value.trim() || '';
+  const email = document.getElementById('adminRegEmail')?.value.trim() || '';
+  const group = document.getElementById('adminGlobalGroupSelect')?.value || getSavedGroup();
 
   if (!first || !last || !phone) {
     alert('Please provide first name, last name, and phone number.');
@@ -138,11 +134,11 @@ async function submitAdminRegistration() {
     
     if (res && (res.success || !res.error)) {
       if (statusEl) statusEl.innerText = '✅ Player added successfully!';
-      document.getElementById('adminRegFirst').value = '';
-      document.getElementById('adminRegLast').value = '';
-      document.getElementById('adminRegPhone').value = '';
-      document.getElementById('adminRegEmail').value = '';
-      loadAdminPlayerStatusCache(group);
+      if (document.getElementById('adminRegFirst')) document.getElementById('adminRegFirst').value = '';
+      if (document.getElementById('adminRegLast')) document.getElementById('adminRegLast').value = '';
+      if (document.getElementById('adminRegPhone')) document.getElementById('adminRegPhone').value = '';
+      if (document.getElementById('adminRegEmail')) document.getElementById('adminRegEmail').value = '';
+      await loadAdminPlayerStatusCache(group);
     } else {
       if (statusEl) statusEl.innerText = '❌ Failed: ' + (res.message || 'Error');
     }
@@ -186,7 +182,7 @@ async function runAdmin(actionName, extraPayload = {}) {
 }
 
 async function getAdminPdf() {
-  const groupName = document.getElementById('adminGlobalGroupSelect').value || getSavedGroup();
+  const groupName = document.getElementById('adminGlobalGroupSelect')?.value || getSavedGroup();
   const statusEl = document.getElementById('adminStatus');
   if (statusEl) statusEl.innerText = 'Generating PDF schedule...';
 
@@ -206,13 +202,19 @@ async function getAdminPdf() {
     if (statusEl) statusEl.innerText = '❌ Error requesting PDF.';
   }
 }
-function loadAdminTabData(groupName) {
-    loadAdminPlayerStatusCache(groupName);
+async function loadAdminTabData(groupName) {
+    await loadAdminPlayerStatusCache(groupName);
     renderAdminCourts(groupName);    
 }
 
-function loadAdminPlayerStatusCache(groupName) {
-  return loadUnifiedRosterData(groupName, true);
+async function loadAdminPlayerStatusCache(groupName) {
+  const data = await loadUnifiedRosterData(groupName, true);
+  if (Array.isArray(data)) {
+    adminPlayersCache = data;
+    adminCacheTimestamp = Date.now();
+    filterAdminPlayers();
+  }
+  return data;
 }
 function loadCheckInPlayers(groupName, forceRefresh = true) {
   return loadUnifiedRosterData(groupName, forceRefresh);
@@ -403,22 +405,8 @@ function teardownAdminView() {
   if (adminPollingInterval) clearInterval(adminPollingInterval);
 }
 
-function loadAdminPlayerData(group, isBackgroundPoll = false) {
-  // Optional: show a loading spinner only if it's not a background poll
-  if (!isBackgroundPoll) showAdminLoader(); 
-
-  google.script.run
-    .withSuccessHandler((response) => {
-      if (response.success) {
-        renderAdminPlayerList(response.players); // Your existing UI render function
-      }
-      if (!isBackgroundPoll) hideAdminLoader();
-    })
-    .withFailureHandler((err) => {
-      console.error("Admin poll failed:", err);
-      if (!isBackgroundPoll) hideAdminLoader();
-    })
-  return loadUnifiedRosterData(groupName, true);
+async function loadAdminPlayerData(group, isBackgroundPoll = false) {
+  return await loadAdminPlayerStatusCache(group);
 }
 
 
@@ -452,7 +440,8 @@ function checkAndUnlockAdmin(phone) {
       return;
     }
 
-    const defaultCourts = GROUP_COURT_MAP[groupName] || GROUP_COURT_MAP["Default"];
+    const courtMap = typeof GROUP_COURT_MAP !== 'undefined' ? GROUP_COURT_MAP : {};
+    const defaultCourts = courtMap[groupName] || courtMap["Default"] || [];
     
     for (let i = 1; i <= 20; i++) {
       const div = document.createElement('div');
@@ -469,7 +458,7 @@ function checkAndUnlockAdmin(phone) {
   }
 
 async function runRescheduleCheckedIn() {
-  const groupName = document.getElementById('adminGlobalGroupSelect').value || getSavedGroup();
+  const groupName = document.getElementById('adminGlobalGroupSelect')?.value || getSavedGroup();
   const selectedCourts = getSelectedCourts();
 
   if (!groupName) {
@@ -495,7 +484,7 @@ async function runRescheduleCheckedIn() {
     });
     if (res && (res.success || !res.error)) {
       if (statusEl) statusEl.innerText = '✅ Rescheduled checked-in players successfully!';
-      loadAdminPlayerStatusCache(groupName);
+      await loadAdminPlayerStatusCache(groupName);
     } else {
       if (statusEl) statusEl.innerText = '❌ Reschedule failed: ' + (res.message || 'Error');
     }
@@ -505,7 +494,7 @@ async function runRescheduleCheckedIn() {
 }
 
 async function runRescheduleActive() {
-  const groupName = document.getElementById('adminGlobalGroupSelect').value || getSavedGroup();
+  const groupName = document.getElementById('adminGlobalGroupSelect')?.value || getSavedGroup();
   const selectedCourts = getSelectedCourts();
 
   if (!groupName) {
@@ -531,7 +520,7 @@ async function runRescheduleActive() {
     });
     if (res && (res.success || !res.error)) {
       if (statusEl) statusEl.innerText = '✅ Rescheduled all active players successfully!';
-      loadAdminPlayerStatusCache(groupName);
+      await loadAdminPlayerStatusCache(groupName);
     } else {
       if (statusEl) statusEl.innerText = '❌ Reschedule failed: ' + (res.message || 'Error');
     }

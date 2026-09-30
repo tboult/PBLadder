@@ -216,7 +216,7 @@ function getConstantsConfig() {
 
 function getAppVersion() {
   logDebug("getAppVersion", "Retrieving app version");
-  return "0.9.7"; 
+  return "0.9.8"; 
 }
 
 function getValidScoreTabs() { return SCORE_TABS; }
@@ -948,7 +948,7 @@ function handleApiRequest(e) {
         break;
 
       case 'getAppVersion':
-        result = typeof getAppVersion === 'function' ? getAppVersion() : "0.9.7";
+        result = typeof getAppVersion === 'function' ? getAppVersion() : "0.9.8";
         break;
 
       case 'generatePdfSchedule':

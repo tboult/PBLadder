@@ -300,7 +300,6 @@
     <b>Active Group:</b> <span class="active-group-label" style="font-size:1.15rem; font-weight:bold; color:#0d6efd; margin-left:4px;">--</span>
   </div>
 
-  <!-- ADDED: Auto Check-In Status Banner -->
   <div id="scoreAutoCheckinBanner" style="display:none; margin-bottom:0.75rem; padding:0.5rem 0.75rem; border-radius:0.5rem; font-size:0.95rem; font-weight:bold; text-align:center;"></div>
 
   <button type="button" id="findFoursomeBtn" class="btn btn-primary" style="width:100%; margin-bottom:0.75rem;" onclick="lookupPhone()">
@@ -312,7 +311,6 @@
       <h4 style="margin:0 0 0.25rem 0;" id="pNameDisplay"></h4>
       <p style="margin:0.25rem 0; font-size:1rem;">Group: <b id="pGroupDisplay">--</b> | Court: <b id="pCourtDisplay">--</b></p>
       
-      <!-- Existing Status Line -->
       <p style="margin:0.25rem 0 0 0; font-size:1rem;">
         Status: <span id="pStatusDisplay" class="status-badge">--</span>
       </p>
@@ -324,20 +322,21 @@
       <button class="btn-main" style="margin-top:0.75rem; width:100%;" onclick="saveScores()">Submit Scores</button>
     </div>
   </div>
+</div> <!-- 👈 ADD THIS CLOSING DIV FOR #scoreTab HERE -->
 
 
-  <!-- TAB 4: RANKINGS & SCHEDULE VIEWER -->
-  <div id="rankschedTab" class="tab-content">
-    <!-- DROPDOWN REMOVED: Replaced with Read-Only Banner -->
-    <div class="card" style="margin-bottom:0.75rem; padding:0.6rem 0.8rem; background:var(--input-bg); border:2px solid var(--input-border); border-radius:0.5rem;">
-      <b>Viewing Group:</b> <span class="active-group-label" style="font-size:1.15rem; font-weight:bold; color:#0d6efd; margin-left:4px;">--</span>
-      <small style="display:block; color:var(--text-secondary, #666); margin-top:2px;">(To change groups, return to Register & Help tab)</small>
-    </div>
-    <div id="viewerContent" style="margin-top: 0.75rem;"></div>
-    <div id="viewerStatus" class="status-msg"></div>
+<!-- TAB 4: RANKINGS & SCHEDULE VIEWER -->
+<div id="rankschedTab" class="tab-content">
+  <div class="card" style="margin-bottom:0.75rem; padding:0.6rem 0.8rem; background:var(--input-bg); border:2px solid var(--input-border); border-radius:0.5rem;">
+    <b>Viewing Group:</b> <span class="active-group-label" style="font-size:1.15rem; font-weight:bold; color:#0d6efd; margin-left:4px;">--</span>
+    <small style="display:block; color:var(--text-secondary, #666); margin-top:2px;">(To change groups, return to Register & Help tab)</small>
   </div>
+  <div id="viewerContent" style="margin-top: 0.75rem;"></div>
+  <div id="viewerStatus" class="status-msg"></div>
+</div>
 
-<!-- TAB 5: ADMIN -->
+
+ <!-- TAB 5: ADMIN -->
   <div id="adminTab" class="tab-content">
     <div class="card">
       <h3 style="margin-top:0; color:var(--btn-danger-bg);">⚙️ Admin Controls</h3>
