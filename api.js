@@ -1,3 +1,43 @@
+async function apiCall(action, payload = {}) {
+  if (!action) {
+    console.error("❌ [API Error] Action cannot be empty.");
+    return Promise.reject(new Error("API action cannot be empty"));
+  }
+
+  console.log(`🚀 [API Call Initiated] "${action}"`, {
+    payload,
+    time: new Date().toLocaleTimeString()
+  });
+
+  // FIX: Bypass deduplication when forceRefresh is true
+  const isForceRefresh = Boolean(payload && payload.forceRefresh);
+  if (!isForceRefresh && typeof apiQueue !== 'undefined' && action === 'getUnifiedRoster' && 
+      apiQueue.some(q => q.action === 'getUnifiedRoster' && JSON.stringify(q.payload) === JSON.stringify(payload))) {
+    const cachedPlayers = (Array.isArray(window.appPlayersCache) && window.appPlayersCache.length > 0) 
+      ? window.appPlayersCache 
+      : (window.cachedRoster || []);
+    console.log(`⚡ [API Cache Hit] Deduplicating "${action}", returning cached players.`, cachedPlayers);
+    return Promise.resolve({ success: true, registered: true, players: cachedPlayers });
+  }
+
+  const result = await new Promise((resolve, reject) => {
+    if (typeof apiQueue !== 'undefined') {
+      apiQueue.push({ action, payload, resolve, reject });
+      if (typeof isProcessingQueue !== 'undefined' && !isProcessingQueue && typeof processApiQueue === 'function') processApiQueue();
+    } else {
+      resolve({ success: false, error: 'apiQueue not initialized' });
+    }
+  });
+
+  console.log(`✅ [API result] "${action}"`, {
+    result,
+    time: new Date().toLocaleTimeString()
+  });
+
+  return result;
+}
+
+
 let checkInPlayersCache = [];
 
 
@@ -577,14 +617,10 @@ function setSelectedGroup(groupName) {
 }
 
 async function onGroupRadioChange(selectedGroup) {
-  console.log(`onGroupRadioChange ${selectedGroup}`); // Fixed template literal backticks
+  console.log(`onGroupRadioChange ${selectedGroup}`);
   const cleanGroup = String(selectedGroup).replace(/^(Sched|Score)\s*/i, '').trim();
 
-  // -------------------------------------------------------------
   // 1. Force DOM elements directly to show loading immediately
-  // -------------------------------------------------------------
-  
-  // A. Front / Setup Tab Elements
   const statusDisplay = document.getElementById("frontStatusDisplay");
   const statusBadge = document.getElementById("frontStatusBadge") || document.getElementById("statusBadge");
 
@@ -599,7 +635,7 @@ async function onGroupRadioChange(selectedGroup) {
     showStatusLoading("⏳ LOOKING UP...");
   }
 
-  // B. Check-in Tab Elements (FIX: Immediately display loading state on Check-in Tab)
+  // Check-in Tab Elements
   const checkinBadge = document.getElementById("checkinPlayerStatusBadge");
   const checkinStatus = document.getElementById("checkInStatus");
   const checkinName = document.getElementById("checkinPlayerName");
@@ -622,12 +658,9 @@ async function onGroupRadioChange(selectedGroup) {
     userCheckinBtn.disabled = true;
   }
 
-  // CRITICAL: Yield execution to allow browser UI thread to repaint screen instantly
   await new Promise(resolve => setTimeout(resolve, 50));
 
-  // -------------------------------------------------------------
   // 2. Sync group selection across storage
-  // -------------------------------------------------------------
   if (typeof setSelectedGroup === 'function') {
     setSelectedGroup(cleanGroup);
   } else {
@@ -635,35 +668,30 @@ async function onGroupRadioChange(selectedGroup) {
     localStorage.setItem('scpb_saved_group', cleanGroup);
   }
 
-  // -------------------------------------------------------------
-  // 3. Clear existing caches & active player references
-  // -------------------------------------------------------------
+  // 3. Clear ALL existing group caches & active player references
   window.appPlayersCache = [];
+  window.cachedRoster = [];
+  window.unifiedRoster = [];
   window.unifiedRosterCache = { data: null, group: null, timestamp: 0 };
-  if (typeof checkInPlayersCache !== 'undefined') checkInPlayersCache = [];
-  if (typeof adminPlayersCache !== 'undefined') adminPlayersCache = [];
   window.activeLookupPlayer = null;
   window.activeLookupFoursome = null;
 
-  // -------------------------------------------------------------
-  // 4. Sync radio buttons UI across all tabs
-  // -------------------------------------------------------------
+  // 4. Sync UI elements (Radios/Dropdowns)
   const allGroupRadios = document.querySelectorAll(
     'input[name="helpGroupRadio"], input[name="checkinGroupRadio"]'
   );
   allGroupRadios.forEach(radio => {
     radio.checked = (radio.value === cleanGroup);
   });
-
-  // -------------------------------------------------------------
-  // 5. Sync dropdowns/labels
-  // -------------------------------------------------------------
   if (typeof syncAllGroupDropdowns === 'function') syncAllGroupDropdowns(cleanGroup);
   if (typeof updateAllGroupDisplays === 'function') updateAllGroupDisplays(cleanGroup);
 
-  // -------------------------------------------------------------
-  // 6. Run lookup for saved phone number
-  // -------------------------------------------------------------
+  // FIX: 5. Fetch fresh roster FIRST before attempting lookup or tab renders
+  if (typeof loadUnifiedRosterData === 'function') {
+    await loadUnifiedRosterData(cleanGroup, true);
+  }
+
+  // FIX: 6. Run lookup with newly updated roster populated in memory
   const savedPhone = typeof getSavedPhone === 'function' ? getSavedPhone() : (localStorage.getItem('scpb_saved_phone') || '');
   if (savedPhone && typeof loadPlayerStatusFromCache === 'function') {
     await loadPlayerStatusFromCache(savedPhone);
@@ -671,18 +699,17 @@ async function onGroupRadioChange(selectedGroup) {
     setAppViewState(false, '');
   }
 
-  // -------------------------------------------------------------
-  // 7. Refresh active tab data (Fetches server data & calls renderCheckInPlayers)
-  // -------------------------------------------------------------
+  // 7. Refresh active tab UI elements
   if (typeof refreshActiveTabData === 'function') {
-    await refreshActiveTabData(true);
+    await refreshActiveTabData(false);
   }
     
-  // 8. FIX: Remove loading message after data lookup completes
   if (checkinStatus && checkinStatus.innerText.includes("Loading status")) {
-    checkinStatus.innerText = ""; // Clear loading message
+    checkinStatus.innerText = "";
   }    
 }
+
+
 
 
 
@@ -828,19 +855,12 @@ function loadSavedPhone() {
   if (phoneInput && savedPhone) {
     phoneInput.value = savedPhone;
   }
-  // FIXED: Check and unlock admin if phone exists regardless of phoneInput DOM presence
+  
   if (savedPhone && typeof checkAndUnlockAdmin === 'function') {
     checkAndUnlockAdmin(savedPhone);
   }
-
-  // 2. Add to your active tab refresh logic so it stays populated when switching tabs
-  if (typeof refreshActiveTabData === 'function') {
-      const oldRefresh = refreshActiveTabData;
-      refreshActiveTabData = async function() {
-          await oldRefresh();
-      };
-  }
 }
+
 
 
 
@@ -1021,7 +1041,6 @@ async function refreshActiveTabData(forceRefresh = false) {
     renderHelpGroupRadios();
   }
 
-  // Ensure radio buttons reflect stored group
   if (currentGroup) {
     setSavedGroup(currentGroup);
   }
@@ -1029,19 +1048,18 @@ async function refreshActiveTabData(forceRefresh = false) {
   if (typeof updateGlobalLoaderStatus === 'function') updateGlobalLoaderStatus();
 
   try {
+    // FIX: Always ensure roster is fetched regardless of which tab is active
+    if (currentGroup && typeof loadUnifiedRosterData === 'function') {
+      await loadUnifiedRosterData(currentGroup, forceRefresh);
+    }
+
     if (activeTab === 'checkin') {
       if (typeof triggerAutoCheckIn === 'function') await triggerAutoCheckIn();
-      if (currentGroup && typeof loadUnifiedRosterData === 'function') {
-        await loadUnifiedRosterData(currentGroup, forceRefresh);
-      }
     } else if (activeTab === 'admin') {
       if (typeof triggerAutoCheckIn === 'function') await triggerAutoCheckIn();
       if (typeof renderAdminCourts === 'function') await renderAdminCourts(currentGroup);
       if (typeof loadAdminTabData === 'function') await loadAdminTabData(currentGroup);
       if (typeof loadAdminPlayerStatusCache === 'function') await loadAdminPlayerStatusCache(currentGroup);
-      if (currentGroup && typeof loadUnifiedRosterData === 'function') {
-        await loadUnifiedRosterData(currentGroup, forceRefresh);
-      }
     } else if (activeTab === 'ranksched' || activeTab === 'schedule') {
       if (typeof loadRankingsAndSched === 'function') {
         await loadRankingsAndSched(currentGroup);
@@ -1063,6 +1081,7 @@ async function refreshActiveTabData(forceRefresh = false) {
     if (typeof updateGlobalLoaderStatus === 'function') updateGlobalLoaderStatus();
   }
 }
+
 
 
 async function handleVersionCheck(serverVersion) {
@@ -1835,12 +1854,14 @@ let currentRosterFetchPromise = null;
 let lastFetchedGroup = null;
 
 async function loadUnifiedRosterData(groupName, forceRefresh = false) {
-  // 1. If we already have the roster in memory for this group and forceRefresh is false, use it!
+  if (!groupName) return [];
+
+  // 1. Return memory roster if already fetched for this group and not force-refreshing
   if (!forceRefresh && lastFetchedGroup === groupName && Array.isArray(window.cachedRoster) && window.cachedRoster.length > 0) {
     return window.cachedRoster;
   }
 
-  // 2. Return existing in-flight request if currently fetching
+  // 2. Return in-flight request if currently fetching for the target group
   if (currentRosterFetchPromise && lastFetchedGroup === groupName && !forceRefresh) {
     return currentRosterFetchPromise;
   }
@@ -1851,23 +1872,27 @@ async function loadUnifiedRosterData(groupName, forceRefresh = false) {
     try {
       console.log(`📡 Fetching fresh roster for group: "${groupName}"...`);
       const res = await apiCall('getUnifiedRoster', { group: groupName, forceRefresh: forceRefresh });
-      if (res && res.success && Array.isArray(res.players)) {
+      
+      // FIX: Guard against race condition if group changed while request was in-flight
+      if (lastFetchedGroup === groupName && res && res.success && Array.isArray(res.players)) {
         window.cachedRoster = res.players;
         window.unifiedRoster = res.players;
+        window.appPlayersCache = res.players;
         return res.players;
       }
-      return [];
+      return window.cachedRoster || [];
     } catch (err) {
       console.error("Error fetching roster:", err);
       return [];
     } finally {
-      currentRosterFetchPromise = null;
+      if (lastFetchedGroup === groupName) {
+        currentRosterFetchPromise = null;
+      }
     }
   })();
 
   return currentRosterFetchPromise;
 }
-
 
 
 
@@ -2033,40 +2058,59 @@ function updateGlobalLoaderStatus() {
   }
 }
 
-async function apiCall(action, payload = {}) {
-  if (!action) {
-    console.error("❌ [API Error] Action cannot be empty.");
-    return Promise.reject(new Error("API action cannot be empty"));
+async function refreshActiveTabData(forceRefresh = false) {
+  const activeTab = localStorage.getItem('activeTab') || 'help';
+  const currentGroup = getSavedGroup();
+
+  if (typeof renderHelpGroupRadios === 'function') {
+    renderHelpGroupRadios();
   }
 
-  console.log(`🚀 [API Call Initiated] "${action}"`, {
-    payload,
-    time: new Date().toLocaleTimeString()
-  });
-
-  // [CHANGE]: Return an explicit success/registered structure on cache hits.
-  // Previously, returning { players: checkInPlayersCache } lacked 'success: true', causing loadUnifiedRosterData to evaluate 'res.success' as undefined and clear the UI.
-  if (typeof apiQueue !== 'undefined' && action === 'getUnifiedRoster' && apiQueue.some(q => q.action === 'getUnifiedRoster' && JSON.stringify(q.payload) === JSON.stringify(payload))) {
-    console.log(`⚡ [API Cache Hit] Deduplicating "${action}", returning cached players.`, checkInPlayersCache);
-    return Promise.resolve({ success: true, registered: true, players: checkInPlayersCache || [] });
+  // Ensure radio buttons reflect stored group
+  if (currentGroup) {
+    setSavedGroup(currentGroup);
   }
 
-  const result = await new Promise((resolve, reject) => {
-    if (typeof apiQueue !== 'undefined') {
-      apiQueue.push({ action, payload, resolve, reject });
-      if (typeof isProcessingQueue !== 'undefined' && !isProcessingQueue && typeof processApiQueue === 'function') processApiQueue();
-    } else {
-      resolve({ success: false, error: 'apiQueue not initialized' });
+  if (typeof updateGlobalLoaderStatus === 'function') updateGlobalLoaderStatus();
+
+  try {
+    if (activeTab === 'checkin') {
+      if (typeof triggerAutoCheckIn === 'function') await triggerAutoCheckIn();
+      if (currentGroup && typeof loadUnifiedRosterData === 'function') {
+        await loadUnifiedRosterData(currentGroup, forceRefresh);
+      }
+    } else if (activeTab === 'admin') {
+      if (typeof triggerAutoCheckIn === 'function') await triggerAutoCheckIn();
+      // FIX: Fetch group roster data FIRST before rendering admin courts or admin tabs
+      if (currentGroup && typeof loadUnifiedRosterData === 'function') {
+        await loadUnifiedRosterData(currentGroup, forceRefresh);
+      }
+      if (typeof renderAdminCourts === 'function') await renderAdminCourts(currentGroup);
+      if (typeof loadAdminTabData === 'function') await loadAdminTabData(currentGroup);
+      if (typeof loadAdminPlayerStatusCache === 'function') await loadAdminPlayerStatusCache(currentGroup);
+    } else if (activeTab === 'ranksched' || activeTab === 'schedule') {
+      if (typeof loadRankingsAndSched === 'function') {
+        await loadRankingsAndSched(currentGroup);
+      }
+    } else if (activeTab === 'scoreTab' || activeTab === 'score' || activeTab === 'phone') {
+      if (typeof triggerAutoCheckIn === 'function') await triggerAutoCheckIn();
+      if (typeof lookupPhone === 'function') {
+        await lookupPhone();
+      }
+    } else if (activeTab === 'help') {
+      const savedPhone = typeof getSavedPhone === 'function' ? getSavedPhone() : '';
+      if (savedPhone && typeof loadPlayerStatusFromCache === 'function') {
+        await loadPlayerStatusFromCache(savedPhone);
+      }
     }
-  });
-
-  console.log(`✅ [API result] "${action}"`, {
-    result,
-    time: new Date().toLocaleTimeString()
-  });
-
-  return result;
+  } catch (err) {
+    console.error(`💥 [Tab Refresh Error] Failed rendering tab "${activeTab}":`, err);
+  } finally {
+    if (typeof updateGlobalLoaderStatus === 'function') updateGlobalLoaderStatus();
+  }
 }
+
+
 
 async function processApiQueue() {
   if ((typeof isProcessingQueue !== 'undefined' && isProcessingQueue) || typeof apiQueue === 'undefined' || apiQueue.length === 0) return;
