@@ -467,3 +467,75 @@ function checkAndUnlockAdmin(phone) {
       list.appendChild(div);
     }
   }
+
+async function runRescheduleCheckedIn() {
+  const groupName = document.getElementById('adminGlobalGroupSelect').value || getSavedGroup();
+  const selectedCourts = getSelectedCourts();
+
+  if (!groupName) {
+    alert('Please select a target group.');
+    return;
+  }
+
+  if (selectedCourts.length === 0) {
+    alert('Please select at least one court checkbox.');
+    return;
+  }
+
+  const statusEl = document.getElementById('adminStatus');
+  if (statusEl) statusEl.innerText = 'Rescheduling checked-in players...';
+
+  try {
+    const res = await apiCall('rescheduleFromCheckIns', {
+      groupName: groupName,
+      group: groupName,
+      sheet: "Sched " + groupName,
+      courts: selectedCourts,
+      checkedInOnly: true
+    });
+    if (res && (res.success || !res.error)) {
+      if (statusEl) statusEl.innerText = '✅ Rescheduled checked-in players successfully!';
+      loadAdminPlayerStatusCache(groupName);
+    } else {
+      if (statusEl) statusEl.innerText = '❌ Reschedule failed: ' + (res.message || 'Error');
+    }
+  } catch (err) {
+    if (statusEl) statusEl.innerText = '❌ Error performing reschedule.';
+  }
+}
+
+async function runRescheduleActive() {
+  const groupName = document.getElementById('adminGlobalGroupSelect').value || getSavedGroup();
+  const selectedCourts = getSelectedCourts();
+
+  if (!groupName) {
+    alert('Please select a target group.');
+    return;
+  }
+
+  if (selectedCourts.length === 0) {
+    alert('Please select at least one court checkbox.');
+    return;
+  }
+
+  const statusEl = document.getElementById('adminStatus');
+  if (statusEl) statusEl.innerText = 'Rescheduling all active players...';
+
+  try {
+    const res = await apiCall('generateScheduleTabs', {
+      groupName: groupName,
+      group: groupName,
+      sheet: "Sched " + groupName,
+      courts: selectedCourts,
+      checkedInOnly: false
+    });
+    if (res && (res.success || !res.error)) {
+      if (statusEl) statusEl.innerText = '✅ Rescheduled all active players successfully!';
+      loadAdminPlayerStatusCache(groupName);
+    } else {
+      if (statusEl) statusEl.innerText = '❌ Reschedule failed: ' + (res.message || 'Error');
+    }
+  } catch (err) {
+    if (statusEl) statusEl.innerText = '❌ Error performing reschedule.';
+  }
+}
