@@ -532,3 +532,55 @@ async function runRescheduleActive() {
     if (statusEl) statusEl.innerText = '❌ Error performing reschedule.';
   }
 }
+
+/**
+ * Enables or disables the "TG" test group dynamically in Google Script Properties.
+ * 
+ * Usage in Console:
+ *   setTestGroup(true)  // Enable TG
+ *   setTestGroup(false) // Disable TG
+ */
+async function setTestGroup(enabled) {
+  console.log(`Setting Test Group state to: ${enabled}...`);
+  try {
+    const res = await apiCall('setTestGroupState', { enabled: enabled });
+    if (res && res.success) {
+      console.log(`✅ Success: ${res.message}`);
+    } else {
+      console.error('❌ Failed to set Test Group state:', res);
+    }
+    return res;
+  } catch (err) {
+    console.error('Error in setTestGroup:', err);
+    throw err;
+  }
+}
+
+/**
+ * Copies the Mens sheets ("Score Mens", "Sched Mens", "Rankings Mens") to 
+ * create the "TG" sheets, retaining all existing data, styling, and formulas.
+ * 
+ * Usage in Console:
+ *   generateTestGroupSheets()
+ */
+async function generateTestGroupSheets() {
+  const statusEl = document.getElementById('adminStatus');
+  if (statusEl) statusEl.innerText = 'Copying Mens sheets to TG test sheets...';
+
+  try {
+    const res = await apiCall('createTestGroupSheets', {});
+    
+    if (res && (res.success || (res.data && res.data.success))) {
+      console.log('✅ Test sheets created successfully:', res);
+      if (statusEl) statusEl.innerText = '✅ Test sheets created from Mens!';
+    } else {
+      console.error('❌ Failed to create test sheets:', res);
+      if (statusEl) statusEl.innerText = '❌ Failed to create test sheets.';
+    }
+    return res;
+  } catch (err) {
+    console.error('generateTestGroupSheets error:', err);
+    if (statusEl) statusEl.innerText = '❌ Error copying test sheets.';
+    throw err;
+  }
+}

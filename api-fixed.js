@@ -490,3 +490,16 @@ document.addEventListener("DOMContentLoaded", async function () {
     bindGroupRadioListeners();
   }
 });
+
+
+function hideGlobalLoader() {
+  const loader = document.getElementById('globalLoader');
+  if (loader) {
+    loader.style.display = 'none';
+  }
+}
+
+// Hide loader automatically on window load or on API failure
+window.addEventListener('DOMContentLoaded', () => {
+  setTimeout(hideGlobalLoader, 3000); // Fallback timeout to prevent permanent scroll lock
+});

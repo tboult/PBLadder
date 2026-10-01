@@ -453,3 +453,21 @@ table.data-table td {
 @media (max-width: 768px) {
   .desktop-only { display: none !important; }
 }
+
+
+/* Ensure tab contents expand dynamically and scroll when overflowed */
+.tab-content {
+  display: none;
+  width: 100%;
+  height: auto;
+  overflow-y: visible;
+}
+
+.tab-content.active {
+  display: block;
+}
+
+/* Prevent global loader from blocking touch/scroll if stuck */
+.global-loader {
+  pointer-events: none;
+}

@@ -2574,6 +2574,7 @@ document.addEventListener('change', (e) => {
 
 // Auto-initialization on page load
 document.addEventListener('DOMContentLoaded', () => {
-  if (typeof syncGroupRadioUI === 'function') syncGroupRadioUI();
-  if (typeof restoreActiveTabOnLoad === 'function') restoreActiveTabOnLoad();
+    if (typeof syncGroupRadioUI === 'function') syncGroupRadioUI();
+    if (typeof restoreActiveTabOnLoad === 'function') restoreActiveTabOnLoad();
+    if (typeof hideGlobalLoader === 'function')    setTimeout(hideGlobalLoader, 3000); // Fallback timeout to prevent permanent scroll lock    
 });

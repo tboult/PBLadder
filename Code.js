@@ -1,27 +1,112 @@
-/*
- * GLOBAL CONFIGURATION & HELPER DEFINITIONS
- 
- * ========================================== */
+/* ==========================================================================
+ * GLOBAL CONFIGURATION & DYNAMIC TEST GROUP HELPER DEFINITIONS
+ * ========================================================================== */
 
 let _dbInstance = null;
 
+/**
+ * Checks script properties to determine if the test group ("TG") is enabled.
+ */
+function isTestGroupEnabled() {
+  const prop = PropertiesService.getScriptProperties().getProperty("USE_TEST_GROUP");
+  return prop === "true";
+}
 
-const VALID_SCORE_TABS = ["Score Womens", "Score Mens", "Score Mixed"];
+/**
+ * Sets the test group flag in Script Properties.
+ * Call this from the frontend console or backend API.
+ */
+function setTestGroupState(enabled) {
+  PropertiesService.getScriptProperties().setProperty("USE_TEST_GROUP", enabled ? "true" : "false");
+  return {
+    success: true,
+    enabled: enabled,
+    message: `Test group ("TG") is now ${enabled ? "ENABLED" : "DISABLED"}.`
+  };
+}
+
+/**
+ * Dynamic getters for system groups and tab names
+ */
+function getActiveGroups() {
+  const groups = ["Womens", "Mens", "Mixed"];
+  if (isTestGroupEnabled() && !groups.includes("TG")) groups.push("TG");
+  return groups;
+}
+
+function getActiveScheduleTabs() {
+  const tabs = ["Sched Womens", "Sched Mens", "Sched Mixed"];
+  if (isTestGroupEnabled() && !tabs.includes("Sched TG")) tabs.push("Sched TG");
+  return tabs;
+}
+
+function getActiveScoreTabs() {
+  const tabs = ["Score Womens", "Score Mens", "Score Mixed"];
+  if (isTestGroupEnabled() && !tabs.includes("Score TG")) tabs.push("Score TG");
+  return tabs;
+}
+
+// Fallback constant arrays for standard legacy execution
+const GROUPS = ["Womens", "Mens", "Mixed", "TG"];
+const SCHEDULE_TABS = ["Sched Womens", "Sched Mens", "Sched Mixed", "Sched TG"];
+const VALID_SCORE_TABS = ["Score Womens", "Score Mens", "Score Mixed", "Score TG"];
 const SCORE_TABS = VALID_SCORE_TABS;
+
 const MAX_MOVEMENT = 4;
 const MAX_POINTS_PER_WEEK = 45;
 const ALWAYS_BYE_LOWEST = true;
 
-const GROUPS = ["Womens", "Mens", "Mixed"];
-const SCHEDULE_TABS = ["Sched Womens", "Sched Mens", "Sched Mixed"];
-
 const GROUP_COURT_MAP = {
-  "Womens": [3,4,5,6,7,8,15,16,17,18,19,20],
-  "Mens": [5,6,9,10,13,14,15,16],
-  "Mixed": [3,4,5,6,7,8,15,16,17,18,19,20],
-  "Default": [5,6,9,10,13,14,15,16]
+  "Womens": [3, 4, 5, 6, 7, 8, 15, 16, 17, 18, 19, 20],
+  "Mens": [5, 6, 9, 10, 13, 14, 15, 16],
+  "Mixed": [3, 4, 5, 6, 7, 8, 15, 16, 17, 18, 19, 20],
+  "TG": [1, 2, 3, 4],
+  "Default": [5, 6, 9, 10, 13, 14, 15, 16]
 };
 
+/**
+ * Creates the test sheets ("Score TG", "Sched TG", "Rankings TG") by duplicating 
+ * the existing "Mens" sheets to retain all test data, formatting, and formulas.
+ */
+function createTestGroupSheets() {
+  return executeWithLock(function() {
+    const ss = getDb();
+    
+    const sheetMappings = [
+      { source: "Score Mens", target: "Score TG" },
+      { source: "Sched Mens", target: "Sched TG" },
+      { source: "Rankings Mens", target: "Rankings TG" }
+    ];
+
+    const createdSheets = [];
+
+    sheetMappings.forEach(mapping => {
+      const sourceSheet = ss.getSheetByName(mapping.source);
+      if (!sourceSheet) {
+        throw new Error(`Source sheet '${mapping.source}' was not found in the database.`);
+      }
+
+      // Remove existing target sheet if present
+      const existingTarget = ss.getSheetByName(mapping.target);
+      if (existingTarget) {
+        ss.deleteSheet(existingTarget);
+      }
+
+      // Duplicate source sheet and rename
+      const newSheet = sourceSheet.copyTo(ss);
+      newSheet.setName(mapping.target);
+      createdSheets.push(mapping.target);
+    });
+
+    // Automatically turn on the test group flag upon creating test sheets
+    setTestGroupState(true);
+
+    return {
+      success: true,
+      message: `✅ Successfully created test sheets by copying 'Mens' data: ${createdSheets.join(", ")}. Test group ("TG") enabled.`
+    };
+  });
+}
  
 function testTimestampUpdates() {
   const testGroup = "Mens"; // Change to match one of your groups
@@ -797,14 +882,14 @@ function handleApiRequest(e) {
 
     if (!action) throw new Error("Invalid or missing API action");
 
-    const WRITE_ACTIONS = [
-      'sortActivePlayers', 'sortActivePlayersForSheet', 'generateScheduleTabs',
-      'updateStandingsWithShift', 'correctScoresNoShift', 'processWeeklyScoresForSheet',
-      'toggleSingleCheckIn', 'checkInPlayer', 'CheckInPlayer', 'saveCheckIns', 
-      'toggleUnifiedActiveStatus', 'submitCourtScores', 'submitScores', 'addNewUser', 
-      'registerPlayer', 'rescheduleFromCheckIns', 'startNewSeason'
-    ];
-
+      const WRITE_ACTIONS = [
+          'sortActivePlayers', 'sortActivePlayersForSheet', 'generateScheduleTabs',
+          'updateStandingsWithShift', 'correctScoresNoShift', 'processWeeklyScoresForSheet',
+          'toggleSingleCheckIn', 'checkInPlayer', 'CheckInPlayer', 'saveCheckIns', 
+          'toggleUnifiedActiveStatus', 'submitCourtScores', 'submitScores', 'addNewUser', 
+          'registerPlayer', 'rescheduleFromCheckIns', 'startNewSeason', 'createTestGroupSheets',
+          'setTestGroupState'
+      ];
     requiresLock = WRITE_ACTIONS.indexOf(action) !== -1;
     if (requiresLock) {
       lock = LockService.getScriptLock();
@@ -843,6 +928,14 @@ function handleApiRequest(e) {
         }
         result = initData;
         break;
+
+    case 'createTestGroupSheets':
+        result = createTestGroupSheets();
+        break;
+
+    case 'setTestGroupState':
+        result = setTestGroupState(payload.enabled === true || payload.enabled === 'true');
+        break;        
 
       case 'checkInPlayer':
       case 'CheckInPlayer':         
