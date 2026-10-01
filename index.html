@@ -342,6 +342,16 @@
       <h3 style="margin-top:0; color:var(--btn-danger-bg);">⚙️ Admin Controls</h3>
 
       <div id="adminStatus" class="status-msg"></div>
+<!-- Admin Group Selector -->
+<div class="admin-group-selector-wrapper" style="display: inline-flex; align-items: center; gap: 8px; margin-bottom: 15px;">
+  <label for="adminGroupSelect" style="font-weight: bold; margin: 0;">Group:</label>
+  <select id="adminGroupSelect" class="form-select" style="padding: 6px 12px; border-radius: 4px; border: 1px solid #ccc; font-weight: 600;" onchange="onAdminGroupChange(this.value)">
+    <!-- Dynamically populated by JS -->
+    <option value="Mens">Mens</option>
+    <option value="Womens">Womens</option>
+    <option value="Mixed">Mixed</option>
+  </select>
+</div>
 
       <div class="card" style="margin-bottom:1rem; background: var(--bg-color); border: 2px solid var(--btn-danger-bg);">
         <label><b>Admin Target Group:</b> <span class="active-group-label" style="font-size:1.15rem; font-weight:bold; color:var(--btn-danger-bg); margin-left:4px;">--</span></label>

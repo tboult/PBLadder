@@ -533,28 +533,55 @@ async function runRescheduleActive() {
   }
 }
 
+
 /**
- * Enables or disables the "TG" test group dynamically in Google Script Properties.
- * 
- * Usage in Console:
- *   setTestGroup(true)  // Enable TG
- *   setTestGroup(false) // Disable TG
+ * Retrieves the currently targeted group by checking 'active-group-label'.
  */
-async function setTestGroup(enabled) {
-  console.log(`Setting Test Group state to: ${enabled}...`);
-  try {
-    const res = await apiCall('setTestGroupState', { enabled: enabled });
-    if (res && res.success) {
-      console.log(`✅ Success: ${res.message}`);
-    } else {
-      console.error('❌ Failed to set Test Group state:', res);
-    }
-    return res;
-  } catch (err) {
-    console.error('Error in setTestGroup:', err);
-    throw err;
+function getTargetGroup() {
+  // 1. Check DOM element with ID or class 'active-group-label'
+  const labelEl = document.getElementById('active-group-label') || document.querySelector('.active-group-label');
+  
+  if (labelEl) {
+    const rawText = (labelEl.value || labelEl.textContent || labelEl.innerText || '').trim();
+    
+    // Extract exact group match if text contains extra prefix (e.g. "Group: Mens")
+    if (rawText.includes('TG')) return 'TG';
+    if (rawText.includes('Womens')) return 'Womens';
+    if (rawText.includes('Mixed')) return 'Mixed';
+    if (rawText.includes('Mens')) return 'Mens';
+    if (rawText) return rawText;
   }
+
+  // 2. Fallbacks: Global memory variable or localStorage
+  if (window.currentGroup) return window.currentGroup;
+  return localStorage.getItem('adminSelectedGroup') || 'Mens';
 }
+
+/**
+ * Sets the active group and updates all 'active-group-label' elements in the DOM.
+ */
+function setTargetGroup(newGroup) {
+  console.log(`🎯 Setting target group to: ${newGroup}`);
+
+  // 1. Save state in memory and localStorage
+  window.currentGroup = newGroup;
+  localStorage.setItem('adminSelectedGroup', newGroup);
+
+  // 2. Update all matching active-group-label elements in DOM
+  const labels = document.querySelectorAll('#active-group-label, .active-group-label');
+  labels.forEach(el => {
+    if (el.tagName === 'INPUT' || el.tagName === 'SELECT') {
+      el.value = newGroup;
+    } else {
+      el.textContent = newGroup;
+    }
+  });
+
+  // 3. Invalidate local admin player cache
+  if (typeof adminPlayersCache !== 'undefined') adminPlayersCache = null;
+  if (typeof adminCacheTimestamp !== 'undefined') adminCacheTimestamp = 0;
+}
+
 
 /**
  * Copies the Mens sheets ("Score Mens", "Sched Mens", "Rankings Mens") to 
@@ -588,48 +615,87 @@ async function generateTestGroupSheets() {
 /**
  * Fetches the active groups from the backend and populates all group dropdown selectors on the page.
  */
-async function loadAdminGroupSelectors() {
+/**
+ * Fetches current active groups from backend and populates the Admin Group Selector dropdown.
+ * Will include "TG" whenever test mode is enabled.
+ */
+async function loadAdminGroupSelector() {
+  const selectEl = document.getElementById('adminGroupSelect');
+  if (!selectEl) return;
+
   try {
+    // Call backend API to get active groups (returns TG if property is true)
     const res = await apiCall('getActiveGroups', {});
-    const groups = (res && res.groups) ? res.groups : ["Womens", "Mens", "Mixed"];
+    const groups = (res && res.groups && res.groups.length > 0) 
+      ? res.groups 
+      : ["Womens", "Mens", "Mixed"];
 
-    // Target all group selection dropdowns (e.g., #targetGroup, #adminGroupSelect, .group-select)
-    const selectors = document.querySelectorAll('#targetGroup, #adminGroupSelect, select.group-select');
+    // Preserve current selection if valid, otherwise default to window.currentGroup or first group
+    const savedGroup = localStorage.getItem('adminSelectedGroup') || window.currentGroup || groups[0];
 
-    selectors.forEach(select => {
-      const currentValue = select.value;
-      select.innerHTML = ''; // Clear hardcoded options
+    // Clear existing options
+    selectEl.innerHTML = '';
 
-      groups.forEach(group => {
-        const opt = document.createElement('option');
-        opt.value = group;
-        opt.textContent = group;
-        select.appendChild(opt);
-      });
-
-      // Restore previously selected value if still valid, otherwise default to first group
-      if (groups.includes(currentValue)) {
-        select.value = currentValue;
-      }
+    // Populate dropdown options
+    groups.forEach(group => {
+      const opt = document.createElement('option');
+      opt.value = group;
+      opt.textContent = group === 'TG' ? '🧪 Test Group (TG)' : group;
+      selectEl.appendChild(opt);
     });
 
-    console.log('✅ Admin group selectors updated with:', groups);
+    // Set selected value
+    if (groups.includes(savedGroup)) {
+      selectEl.value = savedGroup;
+      window.currentGroup = savedGroup;
+    } else {
+      selectEl.value = groups[0];
+      window.currentGroup = groups[0];
+    }
+
+    console.log(`✅ Admin selector loaded with groups: [${groups.join(', ')}]. Currently selected: '${selectEl.value}'`);
   } catch (err) {
-    console.error('Failed to load active groups for admin selectors:', err);
+    console.error('Failed to populate admin group selector:', err);
   }
 }
 
 /**
- * Updated setTestGroup function to automatically refresh group selectors when toggled.
+ * Handles when the admin changes the selected group in the dropdown.
  */
+async function onAdminGroupChange(newGroup) {
+  console.log(`🔄 Admin switched group to: ${newGroup}`);
+  
+  // 1. Store selection in global state & local storage
+  window.currentGroup = newGroup;
+  localStorage.setItem('adminSelectedGroup', newGroup);
+
+  // 2. Clear local cache so stale data isn't rendered
+  if (typeof adminPlayersCache !== 'undefined') adminPlayersCache = null;
+  if (typeof adminCacheTimestamp !== 'undefined') adminCacheTimestamp = 0;
+
+  // 3. Trigger reload of admin table/roster for the newly selected group
+  if (typeof loadAdminData === 'function') {
+    await loadAdminData(newGroup);
+  } else if (typeof loadRoster === 'function') {
+    await loadRoster(newGroup);
+  } else if (typeof refreshAdminView === 'function') {
+    await refreshAdminView(newGroup);
+  } else {
+    // Fallback if no specific refresh function exists
+    console.log('No specific reload function found, reloading active tab...');
+  }
+}
+
+// Automatically populate group options when page DOM loads
+document.addEventListener('DOMContentLoaded', loadAdminGroupSelector);
+
+
 async function setTestGroup(enabled) {
   console.log(`Setting Test Group state to: ${enabled}...`);
   try {
     const res = await apiCall('setTestGroupState', { enabled: enabled });
     if (res && res.success) {
       console.log(`✅ Success: ${res.message}`);
-      // Refresh admin group selectors immediately
-      await loadAdminGroupSelectors();
     } else {
       console.error('❌ Failed to set Test Group state:', res);
     }
@@ -639,6 +705,7 @@ async function setTestGroup(enabled) {
     throw err;
   }
 }
+
 
 // Automatically populate selectors when the admin panel loads
 document.addEventListener('DOMContentLoaded', loadAdminGroupSelectors);

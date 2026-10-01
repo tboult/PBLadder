@@ -2533,7 +2533,7 @@ function ensurePlayerCheckedIn(sheetName, targetPlayer) {
   const normPhone = String(targetPlayer).replace(/\D/g, "");
   
   let found = false;
-  let matchedName = ""; // NEW: Variable to hold the actual name out of loop scope
+  let matchedName = ""; 
  
    for (let r = 1; r < data.length; r++) {
     let pName = (data[r][nameIdx] || "").toString().trim().toLowerCase();
@@ -2545,13 +2545,21 @@ function ensurePlayerCheckedIn(sheetName, targetPlayer) {
     if (isMatch) {
       sheet.getRange(r + 1, checkInIdx + 1).setValue("X");
       found = true;
-      // Capture the properly capitalized name from the sheet
       matchedName = String(data[r][nameIdx] || "").trim();
       break;
     }
   }
 
   if (found) {
+    // Update Score Sheet timestamp column
+    if (typeof updateScoreSheetTimestamp === 'function') {
+      try {
+        updateScoreSheetTimestamp(cleanGroupName, matchedName || targetPlayer, "Last Check-In", new Date());
+      } catch (e) {
+        logDebug("ensurePlayerCheckedIn", "Warning: Failed to update Score Sheet timestamp", e.toString());
+      }
+    }
+
     const cacheKey = getCheckInCacheKey("Sched " + cleanGroupName);
     if (typeof CacheService !== 'undefined') {
       try { CacheService.getScriptCache().remove(cacheKey); } catch(e) {}
@@ -2561,10 +2569,10 @@ function ensurePlayerCheckedIn(sheetName, targetPlayer) {
   return { 
     success: found, 
     status: found ? "success" : "failed", 
-    // FIX: Using backticks and the scoped matchedName
-    message: found ? `You are  successfully checked in!<br> Loading everyone....` : "Player not found on sheet." 
+    message: found ? `You are successfully checked in!<br> Loading everyone....` : "Player not found on sheet." 
   };
 }
+
 
 
 
@@ -2813,6 +2821,9 @@ function getOrAddHeaderColumn(sheet, headerRowIdx, headerRowValues, targetHeader
 /**
  * Helper to update a long-term timestamp column on the master "Score <Group>" sheet.
  */
+/**
+ * Helper to update a long-term timestamp column on the master "Score <Group>" sheet.
+ */
 function updateScoreSheetTimestamp(groupName, targetPlayer, colHeaderName, timestamp) {
   const ss = getDb();
   let cleanGroup = String(groupName).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
@@ -2827,22 +2838,37 @@ function updateScoreSheetTimestamp(groupName, targetPlayer, colHeaderName, times
   const targetPhone = String(targetPlayer).replace(/\D/g, "");
 
   const headers = data[0].map(cleanStr);
-  let nameIdx = headers.findIndex(h => h.includes("name") || h.includes("player"));
-  let phoneIdx = headers.findIndex(h => h.includes("phone") || h.includes("mobile"));
-  if (nameIdx === -1) nameIdx = 0;
+  
+  // Robust Header Column Resolution
+  const firstIdx = headers.findIndex(h => /\bfirst\b/i.test(h));
+  const lastIdx = headers.findIndex(h => /\blast\b/i.test(h));
+  const fullNameIdx = headers.findIndex(h => /(full\s*name|^name$|player\s*name)/i.test(h) && !/first|last/i.test(h));
+  const phoneIdx = headers.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
 
   // Get or create timestamp column on the Score sheet
   const timeColIdx = getOrAddHeaderColumn(scoreSheet, 0, data[0], colHeaderName);
+  const updateTime = timestamp || new Date();
 
   for (let r = 1; r < data.length; r++) {
-    let pName = cleanStr(data[r][nameIdx]);
+    let fName = firstIdx !== -1 ? cleanStr(data[r][firstIdx]) : "";
+    let lName = lastIdx !== -1 ? cleanStr(data[r][lastIdx]) : "";
+    let pName = (fName || lName) ? `${fName} ${lName}`.trim() : (fullNameIdx !== -1 ? cleanStr(data[r][fullNameIdx]) : "");
+    if (!pName) {
+      const anyNameIdx = headers.findIndex(h => /name|player/i.test(h));
+      if (anyNameIdx !== -1) pName = cleanStr(data[r][anyNameIdx]);
+    }
+
     let pPhone = phoneIdx !== -1 ? String(data[r][phoneIdx] || "").replace(/\D/g, "") : "";
 
-    let isNameMatch = pName && (pName === targetNorm || pName.includes(targetNorm) || targetNorm.includes(pName));
-    let isPhoneMatch = targetPhone && pPhone && pPhone.endsWith(targetPhone.slice(-7));
+    const isNameMatch = targetNorm && pName && (
+      pName === targetNorm || 
+      pName.includes(targetNorm) || 
+      targetNorm.includes(pName)
+    );
+    const isPhoneMatch = targetPhone.length >= 7 && pPhone.length >= 7 && pPhone.endsWith(targetPhone.slice(-7));
 
     if (isNameMatch || isPhoneMatch) {
-      scoreSheet.getRange(r + 1, timeColIdx + 1).setValue(timestamp || new Date());
+      scoreSheet.getRange(r + 1, timeColIdx + 1).setValue(updateTime);
       return true;
     }
   }
