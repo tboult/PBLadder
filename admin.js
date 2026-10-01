@@ -584,3 +584,61 @@ async function generateTestGroupSheets() {
     throw err;
   }
 }
+
+/**
+ * Fetches the active groups from the backend and populates all group dropdown selectors on the page.
+ */
+async function loadAdminGroupSelectors() {
+  try {
+    const res = await apiCall('getActiveGroups', {});
+    const groups = (res && res.groups) ? res.groups : ["Womens", "Mens", "Mixed"];
+
+    // Target all group selection dropdowns (e.g., #targetGroup, #adminGroupSelect, .group-select)
+    const selectors = document.querySelectorAll('#targetGroup, #adminGroupSelect, select.group-select');
+
+    selectors.forEach(select => {
+      const currentValue = select.value;
+      select.innerHTML = ''; // Clear hardcoded options
+
+      groups.forEach(group => {
+        const opt = document.createElement('option');
+        opt.value = group;
+        opt.textContent = group;
+        select.appendChild(opt);
+      });
+
+      // Restore previously selected value if still valid, otherwise default to first group
+      if (groups.includes(currentValue)) {
+        select.value = currentValue;
+      }
+    });
+
+    console.log('✅ Admin group selectors updated with:', groups);
+  } catch (err) {
+    console.error('Failed to load active groups for admin selectors:', err);
+  }
+}
+
+/**
+ * Updated setTestGroup function to automatically refresh group selectors when toggled.
+ */
+async function setTestGroup(enabled) {
+  console.log(`Setting Test Group state to: ${enabled}...`);
+  try {
+    const res = await apiCall('setTestGroupState', { enabled: enabled });
+    if (res && res.success) {
+      console.log(`✅ Success: ${res.message}`);
+      // Refresh admin group selectors immediately
+      await loadAdminGroupSelectors();
+    } else {
+      console.error('❌ Failed to set Test Group state:', res);
+    }
+    return res;
+  } catch (err) {
+    console.error('Error in setTestGroup:', err);
+    throw err;
+  }
+}
+
+// Automatically populate selectors when the admin panel loads
+document.addEventListener('DOMContentLoaded', loadAdminGroupSelectors);

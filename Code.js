@@ -929,6 +929,11 @@ function handleApiRequest(e) {
         result = initData;
         break;
 
+    case 'getActiveGroups':
+        result = { success: true, groups: getActiveGroups() };
+        break;
+
+        
     case 'createTestGroupSheets':
         result = createTestGroupSheets();
         break;
