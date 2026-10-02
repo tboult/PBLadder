@@ -419,6 +419,104 @@
     </div>
   </div>
 
+<!-- TAB 5: ADMIN -->
+<div id="adminTab" class="tab-content">
+  <div class="card">
+    <h3 style="margin-top:0; color:var(--btn-danger-bg);">⚙️ Admin Controls</h3>
+
+    <div id="adminStatus" class="status-msg"></div>
+
+    <!-- Admin Group Selector -->
+    <div class="admin-group-selector-wrapper" style="display: inline-flex; align-items: center; gap: 8px; margin-bottom: 15px;">
+      <label for="adminGroupSelect" style="font-weight: bold; margin: 0;">Group:</label>
+      <select id="adminGroupSelect" class="form-select" style="padding: 6px 12px; border-radius: 4px; border: 1px solid #ccc; font-weight: 600;" onchange="onAdminGroupChange(this.value)">
+        <!-- Dynamically populated by JS -->
+        <option value="Mens">Mens</option>
+        <option value="Womens">Womens</option>
+        <option value="Mixed">Mixed</option>
+      </select>
+    </div>
+
+    <div class="card" style="margin-bottom:1rem; background: var(--bg-color); border: 2px solid var(--btn-danger-bg);">
+      <label><b>Admin Target Group:</b> <span class="active-group-label" style="font-size:1.15rem; font-weight:bold; color:var(--btn-danger-bg); margin-left:4px;">--</span></label>
+      <small style="display:block; color:#666; margin-top:2px;">(Target group is locked to Tab 1 choice)</small>
+    </div>
+
+    <!-- 2. Combined Roster Manager -->
+    <details class="card" style="margin-bottom:1rem; background: var(--bg-color); cursor: pointer;" open>
+      <summary style="font-weight:bold; font-size:1.05rem; outline:none;">
+        👥 Player Roster, Scores & Check-In Manager
+      </summary>
+      <div style="margin-top:0.75rem;" onclick="event.stopPropagation();">
+        test
+        <!-- Save All Scores Button -->
+        <button 
+          type="button" 
+          id="btnSaveAllScores" 
+          onclick="saveAllAdminScores()" 
+          class="btn-main" 
+          style="display: block !important; width: 100%; padding: 0.65rem; font-size: 0.95rem; font-weight: bold; background-color: #2e7d32 !important; color: #ffffff !important; border: none; border-radius: 0.25rem; cursor: pointer; margin-bottom: 0.75rem;"
+          >
+          💾 Save All Scores
+        </button>
+
+        <!-- Search Input -->
+        <input 
+          type="text" 
+          id="adminPlayerSearch" 
+          oninput="filterAdminPlayers()" 
+          placeholder="🔍 Search name or phone..." 
+          style="width: 100%; padding: 0.5rem; margin-bottom: 0.75rem; border-radius: 0.25rem; border: 1px solid #ccc; box-sizing: border-box;"
+        >
+
+        <!-- Player List Container -->
+        <div 
+          id="adminPlayerStatusList" 
+          style="margin-top:0.25rem; max-height:60vh; overflow-y:auto; border-radius:0.5rem; border:2px solid var(--row-border); padding:0.5rem; background:#fff;"
+        >
+          <i>Type in the search box above to display players...</i>
+        </div>
+      </div>
+    </details>
+
+    <!-- 3. Reschedule with Checked-In Players -->
+    <div class="card" style="margin-bottom:1rem; background: var(--bg-color); padding: 1rem; border-radius: 0.5rem;">
+      <label style="font-size:0.95rem; font-weight:bold;">Schedule generation:</label>
+      <button id="reschedCheckedInBtn" class="btn-main" style="margin-top:0.5rem; margin-bottom:0.5rem; width:100%;" onclick="runRescheduleCheckedIn()">
+        🔄 (Re)Schedule Checked-In Only
+      </button>
+      <button id="reschedActiveBtn" class="btn-sub" style="margin-top:0.5rem; margin-bottom:0.5rem; background-color: #2d6a4f; color: white; width:100%;" onclick="runRescheduleActive()">
+        ⚡ Schedule All Active
+      </button>
+    </div>
+
+    <!-- 5. Additional Tools & Scoring -->
+    <details class="card" style="margin-bottom:1rem; background: var(--bg-color); cursor: pointer;">
+      <summary style="font-weight:bold; font-size:1.05rem; outline:none;">🛠️ Additional Admin Actions & Standings</summary>
+      <div style="margin-top:0.75rem; display:flex; flex-direction:column; gap:0.5rem;">
+        <button onclick="runAdmin('sortActivePlayersForSheet')">Sort Active Players</button>
+        <button onclick="runAdmin('processWeeklyScoresForSheet', { weekCol: 'W10', shift: true })">Process Weekly Standings (Shift)</button>
+        <button onclick="runAdmin('processWeeklyScoresForSheet', { weekCol: 'W10', shift: false })">Correct Scores (No Shift)</button>
+        <button onclick="runAdmin('webExportSchedulePdf')">Export Schedule PDF</button>
+      </div>
+    </details>
+
+    <!-- 1. Court Selection MOVED TO BOTTOM -->
+    <details class="card" style="margin-bottom:1rem; background: var(--bg-color);">
+      <summary style="font-weight:bold; font-size:1.05rem; outline:none; cursor: pointer;">🏟️ Court Selection</summary>
+      <div style="margin-top: 0.75rem;">
+        <label style="font-size:0.95rem; font-weight:bold;">Select Courts to Use:</label>
+        <div id="admin-court-list" class="court-list" style="margin-top: 0.5rem; display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 0.5rem;">
+          <i style="grid-column: 1 / -1; text-align: center; color: #666;">Loading courts for selected group...</i>
+        </div>
+      </div>
+    </details>
+
+    <!-- 7. Edit Sheet Link -->
+    <a id="adminSheetLink" href="#" target="_blank" class="btn-main" style="display:block; padding:0.75rem; margin-top:1.5rem; border-radius:0.5rem; text-align:center;">📝 Edit Score Data Sheet for Group</a>
+  </div>
+</div>
+
   <!-- Script Dependencies -->
   <script src="api-fixed.js"></script>
   <script src="api.js"></script>

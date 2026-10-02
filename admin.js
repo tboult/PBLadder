@@ -43,7 +43,6 @@ function filterAdminPlayers() {
     const isActive = player.active === true || String(player.active).toLowerCase() === 'true' || String(player.status).toLowerCase() === 'active';
     const isCheckedIn = player.checkedIn === true || player.isCheckedIn === true || String(player.checkedIn).toLowerCase() === 'true' || String(player.status).toLowerCase() === 'checked in';
     
-    // Prioritize player.score; preserve "" if empty so the input field shows blank
     const rawScore = (player.score !== undefined && player.score !== null) 
       ? player.score 
       : (player.points ?? player.total ?? '');
@@ -56,13 +55,12 @@ function filterAdminPlayers() {
     ${attrName}${player.court ? `, ${escapeHtmlAttr(player.court)}` : ''}, ${cleanPhone || 'No phone'}
   </div>
 
-  <!-- Score & Action Controls (Right - All on same line) -->
-  <div style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap; margin-left:auto;">
-    <!-- Score Input & Save -->
+  <!-- Controls (Right) -->
+  <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; margin-left:auto;">
+    <!-- Score Input -->
     <div style="display:flex; align-items:center; gap:0.3rem; white-space:nowrap;">
       <span style="font-size:0.85rem; font-weight:bold;">Total:</span>
       <input type="number" id="admin_score_${attrPhone}" value="${playerScore}" placeholder="--" style="width: 55px; padding: 0.2rem; border: 1px solid #ccc; border-radius: 4px;">
-      <button type="button" class="btn-sub" style="padding: 0.35rem 0.5rem; font-size: 0.8rem; background-color:#6c757d; color:#fff;" onclick="updateAdminPlayerScore('${attrName}', '${attrPhone}')">Save</button>
     </div>
 
     <!-- Check-In Button -->
@@ -79,12 +77,14 @@ function filterAdminPlayers() {
   }).join('');
 }
 
-async function updateAdminPlayerScore(clickedPlayerName, clickedPhone) {
+async function saveAllAdminScores() {
   const groupName = document.getElementById('adminGlobalGroupSelect')?.value || getSavedGroup();
   if (!groupName) return alert('Please select a target group first.');
   if (!Array.isArray(adminPlayersCache) || adminPlayersCache.length === 0) return;
 
-  // 1. Scan for all changed score input fields
+  const saveBtn = document.getElementById('btnSaveAllScores');
+  
+  // 1. Scan for changed input fields
   const updatesToPerform = [];
 
   adminPlayersCache.forEach(player => {
@@ -95,17 +95,14 @@ async function updateAdminPlayerScore(clickedPlayerName, clickedPhone) {
     const scoreInput = document.getElementById(`admin_score_${cleanPhone}`);
     if (!scoreInput) return;
 
-    // Parse input (preserve "" for empty string)
     const rawInputVal = scoreInput.value.trim();
     const newScore = rawInputVal === '' ? '' : (isNaN(Number(rawInputVal)) ? rawInputVal : Number(rawInputVal));
 
-    // Get current cached score
     const cachedRaw = (player.score !== undefined && player.score !== null) 
       ? player.score 
       : (player.points ?? player.total ?? '');
     const cachedScore = (cachedRaw === 0) ? 0 : (cachedRaw || '');
 
-    // Queue for batch update if value has changed
     if (String(newScore) !== String(cachedScore)) {
       updatesToPerform.push({
         playerName: rawName,
@@ -121,12 +118,13 @@ async function updateAdminPlayerScore(clickedPlayerName, clickedPhone) {
     return;
   }
 
-  // Disable UI buttons during submit
-  const saveButtons = document.querySelectorAll('#adminPlayerStatusList button');
-  saveButtons.forEach(btn => btn.disabled = true);
+  // 2. Visual feedback on Save button
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.innerText = 'Saving Scores...';
+  }
 
   try {
-    // 2. Single API Call for all updates
     const res = await apiCall('batchUpdatePlayerScores', {
       group: groupName,
       groupName: groupName,
@@ -138,7 +136,6 @@ async function updateAdminPlayerScore(clickedPlayerName, clickedPhone) {
     });
 
     if (res && (res.success || !res.error)) {
-      // 3. Sync local cache upon success
       updatesToPerform.forEach(u => {
         u.playerRef.score = u.score;
         u.playerRef.points = u.score;
@@ -153,7 +150,39 @@ async function updateAdminPlayerScore(clickedPlayerName, clickedPhone) {
   } catch (err) {
     alert('Network error saving score changes.');
   } finally {
-    saveButtons.forEach(btn => btn.disabled = false);
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.innerText = '💾 Save All Scores';
+    }
+  }
+}
+
+async function loadAdminRoster(groupName) {
+  const container = document.getElementById('adminPlayerStatusList');
+  const saveBtn = document.getElementById('btnSaveAllScores');
+
+  if (container) {
+    container.innerHTML = '<div style="padding: 1rem; text-align: center; color: #666;">⏳ Loading roster and scores...</div>';
+  }
+  if (saveBtn) saveBtn.disabled = true;
+
+  try {
+    const res = await apiCall('getUnifiedRoster', { group: groupName });
+
+    if (res && res.success && Array.isArray(res.players)) {
+      adminPlayersCache = res.players;
+      filterAdminPlayers(); // Render populated data
+    } else {
+      if (container) {
+        container.innerHTML = '<i style="color:red;">Failed to load player roster.</i>';
+      }
+    }
+  } catch (err) {
+    if (container) {
+      container.innerHTML = '<i style="color:red;">Error connecting to server.</i>';
+    }
+  } finally {
+    if (saveBtn) saveBtn.disabled = false;
   }
 }
 
