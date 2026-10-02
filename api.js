@@ -1860,7 +1860,7 @@ async function loadRankingsAndSched(targetGroup = null) {
 // ==========================================
 // GEOFENCE & ADMIN CONFIGURATION
 // ==========================================
-const GEOFENCE_RADIUS_METERS = 1500;
+const GEOFENCE_RADIUS_METERS = 300;
 
 const ALLOWED_GEOFENCE_LOCATIONS = [
   { lat: 33.65362909476011, lng: -112.27699205631843, name: "Marinette Pickleball Courts" },
