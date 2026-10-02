@@ -364,10 +364,7 @@ document.addEventListener("DOMContentLoaded", async function () {
   // Variable declaration to prevent implicit global leakage
   let lastCheckedPhone = "";
 
-  if (typeof logAllCachedValues === "function") {
-    logAllCachedValues();
-  }
-
+  console.log(`Trying to load from sheet : "${SHEET_ID}"...`);    
   // Safe check for SHEET_ID existence
   if (typeof SHEET_ID !== 'undefined' && SHEET_ID) {
     try {
@@ -381,6 +378,12 @@ document.addEventListener("DOMContentLoaded", async function () {
       console.warn("⚠️ API Call 'getdb' failed during startup:", err);
     }
   }
+
+  if (typeof logAllCachedValues === "function") {
+    logAllCachedValues();
+  }
+
+    
 
   // 1. Restore Saved UI Preferences (Text Size)
   const savedSize = localStorage.getItem('pwa-text-size') || 'normal';
