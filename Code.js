@@ -1070,8 +1070,8 @@ function handleApiRequest(e) {
       case 'findPlayerAcrossGroups':
         return findPlayerAcrossGroups(payload.phone || payload.targetPlayer);        
 
-      case 'updatePlayerScore':
-          result = updatePlayerScore(payload);
+      case 'batchUpdatePlayerScores':
+          result = batchUpdatePlayerScores(payload);
           break;
         
       default:

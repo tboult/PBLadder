@@ -2587,3 +2587,29 @@ document.addEventListener('change', (e) => {
     // Note: onGroupRadioChange handles full roster fetch, status check, and tab refresh cleanly
   }
 });
+
+
+function clearAllAdminScoreInputs() {
+  if (!Array.isArray(adminPlayersCache) || adminPlayersCache.length === 0) {
+    alert("No player list available to clear.");
+    return;
+  }
+
+  // Quick confirmation to prevent accidental clicks
+  const confirmClear = confirm("Are you sure you want to clear all score fields on screen?\n\nNote: Changes will not be saved to the database until you click 'Save All Scores'.");
+  if (!confirmClear) return;
+
+  let clearedCount = 0;
+  adminPlayersCache.forEach(player => {
+    const rawPhone = player.phone || player.cell || player.mobile || player.phoneNumber || '';
+    const cleanPhone = String(rawPhone).replace(/\D/g, '');
+    const scoreInput = document.getElementById(`admin_score_${cleanPhone}`);
+    
+    if (scoreInput) {
+      scoreInput.value = '';
+      clearedCount++;
+    }
+  });
+
+  console.log(`🧹 Cleared ${clearedCount} score input field(s).`);
+}

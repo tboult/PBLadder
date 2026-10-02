@@ -78,7 +78,7 @@ function filterAdminPlayers() {
 }
 
 async function saveAllAdminScores() {
-  // 1. Get group from active admin radio button (or saved group fallback)
+  // 1. Get group from active admin radio button
   const groupRadio = document.querySelector('input[name="adminGroupRadio"]:checked')
                   || document.querySelector('input[name="helpGroupRadio"]:checked');
   const groupName = groupRadio ? groupRadio.value : (typeof getSavedGroup === 'function' ? getSavedGroup() : localStorage.getItem('scpb_selected_group'));
@@ -98,13 +98,18 @@ async function saveAllAdminScores() {
     if (!scoreInput) return;
 
     const rawInputVal = scoreInput.value.trim();
-    const newScore = rawInputVal === '' ? '' : (isNaN(Number(rawInputVal)) ? rawInputVal : Number(rawInputVal));
+
+    // 💡 NEW: If field is blank, skip it completely so existing score is untouched
+    if (rawInputVal === '') return;
+
+    const newScore = isNaN(Number(rawInputVal)) ? rawInputVal : Number(rawInputVal);
 
     const cachedRaw = (player.score !== undefined && player.score !== null) 
       ? player.score 
       : (player.points ?? player.total ?? '');
     const cachedScore = (cachedRaw === 0) ? 0 : (cachedRaw || '');
 
+    // Only queue if the entered score is different from what was loaded
     if (String(newScore) !== String(cachedScore)) {
       updatesToPerform.push({
         playerName: rawName,
@@ -116,7 +121,7 @@ async function saveAllAdminScores() {
   });
 
   if (updatesToPerform.length === 0) {
-    alert('No score changes detected.');
+    alert('No new score entries detected.');
     return;
   }
 
@@ -127,7 +132,7 @@ async function saveAllAdminScores() {
     saveBtn.innerText = '⏳ Saving Scores...';
   }
 
-  // 4. Send API request in a single clean try-catch-finally block
+  // 4. Send API request
   try {
     const res = await apiCall('batchUpdatePlayerScores', {
       group: groupName,
@@ -161,6 +166,9 @@ async function saveAllAdminScores() {
     }
   }
 }
+
+
+
 async function loadAdminRoster(groupName) {
   const container = document.getElementById('adminPlayerStatusList');
   const saveBtn = document.getElementById('btnSaveAllScores');

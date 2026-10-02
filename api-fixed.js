@@ -4,7 +4,8 @@
 
 //  window.API_URL = "https://script.google.com/macros/s/AKfycbweTOjVcY0R1sxXrYfbN2S9jqMz4yr5b1alVoz0gjVy3P3ty42rtHlfgfpdjtFnF4nFaQ/exec";
   window.API_URL =CONFIG.apiUrl
-  const CURRENT_APP_VERSION = "0.9.8.2";
+const CURRENT_APP_VERSION = "0.9.8.2";
+
 
 
 
@@ -508,6 +509,13 @@ document.addEventListener("DOMContentLoaded", async function () {
   if (typeof hideGlobalLoader === 'function') {
     setTimeout(hideGlobalLoader, 3000);
   }
+
+  const versionEl = document.getElementById("appVersionDisplay");
+  if (versionEl) {
+    versionEl.textContent = `v${CURRENT_APP_VERSION}`;
+  }
+
+
 });
 
 

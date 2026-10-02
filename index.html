@@ -208,36 +208,64 @@
       </div>
     </details>
 
-    <!-- 6. INSTALL & APP RESET (ACCORDION) -->
-    <details class="card" style="margin-top:1rem; cursor: pointer;">
-      <summary style="font-weight:bold; font-size:1.05rem; outline:none;">📱 Install or Reset</summary>
-      <div style="margin-top:0.75rem;">
-        <p>You can add this app directly to your home screen for easy access!</p>
-        <b>iPhone (Safari):</b>
-        <ol style="margin-top:0.25rem; font-size:1rem;">
-          <li>Tap the <b>Share</b> icon at the bottom of the screen (square with an up arrow).</li>
-          <li>Scroll down and tap <b>Add to Home Screen</b>. If it not there check a "more..." tab</li>
-        </ol>
-        <b>Android (Chrome):</b>
-        <ol style="margin-top:0.25rem; font-size:1rem;">
-          <li>Tap the <b>3 dots</b> (menu) in the top right.</li>
-          <li>Tap <b>Add to Home screen</b>.If not there check for a "more..." type submenu</li>
-        </ol>
+<!-- 6. INSTALL, UNINSTALL & APP RESET (ACCORDION) -->
+<details class="card" style="margin-top:1rem; cursor: pointer;">
+  <summary style="font-weight:bold; font-size:1.05rem; outline:none;">📱 Install, Uninstall & Reset</summary>
+  <div style="margin-top:0.75rem;">
+    <p style="margin-bottom: 0.75rem;">You can add this app directly to your home screen for fast, offline-ready access!</p>
 
-        <hr style="margin: 1rem 0; border: none; border-top: 1px solid var(--input-border, #ccc);">
+    <!-- INSTALL INSTRUCTIONS -->
+    <h4 style="margin-bottom:0.25rem;">📥 How to Install</h4>
+    
+    <b>iPhone / iPad (Safari):</b>
+    <ol style="margin-top:0.25rem; margin-bottom: 0.75rem; font-size:0.95rem; padding-left: 1.2rem;">
+      <li>Tap the <b>Share</b> icon at the bottom bar (square with an up arrow).</li>
+      <li>Scroll down and tap <b>Add to Home Screen</b>.</li>
+      <li><i>Older iOS / Missing option?</i> Tap <b>Edit Actions...</b> or check under the <b>More...</b> menu list at the bottom of the share sheet.</li>
+    </ol>
 
-        <button id="forceRefreshBtn" onclick="forceRefresh()" title="Clear browser cache and reload fresh data" style="padding: 10px; cursor: pointer; width:100%; margin-bottom: 0.5rem;">
-          <h3>🔄 Clean Cache & Refresh Data</h3>
-        </button>
+    <b>Android (Chrome / Edge):</b>
+    <ol style="margin-top:0.25rem; margin-bottom: 0.75rem; font-size:0.95rem; padding-left: 1.2rem;">
+      <li>Tap the <b>3 dots</b> menu in the top-right corner.</li>
+      <li>Tap <b>Install app</b> or <b>Add to Home screen</b>.</li>
+      <li><i>Older Android versions:</i> Look inside <b>More...</b>, <b>Tools</b>, or <b>Save to...</b> submenus.</li>
+    </ol>
 
-        <div class="help-section" style="margin-top: 0.5rem; text-align: center;">
-          <p style="font-size: 0.9em; color: #666; margin-bottom: 0.5rem;">Not seeing recent app updates or icons?</p>
-          <button onclick="forceResetApp()" style="background-color: #d9534f; color: white; border: none; padding: 10px 16px; border-radius: 6px; font-weight: bold; cursor: pointer; width: 100%;">
-            🔄 Reset & Hard Refresh App
-          </button>
-        </div>
-      </div>
-    </details>
+    <b>Desktop (Chrome / Edge):</b>
+    <ol style="margin-top:0.25rem; margin-bottom: 0.75rem; font-size:0.95rem; padding-left: 1.2rem;">
+      <li>Click the <b>Install icon</b> (computer/down arrow) on the right side of the URL bar.</li>
+      <li><i>Alternative:</i> Click the <b>3 dots menu</b> &rarr; <b>Save and share</b> (or <b>More Tools</b>) &rarr; <b>Install app / Create shortcut</b>.</li>
+    </ol>
+
+    <hr style="margin: 1rem 0; border: none; border-top: 1px solid var(--input-border, #ccc);">
+
+    <!-- UNINSTALL INSTRUCTIONS -->
+    <h4 style="margin-bottom:0.25rem;">🗑️ How to Uninstall</h4>
+    <ul style="margin-top:0.25rem; margin-bottom: 0.75rem; font-size:0.95rem; padding-left: 1.2rem;">
+      <li><b>iPhone / Android:</b> Long-press the app icon on your Home Screen and tap <b>Remove App</b> or <b>Uninstall</b>.</li>
+      <li><b>Desktop:</b> Open the installed app window, click the <b>3 dots</b> in the top title bar, and select <b>Uninstall [App Name]...</b></li>
+    </ul>
+
+    <hr style="margin: 1rem 0; border: none; border-top: 1px solid var(--input-border, #ccc);">
+
+    <!-- RESET & REFRESH BUTTONS -->
+    <button id="forceRefreshBtn" onclick="forceRefresh()" title="Clear browser cache and reload fresh data" style="padding: 10px; cursor: pointer; width:100%; margin-bottom: 0.5rem;">
+      <h3>🔄 Clean Cache & Refresh Data</h3>
+    </button>
+
+    <div class="help-section" style="margin-top: 0.5rem; text-align: center;">
+      <p style="font-size: 0.9em; color: #666; margin-bottom: 0.5rem;">Not seeing recent app updates or icons?</p>
+      <button onclick="forceResetApp()" style="background-color: #d9534f; color: white; border: none; padding: 10px 16px; border-radius: 6px; font-weight: bold; cursor: pointer; width: 100%;">
+        🔄 Reset & Hard Refresh App
+      </button>
+    </div>
+
+    <!-- VERSION DISPLAY -->
+    <div style="margin-top: 1rem; text-align: center; font-size: 0.85rem; color: #777;">
+      App Version: <span id="appVersionDisplay">v1.0.0</span>
+    </div>
+  </div>
+</details>
 
   </div>
 
@@ -377,17 +405,16 @@
         👥 Player Roster Scores, Check-In & Status Manager
       </summary>
       <div style="margin-top:0.75rem;" onclick="event.stopPropagation();">
-        
-        <!-- Save All Scores Button -->
-        <button 
-          type="button" 
-          id="btnSaveAllScores" 
-          onclick="saveAllAdminScores()" 
-          class="btn-main" 
-          style="display: block !important; width: 100%; padding: 0.65rem; font-size: 0.95rem; font-weight: bold; background-color: #2e7d32 !important; color: #ffffff !important; border: none; border-radius: 0.25rem; cursor: pointer; margin-bottom: 0.75rem;"
-        >
-          💾 Save All Scores
-        </button>
+
+<div style="display: flex; gap: 8px; align-items: center; margin-bottom: 1rem;">
+  <button id="btnSaveAllScores" onclick="saveAllAdminScores()" style="flex: 2; padding: 10px; font-weight: bold; cursor: pointer;">
+    💾 Save All Scores
+  </button>
+
+  <button id="btnClearAllScores" onclick="clearAllAdminScoreInputs()" style="flex: 1; padding: 10px; background-color: #6c757d; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer;" title="Clear score fields on screen">
+    🧹 Clear All
+  </button>
+</div>        
 
         <!-- Search Input -->
         <input 
