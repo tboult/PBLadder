@@ -361,18 +361,27 @@ function logAllCachedValues() {
 document.addEventListener("DOMContentLoaded", async function () {
   console.log("🚀 Initializing Application...");
 
+  // Variable declaration to prevent implicit global leakage
+  let lastCheckedPhone = "";
+
+  if (typeof logAllCachedValues === "function") {
     logAllCachedValues();
+  }
 
-    if(SHEET_ID){
-        const res = await apiCall('getdb', { sheetid: SHEET_ID});
-        if (res && (! res.message?.toLowerCase().includes("Error"))) 
-            console.log(`Loaded DB from sheet : "${SHEET_ID}"...`);
-        else
-         console.log(`Loaded DB from default as  sheetID empty..`);        
+  // Safe check for SHEET_ID existence
+  if (typeof SHEET_ID !== 'undefined' && SHEET_ID) {
+    try {
+      const res = await apiCall('getdb', { sheetid: SHEET_ID });
+      if (res && (!res.message?.toLowerCase().includes("error"))) {
+        console.log(`Loaded DB from sheet : "${SHEET_ID}"...`);
+      } else {
+        console.log(`Loaded DB from default as sheetID empty...`);
+      }
+    } catch (err) {
+      console.warn("⚠️ API Call 'getdb' failed during startup:", err);
     }
+  }
 
-
-    
   // 1. Restore Saved UI Preferences (Text Size)
   const savedSize = localStorage.getItem('pwa-text-size') || 'normal';
   if (typeof applyTextSize === "function") {
@@ -404,14 +413,19 @@ document.addEventListener("DOMContentLoaded", async function () {
 
     if (scpb_saved_phone) {
       const currentGroup = document.querySelector('input[name="helpGroupRadio"]:checked')?.value || cachedGroup;
-      const { exists, player } = checkPlayerExists(scpb_saved_phone, currentGroup);
+      
+      const match = typeof checkPlayerExists === 'function' ? checkPlayerExists(scpb_saved_phone, currentGroup) : null;
+      const exists = match ? match.exists : false;
+      const player = match ? match.player : null;
 
       if (exists) {
         console.log("✅ Player found in current group on startup:", player);
         lastCheckedPhone = scpb_saved_phone;
 
         // Apply Player & Admin state
-        await handleUserAndAdminState(scpb_saved_phone, player);
+        if (typeof handleUserAndAdminState === "function") {
+          await handleUserAndAdminState(scpb_saved_phone, player);
+        }
 
       } else if (scpb_saved_phone.replace(/\D/g, "").length >= 10) {
         console.log("⚠️ Saved phone not in active group. Triggering cross-group search...");
@@ -441,14 +455,18 @@ document.addEventListener("DOMContentLoaded", async function () {
           lastCheckedPhone = digits;
 
           const currentGroup = document.querySelector('input[name="helpGroupRadio"]:checked')?.value || cachedGroup;
-          const { exists, player } = checkPlayerExists(digits, currentGroup);
+          
+          const match = typeof checkPlayerExists === 'function' ? checkPlayerExists(digits, currentGroup) : null;
+          const exists = match ? match.exists : false;
+          const player = match ? match.player : null;
 
           if (exists) {
             console.log("✅ Live player match found:", player);
             if (typeof savePhoneToCache === "function") savePhoneToCache(digits);
 
-            // Apply Player & Admin state
-            await handleUserAndAdminState(digits, player);
+            if (typeof handleUserAndAdminState === "function") {
+              await handleUserAndAdminState(digits, player);
+            }
 
           } else {
             console.log("🔍 Live lookup: Player not in current group. Executing cross-group lookup...");
@@ -493,18 +511,21 @@ document.addEventListener("DOMContentLoaded", async function () {
     });
   }
 
-  // 6. Bind Group Radio Buttons
-  if (typeof bindGroupRadioListeners === "function") {
-    bindGroupRadioListeners();
+  // 6. Bind Group Radio Listeners & UI Components
+  if (typeof bindGroupRadioListeners === "function") bindGroupRadioListeners();
+  if (typeof syncGroupRadioUI === 'function') syncGroupRadioUI();
+  if (typeof restoreActiveTabOnLoad === 'function') restoreActiveTabOnLoad();
+  if (typeof loadAdminGroupSelector === 'function') loadAdminGroupSelector();
+
+  // Safely hide global loader fallback
+  if (typeof hideGlobalLoader === 'function') {
+    setTimeout(hideGlobalLoader, 3000);
   }
-
-  setTimeout(hideGlobalLoader, 3000); // Fallback timeout to prevent permanent scroll lock
-    if (typeof syncGroupRadioUI === 'function') syncGroupRadioUI();
-    if (typeof restoreActiveTabOnLoad === 'function') restoreActiveTabOnLoad();
-    if (typeof hideGlobalLoader === 'function')    setTimeout(hideGlobalLoader, 3000); // Fallback timeout to prevent permanent scroll lock    
-
-    loadAdminGroupSelector();    
+    
 });
+
+
+
 
 
 function hideGlobalLoader() {
@@ -513,4 +534,5 @@ function hideGlobalLoader() {
     loader.style.display = 'none';
   }
 }
+
 
