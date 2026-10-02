@@ -219,10 +219,12 @@ function logDebug(fnName, msg, extra = "") {
 
 
 
-function getDb() {
+function getDb(SHEET_ID) {
     if (_dbInstance) return _dbInstance;
-    
-    const sheetId = PropertiesService.getScriptProperties().getProperty("SHEET_ID");
+    if (SHEET_ID) {
+        const sheetId = SHEET_ID;
+    } else 
+        const sheetId = PropertiesService.getScriptProperties().getProperty("SHEET_ID");
   
     if (!sheetId) {
         throw new Error("Missing 'SHEET_ID' in Script Properties.");
@@ -903,8 +905,12 @@ function handleApiRequest(e) {
     }
 
     let result;
-    switch(action) {
+      switch(action) {
 
+    case 'getdb':
+          getDb(payload.sheetid)
+          break;
+        
       case 'getInitialAppData':
         // Resolve nested payload object if frontend passes data as { payload: { phone: "...", group: "..." } }
         var actualPayload = (payload.payload && typeof payload.payload === 'object') ? payload.payload : payload;

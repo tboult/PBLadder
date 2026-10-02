@@ -687,7 +687,7 @@ async function onAdminGroupChange(newGroup) {
 }
 
 // Automatically populate group options when page DOM loads
-document.addEventListener('DOMContentLoaded', loadAdminGroupSelector);
+
 
 
 async function setTestGroup(enabled) {
@@ -707,5 +707,3 @@ async function setTestGroup(enabled) {
 }
 
 
-// Automatically populate selectors when the admin panel loads
-document.addEventListener('DOMContentLoaded', loadAdminGroupSelectors);

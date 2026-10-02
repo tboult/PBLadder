@@ -7,6 +7,8 @@
   const API_URL = window.API_URL;
   const CURRENT_APP_VERSION = "0.9.8";
 
+
+
   const GROUP_COURT_MAP = {
       "Womens": [3,4,5,6,7,8,15,16,17,18,19,20],
       "Mens": [5,6,9,10,13,14,15,16],
@@ -187,9 +189,6 @@ function updateAllGroupDisplays(groupName) {
 }
 
 
-// ==========================================
-// MASTER INITIALIZER ON DOM LOAD
-// ==========================================
 // Global tracker to prevent duplicate status checks on identical numbers
 let lastCheckedPhone = "";
 
@@ -259,6 +258,7 @@ async function handleUserAndAdminState(phone, player) {
   } catch (err) {
     console.warn('Version check skipped or failed:', err);
   }
+      
 }
 
 function forceResetApp() {
@@ -354,10 +354,6 @@ function logAllCachedValues() {
   console.groupEnd();
 }
 
-// Automatically print cache dump once document finishes loading
-document.addEventListener('DOMContentLoaded', () => {
-  logAllCachedValues();
-});
 
 // ==========================================
 // MASTER INITIALIZER ON DOM LOAD
@@ -365,6 +361,18 @@ document.addEventListener('DOMContentLoaded', () => {
 document.addEventListener("DOMContentLoaded", async function () {
   console.log("🚀 Initializing Application...");
 
+    logAllCachedValues();
+
+    if(SHEET_ID){
+        const res = await apiCall('getdb', { sheetid: SHEET_ID});
+        if (res && (! res.message?.toLowerCase().includes("Error"))) 
+            console.log(`Loaded DB from sheet : "${SHEET_ID}"...`);
+        else
+         console.log(`Loaded DB from default as  sheetID empty..`);        
+    }
+
+
+    
   // 1. Restore Saved UI Preferences (Text Size)
   const savedSize = localStorage.getItem('pwa-text-size') || 'normal';
   if (typeof applyTextSize === "function") {
@@ -489,6 +497,13 @@ document.addEventListener("DOMContentLoaded", async function () {
   if (typeof bindGroupRadioListeners === "function") {
     bindGroupRadioListeners();
   }
+
+  setTimeout(hideGlobalLoader, 3000); // Fallback timeout to prevent permanent scroll lock
+    if (typeof syncGroupRadioUI === 'function') syncGroupRadioUI();
+    if (typeof restoreActiveTabOnLoad === 'function') restoreActiveTabOnLoad();
+    if (typeof hideGlobalLoader === 'function')    setTimeout(hideGlobalLoader, 3000); // Fallback timeout to prevent permanent scroll lock    
+
+    loadAdminGroupSelector();    
 });
 
 
@@ -499,7 +514,3 @@ function hideGlobalLoader() {
   }
 }
 
-// Hide loader automatically on window load or on API failure
-window.addEventListener('DOMContentLoaded', () => {
-  setTimeout(hideGlobalLoader, 3000); // Fallback timeout to prevent permanent scroll lock
-});
