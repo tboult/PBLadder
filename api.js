@@ -48,7 +48,7 @@ let lastFetchedGroup = null;
 async function loadUnifiedRosterData(groupName, forceRefresh = false) {
   if (!groupName) return [];
 
-  // 1. Return in-flight request if currently fetching for the target group (prevents duplicate network requests)
+  // 1. Return in-flight request if currently fetching for the target group
   if (currentRosterFetchPromise && lastFetchedGroup === groupName) {
     return currentRosterFetchPromise;
   }
@@ -59,39 +59,64 @@ async function loadUnifiedRosterData(groupName, forceRefresh = false) {
   }
 
   lastFetchedGroup = groupName;
+  const saveBtn = document.getElementById("btnSaveAllScores");
 
-  currentRosterFetchPromise = (async () => {
-    try {
-      console.log(`📡 Fetching fresh roster for group: "${groupName}"...`);
-      const res = await apiCall('getUnifiedRoster', { group: groupName, forceRefresh: forceRefresh });
-      
-      const playersList = (res && res.success) ? (Array.isArray(res.players) ? res.players : (Array.isArray(res.data) ? res.data : null)) : null;
+  // 3. Set loading state on the Save button
+  if (saveBtn) {
+    saveBtn.innerText = "⏳ Loading data...";
+    saveBtn.disabled = true;
+    saveBtn.style.opacity = "0.7";
+  }
 
-      // FIX: Guard against race condition if group changed while request was in-flight
-      if (lastFetchedGroup === groupName && playersList) {
-        window.cachedRoster = playersList;
-        window.unifiedRoster = playersList;
-        window.appPlayersCache = playersList;
-        return playersList;
+  try {
+    currentRosterFetchPromise = (async () => {
+      try {
+        console.log(`📡 Fetching fresh roster for group: "${groupName}"...`);
+        const res = await apiCall('getUnifiedRoster', { group: groupName, forceRefresh: forceRefresh });
+
+        const playersList = (res && res.success) 
+          ? (Array.isArray(res.players) ? res.players : (Array.isArray(res.data) ? res.data : null)) 
+          : null;
+
+        // Guard against race conditions if group changed while request was in-flight
+        if (lastFetchedGroup === groupName && playersList) {
+          window.cachedRoster = playersList;
+          window.unifiedRoster = playersList;
+          window.appPlayersCache = playersList;
+          return playersList;
+        }
+        return window.cachedRoster || [];
+      } catch (err) {
+        console.error("Error fetching roster:", err);
+        return [];
+      } finally {
+        if (lastFetchedGroup === groupName) {
+          currentRosterFetchPromise = null;
+        }
       }
-      return window.cachedRoster || [];
-    } catch (err) {
-      console.error("Error fetching roster:", err);
-      return [];
-    } finally {
-      if (lastFetchedGroup === groupName) {
-        currentRosterFetchPromise = null;
-      }
+    })();
+
+    // FIX: Must await the promise here so the outer finally block waits for the API call to complete
+    const result = await currentRosterFetchPromise;
+    return result;
+
+  } catch (error) {
+    console.error("Error in loadUnifiedRosterData:", error);
+    return [];
+  } finally {
+    // 4. Restore original state ONLY AFTER the network request completes
+    if (saveBtn) {
+      saveBtn.innerText = "💾 Save All Scores";
+      saveBtn.disabled = false;
+      saveBtn.style.opacity = "1";
     }
-  })();
-
-  return currentRosterFetchPromise;
+  }
 }
 
 
 async function onGroupRadioChange(selectedGroup) {
   console.log(`onGroupRadioChange ${selectedGroup}`);
-  const cleanGroup = String(selectedGroup).replace(/^(Sched|Score)\s*/i, '').trim();
+  const cleanGroup = String(selectedGroup).replace(/^(Sched|Score)\s*/i, '').trim() || 'Mixed';
 
   // 1. Force DOM elements directly to show loading immediately
   const statusDisplay = document.getElementById("frontStatusDisplay");
@@ -149,22 +174,17 @@ async function onGroupRadioChange(selectedGroup) {
   window.activeLookupPlayer = null;
   window.activeLookupFoursome = null;
 
-  // 4. Sync UI elements (Radios/Dropdowns)
-  const allGroupRadios = document.querySelectorAll(
-    'input[name="helpGroupRadio"], input[name="checkinGroupRadio"]'
-  );
-  allGroupRadios.forEach(radio => {
-    radio.checked = (radio.value === cleanGroup);
-  });
+  // FIX: 4. Replaced duplicate radio code with unified sync function
+  syncGroupRadioUI(cleanGroup);
   if (typeof syncAllGroupDropdowns === 'function') syncAllGroupDropdowns(cleanGroup);
   if (typeof updateAllGroupDisplays === 'function') updateAllGroupDisplays(cleanGroup);
 
-  // FIX: 5. Fetch fresh roster FIRST before attempting lookup or tab renders
+  // 5. Fetch fresh roster FIRST before attempting lookup or tab renders
   if (typeof loadUnifiedRosterData === 'function') {
     await loadUnifiedRosterData(cleanGroup, true);
   }
 
-  // FIX: 6. Run lookup with newly updated roster populated in memory
+  // 6. Run lookup with newly updated roster populated in memory
   const savedPhone = typeof getSavedPhone === 'function' ? getSavedPhone() : (localStorage.getItem('scpb_saved_phone') || '');
   if (savedPhone && typeof loadPlayerStatusFromCache === 'function') {
     await loadPlayerStatusFromCache(savedPhone);
@@ -1003,26 +1023,31 @@ function setSelectedGroup(groupName) {
 
 
 
+// 1. Sync UI state across all radio groups on all tabs
+function syncGroupRadioUI(explicitGroup) {
+  // Read from parameter OR localStorage, defaulting to 'Mixed' if empty
+  const rawGroup = explicitGroup 
+    || localStorage.getItem('scpb_selected_group') 
+    || localStorage.getItem('scpb_saved_group') 
+    || 'Mixed';
 
-// 2. Sync UI state on page load
-function syncGroupRadioUI() {
-  const currentGroup = localStorage.getItem('scpb_selected_group') || localStorage.getItem('scpb_saved_group') || '';
-  const cleanGroup = String(currentGroup).replace(/^(Sched|Score)\s*/i, '').trim();
+  const cleanGroup = String(rawGroup).replace(/^(Sched|Score)\s*/i, '').trim() || 'Mixed';
 
+  // FIX: Added 'adminGroupRadio' so all 3 tab radio sets are selected!
   const allGroupRadios = document.querySelectorAll(
-    'input[name="helpGroupRadio"], input[name="checkinGroupRadio"]'
+    'input[name="helpGroupRadio"], input[name="checkinGroupRadio"], input[name="adminGroupRadio"]'
   );
+
   allGroupRadios.forEach(radio => {
-    radio.checked = (radio.value === cleanGroup);
+    radio.checked = (radio.value.toLowerCase() === cleanGroup.toLowerCase());
   });
 
+  // Update text badges across all tabs
   document.querySelectorAll('.active-group-label').forEach(el => {
     el.textContent = cleanGroup;
   });
-  if (cleanGroup && typeof loadUnifiedRosterData === 'function') {
-    loadUnifiedRosterData(cleanGroup);
-  }
 }
+
 
 // 3. Manual Retry Check-In Action
 async function retryCheckinProcess() {
@@ -2310,15 +2335,6 @@ function savePlayerCredentials(phone, name) {
   }
 }  
 
-
-function bindGroupRadioListeners() {
-  const radios = document.querySelectorAll('input[name="helpGroupRadio"], input[name="checkinGroupRadio"]');
-  radios.forEach(radio => {
-    // Remove existing listener to avoid duplicates
-    radio.removeEventListener('change', handleRadioClick);
-    radio.addEventListener('change', handleRadioClick);
-  });
-}
 
 function handleRadioClick(event) {
   if (event.target && event.target.value) {

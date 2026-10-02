@@ -4,7 +4,7 @@
 
 //  window.API_URL = "https://script.google.com/macros/s/AKfycbweTOjVcY0R1sxXrYfbN2S9jqMz4yr5b1alVoz0gjVy3P3ty42rtHlfgfpdjtFnF4nFaQ/exec";
   window.API_URL =CONFIG.apiUrl
-  const CURRENT_APP_VERSION = "0.9.8";
+  const CURRENT_APP_VERSION = "0.9.8.2";
 
 
 
@@ -241,10 +241,6 @@ async function handleUserAndAdminState(phone, player) {
   }
 }
 
-// ==========================================
-// MASTER INITIALIZER ON DOM LOAD
-// ==========================================
-
   
   async function checkAppVersion() {
       console.log(`Checking Version ...`);      
@@ -360,11 +356,9 @@ function logAllCachedValues() {
 document.addEventListener("DOMContentLoaded", async function () {
   console.log("🚀 Initializing Application...");
 
-  // Variable declaration to prevent implicit global leakage
   let lastCheckedPhone = "";
 
   console.log(`Trying to load from sheet : "${SHEET_ID}"...`);    
-  // Safe check for SHEET_ID existence
   if (typeof SHEET_ID !== 'undefined' && SHEET_ID) {
     try {
       const res = await apiCall('getdb', { sheetid: SHEET_ID });
@@ -382,8 +376,6 @@ document.addEventListener("DOMContentLoaded", async function () {
     logAllCachedValues();
   }
 
-    
-
   // 1. Restore Saved UI Preferences (Text Size)
   const savedSize = localStorage.getItem('pwa-text-size') || 'normal';
   if (typeof applyTextSize === "function") {
@@ -392,19 +384,16 @@ document.addEventListener("DOMContentLoaded", async function () {
 
   // 2. Retrieve Cached Credentials & Selected Group
   const scpb_saved_phone = localStorage.getItem("userPhone") || localStorage.getItem("scpb_saved_phone") || "";
-  const cachedGroup = localStorage.getItem("scpb_saved_group") || localStorage.getItem("scpb_selected_group") || "Mixed";
+  const cachedGroup = localStorage.getItem("scpb_selected_group") || localStorage.getItem("scpb_saved_group") || "Mixed";
   const phoneInput = document.getElementById("phoneInput") || document.getElementById("frontPhoneInput");
 
-  // Sync active group radio UI & pre-fetch roster
-  if (cachedGroup) {
-    const radio = document.querySelector(`input[name="helpGroupRadio"][value="${cachedGroup}"]`);
-    if (radio) radio.checked = true;
+  // FIX: Sync all radio groups immediately on load so the active radio is checked/dark
+  syncGroupRadioUI(cachedGroup);
 
-    if (typeof loadUnifiedRosterData === "function") {
-      await loadUnifiedRosterData(cachedGroup);
-    } else if (typeof fetchGroupRoster === "function") {
-      await fetchGroupRoster(cachedGroup);
-    }
+  if (typeof loadUnifiedRosterData === "function") {
+    await loadUnifiedRosterData(cachedGroup);
+  } else if (typeof fetchGroupRoster === "function") {
+    await fetchGroupRoster(cachedGroup);
   }
 
   console.log(`📌 App loaded | Group: "${cachedGroup}" | Saved Phone: "${scpb_saved_phone}"`);
@@ -424,7 +413,6 @@ document.addEventListener("DOMContentLoaded", async function () {
         console.log("✅ Player found in current group on startup:", player);
         lastCheckedPhone = scpb_saved_phone;
 
-        // Apply Player & Admin state
         if (typeof handleUserAndAdminState === "function") {
           await handleUserAndAdminState(scpb_saved_phone, player);
         }
@@ -513,17 +501,13 @@ document.addEventListener("DOMContentLoaded", async function () {
     });
   }
 
-  // 6. Bind Group Radio Listeners & UI Components
-  if (typeof bindGroupRadioListeners === "function") bindGroupRadioListeners();
-  if (typeof syncGroupRadioUI === 'function') syncGroupRadioUI();
+  // 6. Bind UI Components
   if (typeof restoreActiveTabOnLoad === 'function') restoreActiveTabOnLoad();
   if (typeof loadAdminGroupSelector === 'function') loadAdminGroupSelector();
 
-  // Safely hide global loader fallback
   if (typeof hideGlobalLoader === 'function') {
     setTimeout(hideGlobalLoader, 3000);
   }
-    
 });
 
 

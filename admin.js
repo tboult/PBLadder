@@ -78,13 +78,15 @@ function filterAdminPlayers() {
 }
 
 async function saveAllAdminScores() {
-  const groupName = document.getElementById('adminGlobalGroupSelect')?.value || getSavedGroup();
+  // 1. Get group from active admin radio button (or saved group fallback)
+  const groupRadio = document.querySelector('input[name="adminGroupRadio"]:checked')
+                  || document.querySelector('input[name="helpGroupRadio"]:checked');
+  const groupName = groupRadio ? groupRadio.value : (typeof getSavedGroup === 'function' ? getSavedGroup() : localStorage.getItem('scpb_selected_group'));
+
   if (!groupName) return alert('Please select a target group first.');
   if (!Array.isArray(adminPlayersCache) || adminPlayersCache.length === 0) return;
 
-  const saveBtn = document.getElementById('btnSaveAllScores');
-  
-  // 1. Scan for changed input fields
+  // 2. Scan for changed input fields
   const updatesToPerform = [];
 
   adminPlayersCache.forEach(player => {
@@ -118,12 +120,14 @@ async function saveAllAdminScores() {
     return;
   }
 
-  // 2. Visual feedback on Save button
+  // 3. Visual feedback on Save button
+  const saveBtn = document.getElementById('btnSaveAllScores');
   if (saveBtn) {
     saveBtn.disabled = true;
-    saveBtn.innerText = 'Saving Scores...';
+    saveBtn.innerText = '⏳ Saving Scores...';
   }
 
+  // 4. Send API request in a single clean try-catch-finally block
   try {
     const res = await apiCall('batchUpdatePlayerScores', {
       group: groupName,
@@ -148,6 +152,7 @@ async function saveAllAdminScores() {
     }
 
   } catch (err) {
+    console.error("Error saving scores:", err);
     alert('Network error saving score changes.');
   } finally {
     if (saveBtn) {
@@ -156,7 +161,6 @@ async function saveAllAdminScores() {
     }
   }
 }
-
 async function loadAdminRoster(groupName) {
   const container = document.getElementById('adminPlayerStatusList');
   const saveBtn = document.getElementById('btnSaveAllScores');
