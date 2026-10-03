@@ -54,7 +54,7 @@ const SCORE_TABS = VALID_SCORE_TABS;
 
 const MAX_MOVEMENT = 4;
 const MAX_POINTS_PER_WEEK = 45;
-const ALWAYS_BYE_LOWEST = true;
+const ALWAYS_BYE_BOTTOM = true;
 
 const GROUP_COURT_MAP = {
   "Womens": [3, 4, 5, 6, 7, 8, 15, 16, 17, 18, 19, 20],
@@ -303,7 +303,7 @@ function getConstantsConfig() {
     scoreTabs: SCORE_TABS,
     maxMovement: MAX_MOVEMENT,
     maxPointsPerWeek: MAX_POINTS_PER_WEEK,
-    alwaysByeLowest: ALWAYS_BYE_LOWEST
+    alwaysByeBottom: ALWAYS_BYE_BOTTOM
   };
 }
 
@@ -1606,19 +1606,31 @@ function getMostRecentRank(row, col, maxWeekNum = 10) {
 /**
  * Generates schedule tabs on Sched sheet, clears previous weekly scores/totals
  * on Sched sheet, clears 'Pts' on Score sheet, and synchronizes court assignments 
- * directly into the Court column on the corresponding Score sheet.
+ * directly into Column D ('Court') on the corresponding Score sheet.
+ *
+ * BYE Logic:
+ * Uses ALWAYS_BYE_BOTTOM (or payload parameter):
+ * - true: Lowest-ranked bottom players receive BYE.
+ * - false: Random players are chosen for BYE; remaining players stay in rank order across courts.
  */
 function ScheduleAll(genTarget, courts) {
   return executeWithLock(function() {
     let targetGroup = genTarget;
+    let payloadByeFlag = undefined;
 
     // Unpack payload if passed as a single object
     if (typeof genTarget === 'object' && genTarget !== null) {
       courts = genTarget.courts || courts;
+      payloadByeFlag = genTarget.alwaysByeBottom !== undefined ? genTarget.alwaysByeBottom : genTarget.ALWAYS_BYE_BOTTOM;
       targetGroup = genTarget.group || genTarget.sheet || genTarget.schedSheetName || genTarget.genTarget || genTarget.target || "";
     }
 
-    logDebug("ScheduleAll", "Generating schedule tabs and clearing active scores", { genTarget: targetGroup, courts });
+    // Determine ALWAYS_BYE_BOTTOM flag priority: payload > global variable > default (true)
+    const alwaysByeBottom = (payloadByeFlag !== undefined) 
+      ? Boolean(payloadByeFlag) 
+      : (typeof ALWAYS_BYE_BOTTOM !== 'undefined' ? Boolean(ALWAYS_BYE_BOTTOM) : true);
+
+    logDebug("ScheduleAll", "Generating schedule tabs and clearing active scores", { genTarget: targetGroup, courts, alwaysByeBottom });
 
     const ss = getDb();
     const cleanP = (p) => String(p || '').replace(/\D/g, '');
@@ -1639,7 +1651,7 @@ function ScheduleAll(genTarget, courts) {
     groupsToProcess.forEach(groupName => {
       let scoreSheet = getScoreSheetByGroup(groupName);
       if (!scoreSheet) {
-        summary.push(`⚠️ Score tab for '${groupName}' not found.`);
+        summary.push(`⚠️️ Score tab for '${groupName}' not found.`);
         return;
       }
 
@@ -1685,18 +1697,53 @@ function ScheduleAll(genTarget, courts) {
         logDebug("ScheduleAll", "Insufficient courts error", { groupName, required: foursomesCount, available: availableCourts.length });
       }
 
-      // Dictionary to map generated courts by player name and phone
+      // -------------------------------------------------------------
+      // 2. BYE & COURT ALLOCATION LOGIC
+      // -------------------------------------------------------------
+      let assignedCourtsCount = Math.min(foursomesCount, availableCourts.length);
+      let totalPlayingCount = assignedCourtsCount * 4;
+      let byeCount = numPlayers - totalPlayingCount;
+
+      let playingIndices = [];
+      let byeIndices = new Set();
+
+      if (byeCount > 0) {
+        if (alwaysByeBottom) {
+          // Bottom-ranked players receive BYE
+          for (let i = 0; i < totalPlayingCount; i++) playingIndices.push(i);
+          for (let i = totalPlayingCount; i < numPlayers; i++) byeIndices.add(i);
+        } else {
+          // Randomly select byeCount players for BYE
+          let availableIndices = Array.from({ length: numPlayers }, (_, idx) => idx);
+          while (byeIndices.size < byeCount) {
+            let randPos = Math.floor(Math.random() * availableIndices.length);
+            let pickedIndex = availableIndices.splice(randPos, 1)[0];
+            byeIndices.add(pickedIndex);
+          }
+          // Remaining players stay in rank order across courts
+          playingIndices = availableIndices;
+        }
+      } else {
+        // Everyone fits into courts
+        for (let i = 0; i < numPlayers; i++) playingIndices.push(i);
+      }
+
+      // Map playing players to court slots (4 players per court)
+      let playerCourtMap = {};
+      playingIndices.forEach((playerIdx, orderIdx) => {
+        let courtNumIdx = Math.floor(orderIdx / 4);
+        let rawCourt = availableCourts[courtNumIdx];
+        let courtLabel = String(rawCourt).toLowerCase().startsWith("court") ? String(rawCourt) : "Court " + rawCourt;
+        playerCourtMap[playerIdx] = courtLabel;
+      });
+
+      // Construct Sched output rows & dictionary lookup
       let courtLookup = {};
 
-      for (let i = 0; i < activePlayers.length; i++) {
+      for (let i = 0; i < numPlayers; i++) {
         let pName = activePlayers[i];
         let pPhone = activePlayerObjects[i] ? activePlayerObjects[i].phone : "";
-        let currentFoursome = Math.floor(i / 4);
-        let assignedCourt = "BYE";
-
-        if (currentFoursome < availableCourts.length) {
-          assignedCourt =  availableCourts[currentFoursome];
-        }
+        let assignedCourt = byeIndices.has(i) ? "BYE" : (playerCourtMap[i] || "BYE");
 
         courtLookup[cleanStr(pName)] = assignedCourt;
         if (pPhone) courtLookup[pPhone] = assignedCourt;
@@ -1705,7 +1752,7 @@ function ScheduleAll(genTarget, courts) {
         rows.push([pName, assignedCourt, "", "", "", "", "", ""]);
       }
 
-      // Write fresh blank schedule grid to Sched sheet
+      // Write fresh schedule grid to Sched sheet
       schedSheet.getRange(1, 1, rows.length, headers.length).setValues(rows);
       schedSheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
 
@@ -1718,13 +1765,16 @@ function ScheduleAll(genTarget, courts) {
       i2Cell.setValue(currentWeek);
       i2Cell.setHorizontalAlignment("center");
 
-      // 2. Clear 'Pts' column on Score sheet and update Court assignments
+      // -------------------------------------------------------------
+      // 3. SCORE SHEET: Clear 'Pts' & Update Column D ('Court')
+      // -------------------------------------------------------------
       let scoreHeaders = data[0].map(h => String(h || '').trim().toLowerCase());
       let phoneIdx = scoreHeaders.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
       let nameIdx = scoreHeaders.findIndex(h => /name|player/i.test(h));
 
       let courtIdx = scoreHeaders.findIndex(h => /court|crt/i.test(h));
       if (courtIdx === -1) courtIdx = 3; // Index 3 = Column D
+
       let ptsIdx = scoreHeaders.findIndex(h => /^pts$|^points$\vert{}^total$/i.test(h));
       if (ptsIdx === -1) ptsIdx = 4; // Index 4 = Column E
           
@@ -1766,7 +1816,9 @@ function ScheduleAll(genTarget, courts) {
         scoreSheet.getRange(2, courtIdx + 1, scoreCourtValues.length, 1).setValues(scoreCourtValues);
       }
 
-      // 3. Flush script cache entries
+      // -------------------------------------------------------------
+      // 4. FLUSH CACHE
+      // -------------------------------------------------------------
       const cacheKey = getCheckInCacheKey(schedSheetName);
       if (typeof CacheService !== 'undefined' && cacheKey) {
         CacheService.getScriptCache().remove(cacheKey);
@@ -1781,10 +1833,7 @@ function ScheduleAll(genTarget, courts) {
         CacheService.getScriptCache().remove(unifiedCacheKey);
       }
 
-      let assignedCourtsCount = Math.min(foursomesCount, availableCourts.length);
-      let byeCount = numPlayers - (assignedCourtsCount * 4);
-
-      summary.push(`Generated schedule for '${groupName}', cleared scores on Sched & Pts on Score sheet (${numPlayers} players, ${assignedCourtsCount} courts assigned, ${byeCount} BYEs).${courtWarning}`);
+      summary.push(`Generated schedule for '${groupName}' (BYE mode: ${alwaysByeBottom ? 'Bottom Players' : 'Random'}). Cleared scores on Sched & Pts on Score sheet (${numPlayers} players, ${assignedCourtsCount} courts assigned, ${byeCount} BYEs).${courtWarning}`);
     });
 
     return "✅ " + summary.join("\n");
@@ -1795,18 +1844,35 @@ function ScheduleAll(genTarget, courts) {
 
 
 
+/**
+ * Reschedules checked-in players while preserving existing scores and locked-in 
+ * court assignments (foursomes already formed/active are left alone).
+ * Newly checked-in or unassigned players fill available open court slots (< 4 players).
+ * Excess players receive BYE according to ALWAYS_BYE_BOTTOM logic.
+ * Synchronizes court assignments into Column D ('Court') on the Score sheet.
+ */
 function rescheduleFromCheckIns(reschedTarget, courts) {
   return executeWithLock(function() {
-    // Unpack if parameters were passed as a single payload object
+    let payloadByeFlag = undefined;
+
+    // Unpack payload if parameters were passed as a single object
     if (typeof reschedTarget === 'object' && reschedTarget !== null) {
       courts = reschedTarget.courts || courts;
+      payloadByeFlag = reschedTarget.alwaysByeBottom !== undefined ? reschedTarget.alwaysByeBottom : reschedTarget.ALWAYS_BYE_BOTTOM;
       reschedTarget = reschedTarget.reschedTarget || reschedTarget.group || reschedTarget.target || reschedTarget.groupName;
     }
 
-    logDebug("rescheduleFromCheckIns", "Rescheduling checked-in players while preserving scores & check-in marks", { reschedTarget, courts });
+    // Determine ALWAYS_BYE_BOTTOM flag priority: payload > global variable > default (true)
+    const alwaysByeBottom = (payloadByeFlag !== undefined) 
+      ? Boolean(payloadByeFlag) 
+      : (typeof ALWAYS_BYE_BOTTOM !== 'undefined' ? Boolean(ALWAYS_BYE_BOTTOM) : true);
+
+    logDebug("rescheduleFromCheckIns", "Rescheduling checked-in players while preserving locked foursomes", { reschedTarget, courts, alwaysByeBottom });
+
     const ss = getDb();
     const cleanP = (p) => String(p || '').replace(/\D/g, '');
-    
+    const cleanStr = (s) => String(s || '').trim().toLowerCase();
+
     let targetName = reschedTarget ? String(reschedTarget).replace(/^Score\s*/i, "Sched ").trim() : "Sched Womens";
     if (!targetName.startsWith("Sched ")) targetName = "Sched " + targetName;
     let groupName = targetName.replace(/^Sched\s*/i, "").trim();
@@ -1824,7 +1890,7 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
         let row = existingData[r];
         let pName = row[0] ? String(row[0]).trim() : "";
         if (pName) {
-          existingMap[pName] = {
+          existingMap[cleanStr(pName)] = {
             court: row[1] ? String(row[1]).trim() : "BYE",
             checkIn: row[2] !== undefined ? String(row[2]).trim() : "",
             g1: row[3] !== undefined ? row[3] : "",
@@ -1840,13 +1906,13 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
     // 2. Fetch current list of players and determine check-in statuses
     let players = fetchPlayersFromSheet(targetName);
     let availableCourts = courts ? parseAndSortCourts(courts) : getCourtsForGroup(groupName);
-    let availableCourtNames = availableCourts.map(c =>  c);
+    let availableCourtNames = availableCourts.map(c => String(c).toLowerCase().startsWith("court") ? String(c) : "Court " + c);
 
     let checkedInPlayers = [];
     let uncheckedPlayers = [];
 
     players.forEach(p => {
-      let prev = existingMap[p.name] || { court: "BYE", checkIn: "", g1: "", g2: "", g3: "", total: "", entered: "" };
+      let prev = existingMap[cleanStr(p.name)] || { court: "BYE", checkIn: "", g1: "", g2: "", g3: "", total: "", entered: "" };
       let isChecked = Boolean(p.checkedIn || p.checked || (prev.checkIn && prev.checkIn !== ""));
       p.prev = prev;
       p.isChecked = isChecked;
@@ -1864,30 +1930,68 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
 
     let unassignedCheckedIn = [];
 
-    // Phase A: Lock in players who are already assigned to valid courts
+    // Phase A: Lock in checked-in players who are ALREADY assigned to valid active courts
     checkedInPlayers.forEach(p => {
       let prevCourt = p.prev.court;
+      let formattedPrevCourt = String(prevCourt).toLowerCase().startsWith("court") ? String(prevCourt) : "Court " + prevCourt;
       let hasScores = (p.prev.g1 !== "" || p.prev.g2 !== "" || p.prev.g3 !== "" || p.prev.total !== "" || p.prev.entered !== "");
 
-      if (availableCourtNames.includes(prevCourt) && (hasScores || courtAssignments[prevCourt].length < 4)) {
-        courtAssignments[prevCourt].push(p);
-        p.assignedCourt = prevCourt;
+      if (availableCourtNames.includes(formattedPrevCourt) && (hasScores || courtAssignments[formattedPrevCourt].length < 4)) {
+        courtAssignments[formattedPrevCourt].push(p);
+        p.assignedCourt = formattedPrevCourt;
       } else {
         unassignedCheckedIn.push(p);
       }
     });
 
-    // Phase B: Fill open court slots (< 4 players) with newly checked-in players
+    // Phase B: Calculate available open court slots (< 4 players) and assign unassigned players
+    let openSlotCount = 0;
     availableCourtNames.forEach(cName => {
-      while (courtAssignments[cName].length < 4 && unassignedCheckedIn.length > 0) {
-        let candidate = unassignedCheckedIn.shift();
+      openSlotCount += Math.max(0, 4 - courtAssignments[cName].length);
+    });
+
+    let playersToAssign = [];
+    let playersForBye = [];
+
+    if (unassignedCheckedIn.length > openSlotCount) {
+      if (alwaysByeBottom) {
+        // Bottom-ranked unassigned checked-in players receive BYE
+        playersToAssign = unassignedCheckedIn.slice(0, openSlotCount);
+        playersForBye = unassignedCheckedIn.slice(openSlotCount);
+      } else {
+        // Randomly select openSlotCount players from unassignedCheckedIn to play
+        let copy = [...unassignedCheckedIn];
+        let chosenSet = new Set();
+        while (chosenSet.size < openSlotCount && copy.length > 0) {
+          let randIdx = Math.floor(Math.random() * copy.length);
+          chosenSet.add(copy.splice(randIdx, 1)[0]);
+        }
+
+        // Preserve rank order for those selected to fill open slots
+        unassignedCheckedIn.forEach(p => {
+          if (chosenSet.has(p)) {
+            playersToAssign.push(p);
+          } else {
+            playersForBye.push(p);
+          }
+        });
+      }
+    } else {
+      // Everyone unassigned fits into open court slots
+      playersToAssign = [...unassignedCheckedIn];
+    }
+
+    // Fill open court slots sequentially
+    availableCourtNames.forEach(cName => {
+      while (courtAssignments[cName].length < 4 && playersToAssign.length > 0) {
+        let candidate = playersToAssign.shift();
         candidate.assignedCourt = cName;
         courtAssignments[cName].push(candidate);
       }
     });
 
-    // Phase C: Excess checked-in players remain on BYE
-    unassignedCheckedIn.forEach(p => {
+    // Remaining excess checked-in players get BYE
+    playersForBye.forEach(p => {
       p.assignedCourt = "BYE";
     });
 
@@ -1896,13 +2000,18 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
       p.assignedCourt = "BYE";
     });
 
-    // 4. Construct Sched sheet output rows
+    // 4. Construct output rows for Sched sheet & build player court lookup table
     let headers = ["Player Name", "Court", "Check-In", "Game 1", "Game 2", "Game 3", "Total", "Entered"];
     let rows = [headers];
+    let playerCourtLookup = {};
 
     checkedInPlayers.forEach(p => {
       let finalCourt = p.assignedCourt || "BYE";
       let checkInVal = p.prev.checkIn || "X";
+
+      playerCourtLookup[cleanStr(p.name)] = finalCourt;
+      if (p.phone) playerCourtLookup[cleanP(p.phone)] = finalCourt;
+
       rows.push([
         p.name,
         finalCourt,
@@ -1916,6 +2025,9 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
     });
 
     uncheckedPlayers.forEach(p => {
+      playerCourtLookup[cleanStr(p.name)] = "BYE";
+      if (p.phone) playerCourtLookup[cleanP(p.phone)] = "BYE";
+
       rows.push([
         p.name,
         "BYE",
@@ -1942,7 +2054,7 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
     i2Cell.setValue(currentWeek);
     i2Cell.setHorizontalAlignment("center");
 
-    // 6. Synchronize assigned courts to the corresponding Score sheet
+    // 6. Synchronize assigned courts to Column D on the corresponding Score sheet
     let scoreSheetName = "Score " + groupName;
     let scoreSheet = ss.getSheetByName(scoreSheetName);
 
@@ -1953,31 +2065,39 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
 
         let phoneIdx = scoreHeaders.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
         let nameIdx = scoreHeaders.findIndex(h => /name|player/i.test(h));
+
+        // 🎯 Find 'Court' column - relaxed regex & default to Index 3 (Column D)
         let courtIdx = scoreHeaders.findIndex(h => /court|crt/i.test(h));
         if (courtIdx === -1) courtIdx = 3; // Index 3 = Column D
-        let ptsIdx = scoreHeaders.findIndex(h => /^pts$|^points$\vert{}^total$/i.test(h));
-        if (ptsIdx === -1) ptsIdx = 4; // Index 4 = Column E
-          
-
-        // Build mapping list of all players and their assigned courts
-        let playerCourtList = players.map(p => ({
-          name: String(p.name || '').toLowerCase().trim(),
-          phone: cleanP(p.phone || p.cell || p.mobile || p.phoneNumber || ''),
-          court: p.assignedCourt || "BYE"
-        }));
 
         let courtValues = [];
         for (let r = 1; r < scoreData.length; r++) {
           let rowPhone = phoneIdx !== -1 ? cleanP(scoreData[r][phoneIdx]) : "";
-          let rowName = nameIdx !== -1 ? String(scoreData[r][nameIdx] || '').toLowerCase().trim() : "";
+          let rowName = nameIdx !== -1 ? cleanStr(scoreData[r][nameIdx]) : "";
 
-          let match = playerCourtList.find(p => {
-            let matchByPhone = p.phone && rowPhone && (rowPhone.endsWith(p.phone.slice(-7)) || p.phone.endsWith(rowPhone.slice(-7)));
-            let matchByName = p.name && rowName && (p.name === rowName);
-            return matchByPhone || matchByName;
-          });
+          let assignedCourt = "";
 
-          let assignedCourt = match ? match.court : (scoreData[r][courtIdx] !== undefined && String(scoreData[r][courtIdx]).trim() !== "" ? String(scoreData[r][courtIdx]) : "BYE");
+          // Match by phone number (last 7 digits)
+          if (rowPhone) {
+            for (let k in playerCourtLookup) {
+              if (k.length >= 7 && rowPhone.endsWith(k.slice(-7))) {
+                assignedCourt = playerCourtLookup[k];
+                break;
+              }
+            }
+          }
+
+          // Match by player name
+          if (!assignedCourt && rowName && playerCourtLookup[rowName]) {
+            assignedCourt = playerCourtLookup[rowName];
+          }
+
+          // Fallback to existing court on Score sheet or default to BYE
+          if (!assignedCourt) {
+            let existingCourt = scoreData[r][courtIdx];
+            assignedCourt = (existingCourt !== undefined && String(existingCourt).trim() !== "") ? String(existingCourt).trim() : "BYE";
+          }
+
           courtValues.push([assignedCourt]);
         }
 
@@ -1987,7 +2107,7 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
       }
     }
 
-    // 7. Invalidate caches so PWA UI reflects updated schedule & court assignments
+    // 7. Flush cache so PWA UI reflects updated schedule & court assignments
     if (typeof CacheService !== 'undefined') {
       const cacheKey = typeof getCheckInCacheKey === 'function' ? getCheckInCacheKey(targetName) : null;
       if (cacheKey) CacheService.getScriptCache().remove(cacheKey);
@@ -2000,10 +2120,9 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
     let activeCourtsCount = availableCourtNames.filter(c => courtAssignments[c].length > 0).length;
     let totalByes = rows.filter(r => r[1] === "BYE").length - 1;
 
-    return `✅ Rescheduled '${targetName}' and updated '${scoreSheetName}' court assignments (${numChecked} checked-in, ${activeCourtsCount} courts assigned, ${totalByes} BYEs).`;
+    return `✅ Rescheduled '${targetName}' (BYE mode: ${alwaysByeBottom ? 'Bottom Players' : 'Random'}) and updated Column D on '${scoreSheetName}' (${numChecked} checked-in, ${activeCourtsCount} courts assigned, ${totalByes} BYEs).`;
   });
 }
-
 /**
  * Fetches the list of players for a given schedule tab or group.
  * Reads player names from Column A of the Schedule tab.
