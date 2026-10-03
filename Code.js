@@ -1733,7 +1733,7 @@ function ScheduleAll(genTarget, courts) {
       playingIndices.forEach((playerIdx, orderIdx) => {
         let courtNumIdx = Math.floor(orderIdx / 4);
         let rawCourt = availableCourts[courtNumIdx];
-        let courtLabel = String(rawCourt).toLowerCase().startsWith("court") ? String(rawCourt) : "Court " + rawCourt;
+        let courtLabel = String(rawCourt).toLowerCase().startsWith("court") ? String(rawCourt) :  rawCourt;
         playerCourtMap[playerIdx] = courtLabel;
       });
 
