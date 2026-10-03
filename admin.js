@@ -77,8 +77,9 @@ function filterAdminPlayers() {
   }).join('');
 }
 
+
+
 async function saveAllAdminScores() {
-  // 1. Get group from active admin radio button
   const groupRadio = document.querySelector('input[name="adminGroupRadio"]:checked')
                   || document.querySelector('input[name="helpGroupRadio"]:checked');
   const groupName = groupRadio ? groupRadio.value : (typeof getSavedGroup === 'function' ? getSavedGroup() : localStorage.getItem('scpb_selected_group'));
@@ -86,30 +87,38 @@ async function saveAllAdminScores() {
   if (!groupName) return alert('Please select a target group first.');
   if (!Array.isArray(adminPlayersCache) || adminPlayersCache.length === 0) return;
 
-  // 2. Scan for changed input fields
   const updatesToPerform = [];
 
-  adminPlayersCache.forEach(player => {
+  // 1. Scan and validate input fields
+  for (const player of adminPlayersCache) {
     const rawName = player.name || `${player.first || ''} ${player.last || ''}`.trim() || 'Unknown Player';
     const rawPhone = player.phone || player.cell || player.mobile || player.phoneNumber || '';
     const cleanPhone = String(rawPhone).replace(/\D/g, '');
 
     const scoreInput = document.getElementById(`admin_score_${cleanPhone}`);
-    if (!scoreInput) return;
+    if (!scoreInput) continue;
 
     const rawInputVal = scoreInput.value.trim();
 
-    // 💡 NEW: If field is blank, skip it completely so existing score is untouched
-    if (rawInputVal === '') return;
+    // Skip blank fields so existing scores are untouched
+    if (rawInputVal === '') continue;
 
     const newScore = isNaN(Number(rawInputVal)) ? rawInputVal : Number(rawInputVal);
+
+    // ⛔ VALIDATION: Check score boundaries
+    if (typeof newScore === 'number') {
+      if (newScore < 0 || newScore > MAX_TOTAL_SCORE) {
+        alert(`Invalid score (${newScore}) for ${rawName}.\n\nScores must be between 0 and ${MAX_TOTAL_SCORE}.`);
+        scoreInput.focus();
+        return; // Stop saving immediately
+      }
+    }
 
     const cachedRaw = (player.score !== undefined && player.score !== null) 
       ? player.score 
       : (player.points ?? player.total ?? '');
     const cachedScore = (cachedRaw === 0) ? 0 : (cachedRaw || '');
 
-    // Only queue if the entered score is different from what was loaded
     if (String(newScore) !== String(cachedScore)) {
       updatesToPerform.push({
         playerName: rawName,
@@ -118,21 +127,19 @@ async function saveAllAdminScores() {
         playerRef: player
       });
     }
-  });
+  }
 
   if (updatesToPerform.length === 0) {
-    alert('No new score entries detected.');
+    alert('No new valid score entries detected.');
     return;
   }
 
-  // 3. Visual feedback on Save button
   const saveBtn = document.getElementById('btnSaveAllScores');
   if (saveBtn) {
     saveBtn.disabled = true;
     saveBtn.innerText = '⏳ Saving Scores...';
   }
 
-  // 4. Send API request
   try {
     const res = await apiCall('batchUpdatePlayerScores', {
       group: groupName,

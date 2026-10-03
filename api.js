@@ -689,79 +689,83 @@ function renderLookupResult(player, foursome) {
           <div>P4: ${p4}</div>
         </div>
       </div>
+<!-- GAME 1 CARD -->
+<div style="background: #ffffff; border: 2px solid #0d6efd; border-radius: 10px; padding: 16px; margin-bottom: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.08);">
+  <div style="font-size: 1.3rem; font-weight: bold; color: #0d6efd; border-bottom: 1px solid #dee2e6; padding-bottom: 8px; margin-bottom: 12px;">
+    🏆 Game 1
+  </div>
+  <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;">
+    <!-- Team A -->
+    <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
+      <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p1} & ${p4}</div>
+      <input type="number" min="0" max="${MAX_GAME_SCORE}" inputmode="numeric" id="sc1_p1" placeholder="Score"
+             oninput="validateGameScoreInput(this)"
+             style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
+    </div>
 
-      <!-- GAME 1 CARD -->
-      <div style="background: #ffffff; border: 2px solid #0d6efd; border-radius: 10px; padding: 16px; margin-bottom: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.08);">
-        <div style="font-size: 1.3rem; font-weight: bold; color: #0d6efd; border-bottom: 1px solid #dee2e6; padding-bottom: 8px; margin-bottom: 12px;">
-          🏆 Game 1
-        </div>
-        <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;">
-          <!-- Team A -->
-          <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
-            <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p1} & ${p4}</div>
-            <input type="number" min="0" max="15" id="sc1_p1" placeholder="Score" 
-                   style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
-          </div>
+    <div style="font-size: 1.3rem; font-weight: bold; color: #6c757d;">VS</div>
 
-          <div style="font-size: 1.3rem; font-weight: bold; color: #6c757d;">VS</div>
+    <!-- Team B -->
+    <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
+      <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p2} & ${p3}</div>
+      <input type="number" min="0" max="${MAX_GAME_SCORE}" inputmode="numeric" id="sc1_p2" placeholder="Score"
+             oninput="validateGameScoreInput(this)"
+             style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
+    </div>
+  </div>
+</div>
 
-          <!-- Team B -->
-          <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
-            <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p2} & ${p3}</div>
-            <input type="number" min="0" max="15" id="sc1_p2" placeholder="Score" 
-                   style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
-          </div>
-        </div>
-      </div>
+<!-- GAME 2 CARD -->
+<div style="background: #ffffff; border: 2px solid #0d6efd; border-radius: 10px; padding: 16px; margin-bottom: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.08);">
+  <div style="font-size: 1.3rem; font-weight: bold; color: #0d6efd; border-bottom: 1px solid #dee2e6; padding-bottom: 8px; margin-bottom: 12px;">
+    🏆 Game 2
+  </div>
+  <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;">
+    <!-- Team A -->
+    <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
+      <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p1} & ${p3}</div>
+      <input type="number" min="0" max="${MAX_GAME_SCORE}" inputmode="numeric" id="sc2_p1" placeholder="Score"
+             oninput="validateGameScoreInput(this)"
+             style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
+    </div>
 
-      <!-- GAME 2 CARD -->
-      <div style="background: #ffffff; border: 2px solid #0d6efd; border-radius: 10px; padding: 16px; margin-bottom: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.08);">
-        <div style="font-size: 1.3rem; font-weight: bold; color: #0d6efd; border-bottom: 1px solid #dee2e6; padding-bottom: 8px; margin-bottom: 12px;">
-          🏆 Game 2
-        </div>
-        <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;">
-          <!-- Team A -->
-          <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
-            <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p1} & ${p3}</div>
-            <input type="number" min="0" max="15" id="sc2_p1" placeholder="Score" 
-                   style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
-          </div>
+    <div style="font-size: 1.3rem; font-weight: bold; color: #6c757d;">VS</div>
 
-          <div style="font-size: 1.3rem; font-weight: bold; color: #6c757d;">VS</div>
+    <!-- Team B -->
+    <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
+      <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p2} & ${p4}</div>
+      <input type="number" min="0" max="${MAX_GAME_SCORE}" inputmode="numeric" id="sc2_p2" placeholder="Score"
+             oninput="validateGameScoreInput(this)"
+             style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
+    </div>
+  </div>
+</div>
 
-          <!-- Team B -->
-          <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
-            <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p2} & ${p4}</div>
-            <input type="number" min="0" max="15" id="sc2_p2" placeholder="Score" 
-                   style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
-          </div>
-        </div>
-      </div>
+<!-- GAME 3 CARD -->
+<div style="background: #ffffff; border: 2px solid #0d6efd; border-radius: 10px; padding: 16px; margin-bottom: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.08);">
+  <div style="font-size: 1.3rem; font-weight: bold; color: #0d6efd; border-bottom: 1px solid #dee2e6; padding-bottom: 8px; margin-bottom: 12px;">
+    🏆 Game 3
+  </div>
+  <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;">
+    <!-- Team A -->
+    <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
+      <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p1} & ${p2}</div>
+      <input type="number" min="0" max="${MAX_GAME_SCORE}" inputmode="numeric" id="sc3_p1" placeholder="Score"
+             oninput="validateGameScoreInput(this)"
+             style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
+    </div>
 
-      <!-- GAME 3 CARD -->
-      <div style="background: #ffffff; border: 2px solid #0d6efd; border-radius: 10px; padding: 16px; margin-bottom: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.08);">
-        <div style="font-size: 1.3rem; font-weight: bold; color: #0d6efd; border-bottom: 1px solid #dee2e6; padding-bottom: 8px; margin-bottom: 12px;">
-          🏆 Game 3
-        </div>
-        <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;">
-          <!-- Team A -->
-          <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
-            <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p1} & ${p2}</div>
-            <input type="number" min="0" max="15" id="sc3_p1" placeholder="Score" 
-                   style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
-          </div>
+    <div style="font-size: 1.3rem; font-weight: bold; color: #6c757d;">VS</div>
 
-          <div style="font-size: 1.3rem; font-weight: bold; color: #6c757d;">VS</div>
-
-          <!-- Team B -->
-          <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
-            <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p3} & ${p4}</div>
-            <input type="number" min="0" max="15" id="sc3_p2" placeholder="Score" 
-                   style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
-          </div>
-        </div>
-      </div>
-    `;
+    <!-- Team B -->
+    <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
+      <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p3} & ${p4}</div>
+      <input type="number" min="0" max="${MAX_GAME_SCORE}" inputmode="numeric" id="sc3_p2" placeholder="Score"
+             oninput="validateGameScoreInput(this)"
+             style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
+    </div>
+  </div>
+</div>    `;
   } else {
     scoreContainer.innerHTML = `
       <div style="background-color: #fff3cd; color: #664d03; border: 1px solid #ffe69c; font-size: 1.15rem; padding: 15px; border-radius: 8px; margin-top: 1rem;">
@@ -2589,27 +2593,37 @@ document.addEventListener('change', (e) => {
 });
 
 
-function clearAllAdminScoreInputs() {
-  if (!Array.isArray(adminPlayersCache) || adminPlayersCache.length === 0) {
-    alert("No player list available to clear.");
-    return;
+async function reloadAdminScores() {
+  const groupRadio = document.querySelector('input[name="adminGroupRadio"]:checked')
+                  || document.querySelector('input[name="helpGroupRadio"]:checked')
+                  || document.querySelector('input[name="checkinGroupRadio"]:checked');
+  const groupName = groupRadio ? groupRadio.value : (typeof getSavedGroup === 'function' ? getSavedGroup() : localStorage.getItem('scpb_selected_group'));
+
+  if (!groupName) return alert('Please select a target group first.');
+
+  const reloadBtn = document.getElementById('btnReloadScores');
+  if (reloadBtn) {
+    reloadBtn.disabled = true;
+    reloadBtn.innerText = '⏳ Reloading...';
   }
 
-  // Quick confirmation to prevent accidental clicks
-  const confirmClear = confirm("Are you sure you want to clear all score fields on screen?\n\nNote: Changes will not be saved to the database until you click 'Save All Scores'.");
-  if (!confirmClear) return;
+  try {
+    // 1. Force refresh from the server/sheet (bypassing cached memory)
+    await loadUnifiedRosterData(groupName, true);
 
-  let clearedCount = 0;
-  adminPlayersCache.forEach(player => {
-    const rawPhone = player.phone || player.cell || player.mobile || player.phoneNumber || '';
-    const cleanPhone = String(rawPhone).replace(/\D/g, '');
-    const scoreInput = document.getElementById(`admin_score_${cleanPhone}`);
-    
-    if (scoreInput) {
-      scoreInput.value = '';
-      clearedCount++;
+    // 2. Re-render the admin list UI with fresh data
+    if (typeof filterAdminPlayers === 'function') {
+      filterAdminPlayers();
+    } else if (typeof renderAdminPlayerList === 'function') {
+      renderAdminPlayerList();
     }
-  });
-
-  console.log(`🧹 Cleared ${clearedCount} score input field(s).`);
+  } catch (err) {
+    console.error("Error reloading scores:", err);
+    alert("Failed to reload scores from server.");
+  } finally {
+    if (reloadBtn) {
+      reloadBtn.disabled = false;
+      reloadBtn.innerText = '🔄 Reload Scores';
+    }
+  }
 }
