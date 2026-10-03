@@ -966,7 +966,7 @@ function handleApiRequest(e) {
         break;
 
       case 'generateScheduleTabs':
-        result = ScheduleActive(payload.arg || payload.tab || payload.sheet || payload.groupName || (payload.group ? "Score " + payload.group : null), payload.courts || null);
+        result = ScheduleAll(payload.arg || payload.tab || payload.sheet || payload.groupName || (payload.group ? "Score " + payload.group : null), payload.courts || null);
         break;
 
       case 'processWeeklyScoresForSheet':
@@ -1204,7 +1204,7 @@ function onOpen() {
 
 function menuGenerateScheduleCurrentTab() {
   try {
-    let res = ScheduleActive(getValidActiveScoreSheet().getName());
+    let res = ScheduleAll(getValidActiveScoreSheet().getName());
     if (SpreadsheetApp.getUi()) SpreadsheetApp.getUi().alert(res);
     return res;
   } catch(e) {
@@ -1263,7 +1263,7 @@ function menuSortActivePlayers() {
 }
 
 function menuGenerateScheduleTabs() {
-  let res = ScheduleActive();
+  let res = ScheduleAll();
   if (SpreadsheetApp.getUi()) SpreadsheetApp.getUi().alert(res);
   return res;
 }
@@ -1608,7 +1608,7 @@ function getMostRecentRank(row, col, maxWeekNum = 10) {
  * on Sched sheet, clears 'Pts' on Score sheet, and synchronizes court assignments 
  * directly into the Court column on the corresponding Score sheet.
  */
-function ScheduleActive(genTarget, courts) {
+function ScheduleAll(genTarget, courts) {
   return executeWithLock(function() {
     let targetGroup = genTarget;
 
@@ -1618,7 +1618,7 @@ function ScheduleActive(genTarget, courts) {
       targetGroup = genTarget.group || genTarget.sheet || genTarget.schedSheetName || genTarget.genTarget || genTarget.target || "";
     }
 
-    logDebug("ScheduleActive", "Generating schedule tabs and clearing active scores", { genTarget: targetGroup, courts });
+    logDebug("ScheduleAll", "Generating schedule tabs and clearing active scores", { genTarget: targetGroup, courts });
 
     const ss = getDb();
     const cleanP = (p) => String(p || '').replace(/\D/g, '');
@@ -1682,7 +1682,7 @@ function ScheduleActive(genTarget, courts) {
       let courtWarning = "";
       if (foursomesCount > availableCourts.length) {
         courtWarning = ` ⚠️ Error: Insufficient courts! Needed: ${foursomesCount}, Available: ${availableCourts.length}. Oversubscribed players assigned BYE.`;
-        logDebug("ScheduleActive", "Insufficient courts error", { groupName, required: foursomesCount, available: availableCourts.length });
+        logDebug("ScheduleAll", "Insufficient courts error", { groupName, required: foursomesCount, available: availableCourts.length });
       }
 
       // Dictionary to map generated courts by player name and phone
@@ -1723,12 +1723,11 @@ function ScheduleActive(genTarget, courts) {
       let phoneIdx = scoreHeaders.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
       let nameIdx = scoreHeaders.findIndex(h => /name|player/i.test(h));
 
-      let courtIdx = scoreHeaders.findIndex(h => /^court$\vert{}^crt$/i.test(h));
-      if (courtIdx === -1) courtIdx = 2; // Default to Column C (index 2)
-
+      let courtIdx = scoreHeaders.findIndex(h => /court|crt/i.test(h));
+      if (courtIdx === -1) courtIdx = 3; // Index 3 = Column D
       let ptsIdx = scoreHeaders.findIndex(h => /^pts$|^points$\vert{}^total$/i.test(h));
-      if (ptsIdx === -1) ptsIdx = 4; // Default to Column E (index 4)
-
+      if (ptsIdx === -1) ptsIdx = 4; // Index 4 = Column E
+          
       // Wipe Pts column content on Score sheet for all player rows
       if (data.length > 1) {
         scoreSheet.getRange(2, ptsIdx + 1, data.length - 1, 1).clearContent();
@@ -1954,8 +1953,11 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
 
         let phoneIdx = scoreHeaders.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
         let nameIdx = scoreHeaders.findIndex(h => /name|player/i.test(h));
-        let courtIdx = scoreHeaders.findIndex(h => /^court$\vert{}^crt$/i.test(h));
-        if (courtIdx === -1) courtIdx = 2; // Fallback to Column C (index 2)
+        let courtIdx = scoreHeaders.findIndex(h => /court|crt/i.test(h));
+        if (courtIdx === -1) courtIdx = 3; // Index 3 = Column D
+        let ptsIdx = scoreHeaders.findIndex(h => /^pts$|^points$\vert{}^total$/i.test(h));
+        if (ptsIdx === -1) ptsIdx = 4; // Index 4 = Column E
+          
 
         // Build mapping list of all players and their assigned courts
         let playerCourtList = players.map(p => ({
