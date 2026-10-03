@@ -3690,8 +3690,10 @@ function findPlayerAcrossGroups(payload) {
 
 
 /**
- * Batch updates weekly scores across both Score (Col E) and Sched (Col G) sheets in a single execution.
- * Supports payload.option === "clear_all" to wipe staging scores for the entire group.
+ * Batch updates or clears weekly scores across Score and Sched sheets.
+ * - Score sheet: Clears/updates ONLY the 'Pts' column.
+ * - Sched sheet: Clears/updates ONLY 'Game 1', 'Game 2', 'Game 3', and 'Total'.
+ * - Stamps the admin phone in the 'Entered' column on Sched sheet for any change.
  */
 function batchUpdatePlayerScores(payload) {
   try {
@@ -3699,6 +3701,9 @@ function batchUpdatePlayerScores(payload) {
     const group = payloadObj.group || payloadObj.groupName || payloadObj.sheet || "";
     const updates = payloadObj.updates || []; // Array of { playerName, phone, score }
     const isClearAll = payloadObj.option === "clear_all" || payloadObj.action === "clear_all";
+
+    const cleanP = (p) => String(p || '').replace(/\D/g, '');
+    const adminPhone = cleanP(payloadObj.adminPhone || payloadObj.enteredBy || payloadObj.userPhone || "");
 
     if (!group || (!isClearAll && (!Array.isArray(updates) || updates.length === 0))) {
       return { success: false, message: "No target group or updates provided." };
@@ -3712,13 +3717,13 @@ function batchUpdatePlayerScores(payload) {
     const schedSheet = ss.getSheetByName(schedSheetName);
     const scoreSheet = ss.getSheetByName(scoreSheetName);
 
-    // Invalidate script cache for this group so subsequent fetches retrieve live updated data
+    // Invalidate script cache for this group
     const cacheKey = "UNIFIED_ROSTER_CACHE_" + cleanGroup;
     CacheService.getScriptCache().remove(cacheKey);
 
-    const cleanP = (p) => String(p || '').replace(/\D/g, '');
-
-    // 1. Update or Clear Score Sheet (Column E / Pts)
+    // -------------------------------------------------------------
+    // 1. SCORE SHEET: Update / Clear 'Pts' Column ONLY (Col E)
+    // -------------------------------------------------------------
     if (scoreSheet) {
       const scoreData = scoreSheet.getDataRange().getValues();
       if (scoreData.length > 1) {
@@ -3727,9 +3732,10 @@ function batchUpdatePlayerScores(payload) {
         const phoneIdx = headers.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
         const nameIdx = headers.findIndex(h => /name|player/i.test(h));
         let ptsIdx = headers.findIndex(h => /^pts$|^points$\vert{}^total$/i.test(h));
-        if (ptsIdx === -1) ptsIdx = 4; // Column E
+        if (ptsIdx === -1) ptsIdx = 4; // Default to Column E
 
         if (isClearAll) {
+          // Clear ONLY the Pts column
           scoreSheet.getRange(2, ptsIdx + 1, scoreData.length - 1, 1).clearContent();
         } else {
           updates.forEach(item => {
@@ -3753,7 +3759,10 @@ function batchUpdatePlayerScores(payload) {
       }
     }
 
-    // 2. Update or Clear Sched Sheet (Column G / Total)
+    // -------------------------------------------------------------
+    // 2. SCHED SHEET: Update / Clear 'Game 1', 'Game 2', 'Game 3', 'Total'
+    //    & Stamp 'Entered' Column with Admin Phone
+    // -------------------------------------------------------------
     if (schedSheet) {
       const schedData = schedSheet.getDataRange().getValues();
       if (schedData.length > 1) {
@@ -3761,12 +3770,40 @@ function batchUpdatePlayerScores(payload) {
 
         const phoneIdx = headers.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
         const nameIdx = headers.findIndex(h => /name|player/i.test(h));
+        
         let totalIdx = headers.findIndex(h => /^total$|^pts$\vert{}^score$/i.test(h));
-        if (totalIdx === -1) totalIdx = 6; // Column G
+        if (totalIdx === -1) totalIdx = 6; // Default to Column G
+
+        let enteredIdx = headers.findIndex(h => /^entered\s*(by)?$\vert{}^admin$/i.test(h));
 
         if (isClearAll) {
-          schedSheet.getRange(2, totalIdx + 1, schedData.length - 1, 1).clearContent();
+          // Identify specifically Game 1, Game 2, Game 3, and Total
+          const schedColsToClear = [];
+          headers.forEach((h, idx) => {
+            if (/^game\s*1$\vert{}^g1$/i.test(h) ||
+                /^game\s*2$\vert{}^g2$/i.test(h) ||
+                /^game\s*3$\vert{}^g3$/i.test(h) ||
+                /^total$|^pts$\vert{}^score$/i.test(h)) {
+              schedColsToClear.push(idx);
+            }
+          });
+
+          // Fallback to Total column if no header matches
+          if (schedColsToClear.length === 0) schedColsToClear.push(totalIdx);
+
+          const numRows = schedData.length - 1;
+          schedColsToClear.forEach(colIdx => {
+            schedSheet.getRange(2, colIdx + 1, numRows, 1).clearContent();
+          });
+
+          // Stamp admin phone in 'Entered' column for cleared rows
+          if (enteredIdx !== -1 && adminPhone) {
+            const adminVals = Array(numRows).fill([adminPhone]);
+            schedSheet.getRange(2, enteredIdx + 1, numRows, 1).setValues(adminVals);
+          }
+
         } else {
+          // Standard weekly score updates
           updates.forEach(item => {
             const targetPhone = cleanP(item.phone);
             const targetName = String(item.playerName || '').toLowerCase().trim();
@@ -3779,7 +3816,13 @@ function batchUpdatePlayerScores(payload) {
               const matchByName = targetName && rowName && rowName === targetName;
 
               if (matchByPhone || matchByName) {
+                // Update Total column
                 schedSheet.getRange(r + 1, totalIdx + 1).setValue(item.score);
+
+                // Stamp Admin Phone in 'Entered' column
+                if (enteredIdx !== -1 && adminPhone) {
+                  schedSheet.getRange(r + 1, enteredIdx + 1).setValue(adminPhone);
+                }
                 break;
               }
             }
@@ -3789,7 +3832,11 @@ function batchUpdatePlayerScores(payload) {
     }
 
     if (isClearAll) {
-      return { success: true, option: "clear_all", message: `Cleared all scores for group ${cleanGroup}.` };
+      return { 
+        success: true, 
+        option: "clear_all", 
+        message: `Cleared Game 1-3 & Total on Sched and Pts on Score for ${cleanGroup}.` 
+      };
     }
 
     return { success: true, updatedCount: updates.length };

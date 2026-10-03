@@ -121,8 +121,10 @@ async function clearAllAdminScores() {
 
   if (!groupName) return alert('Please select a target group first.');
 
-  const confirmClear = confirm(`Are you sure you want to CLEAR ALL scores for group "${groupName}"?\n\nThis will wipe all staged weekly scores on the server and reset all score inputs.`);
+  const confirmClear = confirm(`Are you sure you want to CLEAR ALL game scores and totals for group "${groupName}"?`);
   if (!confirmClear) return;
+
+  const currentAdminPhone = localStorage.getItem('scpb_admin_phone') || localStorage.getItem('user_phone') || '';
 
   const clearBtn = document.getElementById('btnClearAllScores');
   if (clearBtn) {
@@ -134,18 +136,17 @@ async function clearAllAdminScores() {
     const res = await apiCall('batchUpdatePlayerScores', {
       group: groupName,
       groupName: groupName,
+      adminPhone: currentAdminPhone, // 👈 Passes admin phone for 'Entered' audit column
       option: 'clear_all'
     });
 
     if (res && (res.success || !res.error)) {
-      // 1. Clear cached score properties in adminPlayersCache
       if (Array.isArray(adminPlayersCache)) {
         adminPlayersCache.forEach(player => {
           player.score = '';
           player.points = '';
           player.total = '';
 
-          // 2. Clear corresponding input elements in the DOM
           const rawPhone = player.phone || player.cell || player.mobile || player.phoneNumber || '';
           const cleanPhone = String(rawPhone).replace(/\D/g, '');
           const scoreInput = document.getElementById(`admin_score_${cleanPhone}`);
@@ -157,7 +158,7 @@ async function clearAllAdminScores() {
         });
       }
 
-      alert(`Successfully cleared all scores for group "${groupName}".`);
+      alert(`Successfully cleared all game scores and totals for group "${groupName}".`);
     } else {
       alert('Failed to clear scores: ' + (res?.message || res?.error || 'Server Error'));
     }
@@ -2684,6 +2685,107 @@ async function reloadAdminScores() {
     if (reloadBtn) {
       reloadBtn.disabled = false;
       reloadBtn.innerText = '🔄 Reload Scores';
+    }
+  }
+}
+
+
+async function saveAllAdminScores() {
+  const groupRadio = document.querySelector('input[name="adminGroupRadio"]:checked')
+                  || document.querySelector('input[name="helpGroupRadio"]:checked');
+  const groupName = groupRadio ? groupRadio.value : (typeof getSavedGroup === 'function' ? getSavedGroup() : localStorage.getItem('scpb_selected_group'));
+
+  if (!groupName) return alert('Please select a target group first.');
+  if (!Array.isArray(adminPlayersCache) || adminPlayersCache.length === 0) return;
+
+  const updatesToPerform = [];
+
+  // 1. Scan and validate input fields
+  for (const player of adminPlayersCache) {
+    const rawName = player.name || `${player.first || ''} ${player.last || ''}`.trim() || 'Unknown Player';
+    const rawPhone = player.phone || player.cell || player.mobile || player.phoneNumber || '';
+    const cleanPhone = String(rawPhone).replace(/\D/g, '');
+
+    const scoreInput = document.getElementById(`admin_score_${cleanPhone}`);
+    if (!scoreInput) continue;
+
+    const rawInputVal = scoreInput.value.trim();
+
+    // Skip blank fields so existing scores are untouched
+    if (rawInputVal === '') continue;
+
+    const newScore = isNaN(Number(rawInputVal)) ? rawInputVal : Number(rawInputVal);
+
+    // ⛔ VALIDATION: Check score boundaries
+    if (typeof newScore === 'number') {
+      const maxLimit = typeof MAX_TOTAL_SCORE !== 'undefined' ? MAX_TOTAL_SCORE : 60;
+      if (newScore < 0 || newScore > maxLimit) {
+        alert(`Invalid score (${newScore}) for ${rawName}.\n\nScores must be between 0 and ${maxLimit}.`);
+        scoreInput.focus();
+        return; // Stop saving immediately
+      }
+    }
+
+    const cachedRaw = (player.score !== undefined && player.score !== null) 
+      ? player.score 
+      : (player.points ?? player.total ?? '');
+    const cachedScore = (cachedRaw === 0) ? 0 : (cachedRaw || '');
+
+    if (String(newScore) !== String(cachedScore)) {
+      updatesToPerform.push({
+        playerName: rawName,
+        phone: cleanPhone,
+        score: newScore,
+        playerRef: player
+      });
+    }
+  }
+
+  if (updatesToPerform.length === 0) {
+    alert('No new valid score entries detected.');
+    return;
+  }
+
+  // Retrieve admin phone to log into the sheet's 'Entered' column
+  const currentAdminPhone = localStorage.getItem('scpb_admin_phone') || localStorage.getItem('user_phone') || '';
+
+  const saveBtn = document.getElementById('btnSaveAllScores');
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.innerText = '⏳ Saving Scores...';
+  }
+
+  try {
+    const res = await apiCall('batchUpdatePlayerScores', {
+      group: groupName,
+      groupName: groupName,
+      adminPhone: currentAdminPhone, // Stamped into 'Entered' column on Sched sheet
+      updates: updatesToPerform.map(u => ({
+        playerName: u.playerName,
+        phone: u.phone,
+        score: u.score
+      }))
+    });
+
+    if (res && (res.success || !res.error)) {
+      updatesToPerform.forEach(u => {
+        u.playerRef.score = u.score;
+        u.playerRef.points = u.score;
+        u.playerRef.total = u.score;
+      });
+
+      alert(`Successfully saved ${updatesToPerform.length} score change(s).`);
+    } else {
+      alert('Failed to update scores: ' + (res?.message || res?.error || 'Server Error'));
+    }
+
+  } catch (err) {
+    console.error("Error saving scores:", err);
+    alert('Network error saving score changes.');
+  } finally {
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.innerText = '💾 Save All Scores';
     }
   }
 }
