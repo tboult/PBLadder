@@ -114,6 +114,66 @@ async function loadUnifiedRosterData(groupName, forceRefresh = false) {
 }
 
 
+async function clearAllAdminScores() {
+  const groupRadio = document.querySelector('input[name="adminGroupRadio"]:checked')
+                    || document.querySelector('input[name="helpGroupRadio"]:checked');
+  const groupName = groupRadio ? groupRadio.value : (typeof getSavedGroup === 'function' ? getSavedGroup() : localStorage.getItem('scpb_selected_group'));
+
+  if (!groupName) return alert('Please select a target group first.');
+
+  const confirmClear = confirm(`Are you sure you want to CLEAR ALL scores for group "${groupName}"?\n\nThis will wipe all staged weekly scores on the server and reset all score inputs.`);
+  if (!confirmClear) return;
+
+  const clearBtn = document.getElementById('btnClearAllScores');
+  if (clearBtn) {
+    clearBtn.disabled = true;
+    clearBtn.innerText = '⏳ Clearing...';
+  }
+
+  try {
+    const res = await apiCall('batchUpdatePlayerScores', {
+      group: groupName,
+      groupName: groupName,
+      option: 'clear_all'
+    });
+
+    if (res && (res.success || !res.error)) {
+      // 1. Clear cached score properties in adminPlayersCache
+      if (Array.isArray(adminPlayersCache)) {
+        adminPlayersCache.forEach(player => {
+          player.score = '';
+          player.points = '';
+          player.total = '';
+
+          // 2. Clear corresponding input elements in the DOM
+          const rawPhone = player.phone || player.cell || player.mobile || player.phoneNumber || '';
+          const cleanPhone = String(rawPhone).replace(/\D/g, '');
+          const scoreInput = document.getElementById(`admin_score_${cleanPhone}`);
+
+          if (scoreInput) {
+            scoreInput.value = '';
+            scoreInput.classList.remove('is-invalid', 'is-valid');
+          }
+        });
+      }
+
+      alert(`Successfully cleared all scores for group "${groupName}".`);
+    } else {
+      alert('Failed to clear scores: ' + (res?.message || res?.error || 'Server Error'));
+    }
+
+  } catch (err) {
+    console.error("Error clearing scores:", err);
+    alert('Network error attempting to clear scores.');
+  } finally {
+    if (clearBtn) {
+      clearBtn.disabled = false;
+      clearBtn.innerText = '🧹 Clear All Scores';
+    }
+  }
+}
+
+
 async function onGroupRadioChange(selectedGroup) {
   console.log(`onGroupRadioChange ${selectedGroup}`);
   const cleanGroup = String(selectedGroup).replace(/^(Sched|Score)\s*/i, '').trim() || 'Mixed';

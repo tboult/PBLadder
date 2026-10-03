@@ -3691,14 +3691,16 @@ function findPlayerAcrossGroups(payload) {
 
 /**
  * Batch updates weekly scores across both Score (Col E) and Sched (Col G) sheets in a single execution.
+ * Supports payload.option === "clear_all" to wipe staging scores for the entire group.
  */
 function batchUpdatePlayerScores(payload) {
   try {
     const payloadObj = payload || {};
     const group = payloadObj.group || payloadObj.groupName || payloadObj.sheet || "";
     const updates = payloadObj.updates || []; // Array of { playerName, phone, score }
+    const isClearAll = payloadObj.option === "clear_all" || payloadObj.action === "clear_all";
 
-    if (!group || !Array.isArray(updates) || updates.length === 0) {
+    if (!group || (!isClearAll && (!Array.isArray(updates) || updates.length === 0))) {
       return { success: false, message: "No target group or updates provided." };
     }
 
@@ -3716,7 +3718,7 @@ function batchUpdatePlayerScores(payload) {
 
     const cleanP = (p) => String(p || '').replace(/\D/g, '');
 
-    // 1. Update Score Sheet (Column E / Pts)
+    // 1. Update or Clear Score Sheet (Column E / Pts)
     if (scoreSheet) {
       const scoreData = scoreSheet.getDataRange().getValues();
       if (scoreData.length > 1) {
@@ -3724,30 +3726,34 @@ function batchUpdatePlayerScores(payload) {
         
         const phoneIdx = headers.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
         const nameIdx = headers.findIndex(h => /name|player/i.test(h));
-        let ptsIdx = headers.findIndex(h => /^pts$|^points$|^total$/i.test(h));
+        let ptsIdx = headers.findIndex(h => /^pts$|^points$\vert{}^total$/i.test(h));
         if (ptsIdx === -1) ptsIdx = 4; // Column E
 
-        updates.forEach(item => {
-          const targetPhone = cleanP(item.phone);
-          const targetName = String(item.playerName || '').toLowerCase().trim();
+        if (isClearAll) {
+          scoreSheet.getRange(2, ptsIdx + 1, scoreData.length - 1, 1).clearContent();
+        } else {
+          updates.forEach(item => {
+            const targetPhone = cleanP(item.phone);
+            const targetName = String(item.playerName || '').toLowerCase().trim();
 
-          for (let r = 1; r < scoreData.length; r++) {
-            const rowPhone = phoneIdx !== -1 ? cleanP(scoreData[r][phoneIdx]) : "";
-            const rowName = nameIdx !== -1 ? String(scoreData[r][nameIdx] || '').toLowerCase().trim() : "";
+            for (let r = 1; r < scoreData.length; r++) {
+              const rowPhone = phoneIdx !== -1 ? cleanP(scoreData[r][phoneIdx]) : "";
+              const rowName = nameIdx !== -1 ? String(scoreData[r][nameIdx] || '').toLowerCase().trim() : "";
 
-            const matchByPhone = targetPhone && rowPhone && rowPhone.endsWith(targetPhone.slice(-7));
-            const matchByName = targetName && rowName && rowName === targetName;
+              const matchByPhone = targetPhone && rowPhone && rowPhone.endsWith(targetPhone.slice(-7));
+              const matchByName = targetName && rowName && rowName === targetName;
 
-            if (matchByPhone || matchByName) {
-              scoreSheet.getRange(r + 1, ptsIdx + 1).setValue(item.score);
-              break;
+              if (matchByPhone || matchByName) {
+                scoreSheet.getRange(r + 1, ptsIdx + 1).setValue(item.score);
+                break;
+              }
             }
-          }
-        });
+          });
+        }
       }
     }
 
-    // 2. Update Sched Sheet (Column G / Total)
+    // 2. Update or Clear Sched Sheet (Column G / Total)
     if (schedSheet) {
       const schedData = schedSheet.getDataRange().getValues();
       if (schedData.length > 1) {
@@ -3755,27 +3761,35 @@ function batchUpdatePlayerScores(payload) {
 
         const phoneIdx = headers.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
         const nameIdx = headers.findIndex(h => /name|player/i.test(h));
-        let totalIdx = headers.findIndex(h => /^total$|^pts$|^score$/i.test(h));
+        let totalIdx = headers.findIndex(h => /^total$|^pts$\vert{}^score$/i.test(h));
         if (totalIdx === -1) totalIdx = 6; // Column G
 
-        updates.forEach(item => {
-          const targetPhone = cleanP(item.phone);
-          const targetName = String(item.playerName || '').toLowerCase().trim();
+        if (isClearAll) {
+          schedSheet.getRange(2, totalIdx + 1, schedData.length - 1, 1).clearContent();
+        } else {
+          updates.forEach(item => {
+            const targetPhone = cleanP(item.phone);
+            const targetName = String(item.playerName || '').toLowerCase().trim();
 
-          for (let r = 1; r < schedData.length; r++) {
-            const rowPhone = phoneIdx !== -1 ? cleanP(schedData[r][phoneIdx]) : "";
-            const rowName = nameIdx !== -1 ? String(schedData[r][nameIdx] || '').toLowerCase().trim() : "";
+            for (let r = 1; r < schedData.length; r++) {
+              const rowPhone = phoneIdx !== -1 ? cleanP(schedData[r][phoneIdx]) : "";
+              const rowName = nameIdx !== -1 ? String(schedData[r][nameIdx] || '').toLowerCase().trim() : "";
 
-            const matchByPhone = targetPhone && rowPhone && rowPhone.endsWith(targetPhone.slice(-7));
-            const matchByName = targetName && rowName && rowName === targetName;
+              const matchByPhone = targetPhone && rowPhone && rowPhone.endsWith(targetPhone.slice(-7));
+              const matchByName = targetName && rowName && rowName === targetName;
 
-            if (matchByPhone || matchByName) {
-              schedSheet.getRange(r + 1, totalIdx + 1).setValue(item.score);
-              break;
+              if (matchByPhone || matchByName) {
+                schedSheet.getRange(r + 1, totalIdx + 1).setValue(item.score);
+                break;
+              }
             }
-          }
-        });
+          });
+        }
       }
+    }
+
+    if (isClearAll) {
+      return { success: true, option: "clear_all", message: `Cleared all scores for group ${cleanGroup}.` };
     }
 
     return { success: true, updatedCount: updates.length };
