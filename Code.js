@@ -1843,14 +1843,6 @@ function ScheduleAll(genTarget, courts) {
 
 
 
-
-/**
- * Reschedules checked-in players while preserving existing scores and locked-in 
- * court assignments (foursomes already formed/active are left alone).
- * Newly checked-in or unassigned players fill available open court slots (< 4 players).
- * Excess players receive BYE according to ALWAYS_BYE_BOTTOM logic.
- * Synchronizes court assignments into Column D ('Court') on the Score sheet using clean numbers.
- */
 function rescheduleFromCheckIns(reschedTarget, courts) {
   return executeWithLock(function() {
     let payloadByeFlag = undefined;
@@ -1872,12 +1864,14 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
     const ss = getDb();
     const cleanP = (p) => String(p || '').replace(/\D/g, '');
     
-    // Clean court label helper: strips "Court " prefix and returns pure number or "BYE"
+    // Bulletproof court label helper: extracts pure digit string ("Court 5" -> "5") or returns "BYE"
     const cleanCourtLabel = (c) => {
       if (!c) return "BYE";
       let str = String(c).trim();
       if (!str || str.toUpperCase() === "BYE") return "BYE";
-      let cleaned = str.replace(/^(court|crt)\s*/i, "").trim();
+      let match = str.match(/\d+/);
+      if (match) return match[0];
+      let cleaned = str.replace(/^(court|crt|score)\s*#?\s*/i, "").trim();
       return cleaned || "BYE";
     };
 
@@ -1901,7 +1895,7 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
 
     const currentWeek = calculateCurrentWeekNumber();
 
-    // 1. Read existing row data to preserve scores, check-in status, and prior court assignments
+    // 1. Read existing row data
     let existingData = sheet.getDataRange().getValues();
     let existingMap = {};
     if (existingData.length > 1) {
@@ -1944,7 +1938,6 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
     });
 
     // 3. Strict 4-Player Court Allocation
-    // Calculate maximum full courts allowed (NO court can have < 4 players)
     let numChecked = checkedInPlayers.length;
     let maxFullCourts = Math.min(Math.floor(numChecked / 4), availableCourts.length);
     let totalPlayingAllowed = maxFullCourts * 4;
@@ -1955,12 +1948,11 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
 
     let unassignedCheckedIn = [];
 
-    // Phase A: Lock in checked-in players who are ALREADY assigned to active courts
+    // Phase A: Lock in checked-in players ALREADY assigned to active courts (capped at 4 per court)
     checkedInPlayers.forEach(p => {
       let prevCourt = cleanCourtLabel(p.prev.court);
-      let hasScores = (p.prev.g1 !== "" || p.prev.g2 !== "" || p.prev.g3 !== "" || p.prev.total !== "" || p.prev.entered !== "");
 
-      if (activeCourts.includes(prevCourt) && (hasScores || courtAssignments[prevCourt].length < 4)) {
+      if (activeCourts.includes(prevCourt) && courtAssignments[prevCourt].length < 4) {
         courtAssignments[prevCourt].push(p);
         p.assignedCourt = prevCourt;
       } else {
@@ -1978,11 +1970,9 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
 
     if (unassignedCheckedIn.length > openSlotsNeeded) {
       if (alwaysByeBottom) {
-        // Bottom-ranked unassigned checked-in players receive BYE
         playersToAssign = unassignedCheckedIn.slice(0, openSlotsNeeded);
         playersForBye = unassignedCheckedIn.slice(openSlotsNeeded);
       } else {
-        // Randomly select openSlotsNeeded players from unassignedCheckedIn to play
         let copy = [...unassignedCheckedIn];
         let chosenSet = new Set();
         while (chosenSet.size < openSlotsNeeded && copy.length > 0) {
@@ -1990,7 +1980,6 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
           chosenSet.add(copy.splice(randIdx, 1)[0]);
         }
 
-        // Preserve rank order for those selected to fill open slots
         unassignedCheckedIn.forEach(p => {
           if (chosenSet.has(p)) {
             playersToAssign.push(p);
@@ -2000,7 +1989,6 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
         });
       }
     } else {
-      // Everyone unassigned fits into open court slots
       playersToAssign = [...unassignedCheckedIn];
     }
 
@@ -2013,8 +2001,8 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
       }
     });
 
-    // Remaining excess checked-in players get BYE
-    playersForBye.forEach(p => {
+    // Excess players receive BYE
+    playersToAssign.concat(playersForBye).forEach(p => {
       p.assignedCourt = "BYE";
     });
 
@@ -2023,7 +2011,15 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
       p.assignedCourt = "BYE";
     });
 
-    // 4. Construct output rows for Sched sheet & build player court lookup table
+    // Safety validation: Ensure no court has fewer than 4 players
+    activeCourts.forEach(c => {
+      if (courtAssignments[c].length < 4) {
+        courtAssignments[c].forEach(p => { p.assignedCourt = "BYE"; });
+        courtAssignments[c] = [];
+      }
+    });
+
+    // 4. Construct output rows for Sched sheet
     let headers = ["Player Name", "Court", "Check-In", "Game 1", "Game 2", "Game 3", "Total", "Entered"];
     let rows = [headers];
     let playerCourtLookup = {};
@@ -2040,7 +2036,7 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
 
       rows.push([
         p.name,
-        finalCourt, // Pure court number (e.g. "1", "2") or "BYE"
+        finalCourt,
         checkInVal,
         p.prev.g1,
         p.prev.g2,
@@ -2093,7 +2089,7 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
         const col = typeof buildColMap === 'function' ? buildColMap(scoreData[0]) : {};
 
         let courtIdx = col.court !== undefined ? col.court : scoreData[0].map(h => String(h || '').trim().toLowerCase()).findIndex(h => /court|crt/i.test(h));
-        if (courtIdx === -1) courtIdx = 3; // Index 3 = Column D
+        if (courtIdx === -1) courtIdx = 3;
 
         let courtValues = [];
         for (let r = 1; r < scoreData.length; r++) {
@@ -2104,17 +2100,14 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
 
           let assignedCourt = "";
 
-          // Match 1: Phone number (last 7 digits)
           if (rowPhone && rowPhone.length >= 7 && playerCourtLookup[rowPhone.slice(-7)]) {
             assignedCourt = playerCourtLookup[rowPhone.slice(-7)];
           }
 
-          // Match 2: Normalized Player Name
           if (!assignedCourt && normRowName && playerCourtLookup[normRowName]) {
             assignedCourt = playerCourtLookup[normRowName];
           }
 
-          // Fallback to "BYE" if not matched
           if (!assignedCourt) {
             assignedCourt = "BYE";
           }
@@ -2128,7 +2121,7 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
       }
     }
 
-    // 7. Flush cache so PWA UI reflects updated schedule & court assignments
+    // 7. Flush cache
     if (typeof CacheService !== 'undefined') {
       const cacheKey = typeof getCheckInCacheKey === 'function' ? getCheckInCacheKey(targetName) : null;
       if (cacheKey) CacheService.getScriptCache().remove(cacheKey);
@@ -2137,11 +2130,10 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
       CacheService.getScriptCache().remove(unifiedCacheKey);
     }
 
-    let numChecked = checkedInPlayers.length;
-    let activeCourtsCount = activeCourts.filter(c => courtAssignments[c].length > 0).length;
+    let activeCourtsCount = activeCourts.filter(c => courtAssignments[c] && courtAssignments[c].length === 4).length;
     let totalByes = rows.filter(r => r[1] === "BYE").length - 1;
 
-    return `✅ Rescheduled '${targetName}' (BYE mode: ${alwaysByeBottom ? 'Bottom Players' : 'Random'}) and synced courts to '${scoreSheetName}' (${numChecked} checked-in, ${activeCourtsCount} courts assigned, ${totalByes} BYEs).`;
+    return `✅ Rescheduled '${targetName}' (BYE mode: ${alwaysByeBottom ? 'Bottom Players' : 'Random'}) and synced courts to '${scoreSheetName}' (${numChecked} checked-in, ${activeCourtsCount} full courts assigned, ${totalByes} BYEs).`;
   });
 }
 
