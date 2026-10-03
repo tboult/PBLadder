@@ -2345,14 +2345,17 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
     let posColIdx = col.pos !== undefined ? col.pos : col.possible;
     let pctColIdx = col.pct !== undefined ? col.pct : col.winPct;
 
-      // Determine target week number
-      let weekNum;
-      if (forcedWeek !== null && forcedWeek !== undefined && forcedWeek !== "") {
-          let match = forcedWeek.toString().match(/\d+/);
-          weekNum = match ? parseInt(match[0], 10) : calculateCurrentWeekNumber();
-      } else {
-          weekNum = calculateCurrentWeekNumber();
-      }
+    // Determine target week number from forcedWeek or system date
+    let weekNum;
+    if (forcedWeek !== null && forcedWeek !== undefined && forcedWeek !== "") {
+      let match = forcedWeek.toString().match(/\d+/);
+      weekNum = match ? parseInt(match[0], 10) : calculateCurrentWeekNumber();
+    } else {
+      weekNum = calculateCurrentWeekNumber();
+    }
+
+    // Preserve forced target week so rank column (e.g. R10) is preserved
+    const targetWeekNum = weekNum;
 
     let targetWeekKey = "w" + weekNum;
     let targetWeekIdx = col[targetWeekKey];
@@ -2361,7 +2364,10 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
         if (col["w" + i] !== undefined) {
           targetWeekKey = "w" + i;
           targetWeekIdx = col["w" + i];
-          weekNum = i;
+          // FIX #1: Only update weekNum if forcedWeek was NOT explicitly passed
+          if (!forcedWeek) {
+            weekNum = i;
+          }
           break;
         }
       }
@@ -2369,9 +2375,20 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
 
     harvestScoresFromSchedules(ss, data, col, targetWeekIdx, cleanGroupName);
 
+    // FIX #3: Resolve target rank column with flexible header fallback (R10, R 10, Rank 10)
     let currRColIdx = col["r" + weekNum];
+    if (currRColIdx === undefined && typeof getColIdx === "function") {
+      currRColIdx = getColIdx(col, ["R" + weekNum, "r" + weekNum, "R " + weekNum, "Rank " + weekNum]);
+    }
+
     let prevRColIdx = col["r" + (weekNum - 1)];
+    if (prevRColIdx === undefined && weekNum > 1 && typeof getColIdx === "function") {
+      prevRColIdx = getColIdx(col, ["R" + (weekNum - 1), "r" + (weekNum - 1), "R " + (weekNum - 1)]);
+    }
+
     let rawRankColIdx = col.rawRankCol;
+    // FIX #2: Support both col.rNum and col.rnum
+    let rNumIdx = col.rNum !== undefined ? col.rNum : col.rnum;
 
     // Helper to safely parse rank values (strips both -R and -I suffixes)
     function safeParseRankVal(val) {
@@ -2534,11 +2551,13 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
       if (pctColIdx !== undefined) p.rowRaw[pctColIdx] = p.cumPct;
       if (col.status !== undefined) p.rowRaw[col.status] = "ACTIVE";
       if (rawRankColIdx !== undefined) p.rowRaw[rawRankColIdx] = p.rawRank;
-      if (currRColIdx !== undefined) p.rowRaw[currRColIdx] = p.rjStr ? "'" + p.rjStr.replace(/^'/, "") : "";
       
-      if (col.rNum !== undefined) {
+      // FIX #4: Omit leading quote since column gets set to Plain Text (@)
+      if (currRColIdx !== undefined) p.rowRaw[currRColIdx] = p.rjStr ? p.rjStr.replace(/^'/, "") : "";
+      
+      if (rNumIdx !== undefined) {
         let rNumPct = (p.cumPct * 100).toFixed(2);
-        p.rowRaw[col.rNum] = p.isRestricted ? (rNumPct + "R") : rNumPct;
+        p.rowRaw[rNumIdx] = p.isRestricted ? (rNumPct + "R") : rNumPct;
       }
     });
 
@@ -2558,9 +2577,9 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
       if (pctColIdx !== undefined) p.rowRaw[pctColIdx] = p.cumPct;
       if (col.status !== undefined) p.rowRaw[col.status] = "INACTIVE";
       if (rawRankColIdx !== undefined) p.rowRaw[rawRankColIdx] = "";
-      if (currRColIdx !== undefined) p.rowRaw[currRColIdx] = p.rjStr ? "'" + p.rjStr.replace(/^'/, "") : "";
+      if (currRColIdx !== undefined) p.rowRaw[currRColIdx] = p.rjStr ? p.rjStr.replace(/^'/, "") : "";
       
-      if (col.rNum !== undefined) p.rowRaw[col.rNum] = "";
+      if (rNumIdx !== undefined) p.rowRaw[rNumIdx] = "";
     });
 
     let finalRows = [headerRow];
