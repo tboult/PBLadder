@@ -1695,7 +1695,7 @@ function ScheduleAll(genTarget, courts) {
         let assignedCourt = "BYE";
 
         if (currentFoursome < availableCourts.length) {
-          assignedCourt = "Court " + availableCourts[currentFoursome];
+          assignedCourt =  availableCourts[currentFoursome];
         }
 
         courtLookup[cleanStr(pName)] = assignedCourt;
@@ -1840,7 +1840,7 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
     // 2. Fetch current list of players and determine check-in statuses
     let players = fetchPlayersFromSheet(targetName);
     let availableCourts = courts ? parseAndSortCourts(courts) : getCourtsForGroup(groupName);
-    let availableCourtNames = availableCourts.map(c => "Court " + c);
+    let availableCourtNames = availableCourts.map(c =>  c);
 
     let checkedInPlayers = [];
     let uncheckedPlayers = [];
