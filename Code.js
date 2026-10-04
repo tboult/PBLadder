@@ -784,6 +784,8 @@ function getRankingsAndSchedData(groupName) {
       let winIdx   = findColIdx(["Win %", "WinPct", "Win", "Pct", "Win Rate"]);
       let totalIdx = findColIdx(["Total Points", "TotalPoints", "Total", "Points", "Pts", "Tot", "Score"]);
 
+      html += `<h3 style="margin-top:1rem; background:#FFAAAAAA margin-bottom:0.5rem;"> Ranking CODE under REVISION-- this is probably  wrong --  check back later</h3>`;      
+        
       html += `<h4 style="margin-top:1.5rem;">Ladder Rankings</h4>
                <table class="data-table">
                  <thead>

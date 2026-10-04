@@ -1180,8 +1180,10 @@ function renderRankingsAndSchedule(data) {
   }
 
   const rankingsList = data.rankings || data.ranks || data.standings || data.players;
+    html += `<h3 style="margin-top:1rem; margin-bottom:0.5rem;">🏆 Ranking CODE Undet REVISION-- this may be wrong check back</h3>`;      
+
   if (rankingsList && Array.isArray(rankingsList) && rankingsList.length > 0) {
-    html += `<h3 style="margin-top:1rem; margin-bottom:0.5rem;">🏆 Current Rankings / Standings</h3>`;
+//      html += `<h3 style="margin-top:1rem; margin-bottom:0.5rem;">🏆 Current Rankings / Standings</h3>`;
     html += `
       <table class="data-table">
         <thead>
