@@ -700,31 +700,57 @@ function getRankingsAndSchedData(groupName) {
     let isWeekFinalized = Boolean(sheetWeekNum) && Boolean(activeWeekNum) && (sheetWeekNum === activeWeekNum);
 
     //TB hack for now
-    isWeekFinalized      =true;
+    isWeekFinalized = true;
     if (!isWeekFinalized) {
       html += `
         <div style="background:#fff3bf; color:#856404; border:1px solid #ffeeba; padding:12px; margin-bottom:15px; border-radius:6px; font-weight:bold; text-align:center;">
           ⏳ Schedule for this week not yet finalized. 
         </div>`;
-        hasData = true;
+      hasData = true;
     } else {
       let sData = schedSheet.getDataRange().getDisplayValues();
       if (sData && sData.length > 1) {
-        html += `<h4>Current Court Assignments</h4>
-                 <table class="data-table">
-                   <thead><tr><th>Player</th><th>Court</th></tr></thead>
-                   <tbody>`;
+        let validRows = [];
+        let hasAnyCourtAssigned = false;
 
+        // Check for player rows and determine if ANY court is assigned
         for (let r = 1; r < sData.length; r++) {
-          let pName = sData[r][0];
-          let court = sData[r][1];
+          let pName = String(sData[r][0] || "").trim();
+          let court = String(sData[r][1] || "").trim();
 
-          if (pName && pName !== "Player Name" && !String(pName).startsWith("---")) {
-            html += `<tr><td>${pName}</td><td>${court}</td></tr>`;
-            hasData = true;
+          if (pName && pName !== "Player Name" && !pName.startsWith("---") && !pName.toLowerCase().startsWith("time:")) {
+            validRows.push({ name: pName, court: court });
+            if (court !== "" && court.toUpperCase() !== "BYE" && court.toUpperCase() !== "NOSCHEDYET") {
+              hasAnyCourtAssigned = true;
+            }
           }
         }
-        html += `</tbody></table>`;
+
+        // Only render the table if at least one player has an assigned court
+        if (hasAnyCourtAssigned && validRows.length > 0) {
+          html += `<h4>Current Court Assignments</h4>
+                   <table class="data-table">
+                     <thead><tr><th>Player</th><th>Court</th></tr></thead>
+                     <tbody>`;
+
+          for (let row of validRows) {
+            html += `<tr><td>${row.name}</td><td>${row.court || "BYE"}</td></tr>`;
+          }
+          html += `</tbody></table>`;
+        } else {
+          // If no courts are assigned, show notice instead of table
+          html += `
+            <div style="background:#e3f2fd; color:#0c5460; border:1px solid #bee5eb; padding:12px; margin-bottom:15px; border-radius:6px; font-weight:bold; text-align:center;">
+              📅 No Schedule Yet, check back closer to start time
+            </div>`;
+        }
+        hasData = true;
+      } else {
+        html += `
+          <div style="background:#e3f2fd; color:#0c5460; border:1px solid #bee5eb; padding:12px; margin-bottom:15px; border-radius:6px; font-weight:bold; text-align:center;">
+            📅 No Schedule Yet, check back closer to start time
+          </div>`;
+        hasData = true;
       }
     }
   }
