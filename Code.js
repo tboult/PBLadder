@@ -176,7 +176,7 @@ function testfindfour() {
 
 
 function testgetRankingsAndSchedData() {
-    const restult=getRankingsAndSchedData("Mens")
+    const result=getRankingsAndSchedData("Mens")
      Logger.log("SUCCESS: " + JSON.stringify(result));
 }
 
