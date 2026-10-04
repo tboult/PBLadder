@@ -208,7 +208,6 @@ function testCheckbyPhone() {
     Logger.log("ERROR: " + err.toString());
   }
 }
-
 // Replace hardcoded boolean with a Script Property check
 function isLoggingEnabled() {
   const prop = PropertiesService.getScriptProperties().getProperty("ENABLE_LOGGING");
@@ -236,7 +235,6 @@ function logDebug(fnName, msg, extra = "") {
   // Goes straight to GAS Executions Log / Cloud Logging
   console.log(`[${new Date().toISOString()}] [${fnName}] ${msg} ${extraStr}`.trim());
 }
-
 
 
 
@@ -275,6 +273,7 @@ if (typeof logDebug === 'function') {
 
   return _dbInstance;
 }
+
 
 
 
@@ -3026,10 +3025,6 @@ function testWomensRankingsWeeks1To10() {
 
   return `✅ Test complete! Weeks 1–10 rankings processed and exported to 'RankTest' sheet. Backup saved to '${backupName}'.`;
 }
-
-
-
-function getDb(SHEET_ID) {
 
 
 
