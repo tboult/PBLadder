@@ -486,7 +486,7 @@ function findFoursomeByPhone(params, groupNameArg) {
       }
     }
 
-    if (!matchedSchedName || !targetCourt || targetCourt.toUpperCase() === "BYE") continue;
+    if (!matchedSchedName || !targetCourt || targetCourt.toUpperCase() === "BYE ") continue;
 
     // STEP 3: Gather all 4 players assigned to targetCourt
     const foursome = [];
@@ -3303,6 +3303,12 @@ function ensurePlayerCheckedIn(sheetName, targetPlayer) {
  * - Score Sheet: Points read/synced at Column E ("Pts")
  * - Returns player objects containing `score` property (returns "" if empty).
  */
+/**
+ * Unified function to get roster data with score sync and auto-register missing players.
+ * - Sched Sheet: Total score read/synced at Column G ("Total")
+ * - Score Sheet: Points read/synced at Column E ("Pts")
+ * - Returns player objects containing `score` property (returns "" if empty).
+ */
 function getUnifiedRoster(payload) {
   try {
     const payloadObj = payload || {};
@@ -3391,47 +3397,55 @@ function getUnifiedRoster(payload) {
     const scoreUpdates = []; // Collect cell updates for Score sheet (Col E)
     const schedUpdates = []; // Collect cell updates for Sched sheet (Col G)
 
+    let scoreHeaders = [];
+    let scoreFirstIdx = -1;
+    let scoreLastIdx = -1;
+    let scoreFullNameIdx = -1;
+    let scorePhoneIdx = -1;
+    let scoreActiveIdx = -1;
+    let scoreEmailIdx = -1;
+    let scorePtsIdx = 4; // Default to Column E (0-indexed 4)
+
     // 2. READ SCORE SHEET (Pts in Column E / Index 4)
     if (scoreSheet) {
       const scoreData = scoreSheet.getDataRange().getValues();
       if (scoreData.length > 0) {
-        const headers = scoreData[0].map(h => cleanStr(h).toLowerCase());
+        scoreHeaders = scoreData[0].map(h => cleanStr(h).toLowerCase());
 
-        const firstIdx = headers.findIndex(h => /\bfirst\b/i.test(h));
-        const lastIdx = headers.findIndex(h => /\blast\b/i.test(h));
-        const fullNameIdx = headers.findIndex(h => /(full\s*name|^name$\vert{}^player$|player\s*name)/i.test(h) && !/first|last/i.test(h));
-        const phoneIdx = headers.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
-        const activeIdx = headers.findIndex(h => /status|active/i.test(h));
-        const emailIdx = headers.findIndex(h => /email|mail/i.test(h));
+        scoreFirstIdx = scoreHeaders.findIndex(h => /\bfirst\b/i.test(h));
+        scoreLastIdx = scoreHeaders.findIndex(h => /\blast\b/i.test(h));
+        scoreFullNameIdx = scoreHeaders.findIndex(h => /(full\s*name|^name$\vert{}^player$|player\s*name)/i.test(h) && !/first|last/i.test(h));
+        scorePhoneIdx = scoreHeaders.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
+        scoreActiveIdx = scoreHeaders.findIndex(h => /status|active/i.test(h));
+        scoreEmailIdx = scoreHeaders.findIndex(h => /email|mail/i.test(h));
 
-        // Locate Column E (Pts)
-        let ptsIdx = headers.findIndex(h => /^pts$|^points$\vert{}^total$/i.test(h));
-        if (ptsIdx === -1) ptsIdx = 4;
+        const foundPtsIdx = scoreHeaders.findIndex(h => /^pts$|^points$\vert{}^total$/i.test(h));
+        if (foundPtsIdx !== -1) scorePtsIdx = foundPtsIdx;
 
         for (let r = 1; r < scoreData.length; r++) {
-          let fName = firstIdx !== -1 ? cleanStr(scoreData[r][firstIdx]) : "";
-          let lName = lastIdx !== -1 ? cleanStr(scoreData[r][lastIdx]) : "";
+          let fName = scoreFirstIdx !== -1 ? cleanStr(scoreData[r][scoreFirstIdx]) : "";
+          let lName = scoreLastIdx !== -1 ? cleanStr(scoreData[r][scoreLastIdx]) : "";
           let pName = "";
 
           if (fName || lName) {
             pName = `${fName} ${lName}`.trim();
           }
-          if (!pName && fullNameIdx !== -1) {
-            pName = cleanStr(scoreData[r][fullNameIdx]);
+          if (!pName && scoreFullNameIdx !== -1) {
+            pName = cleanStr(scoreData[r][scoreFullNameIdx]);
           }
           if (!pName) {
-            const anyNameIdx = headers.findIndex(h => /name|player/i.test(h));
+            const anyNameIdx = scoreHeaders.findIndex(h => /name|player/i.test(h));
             if (anyNameIdx !== -1) pName = cleanStr(scoreData[r][anyNameIdx]);
           }
 
           if (!pName) continue;
 
-          const cleanPhone = phoneIdx !== -1 ? cleanStr(scoreData[r][phoneIdx]).replace(/\D/g, "") : "";
-          const cleanEmail = emailIdx !== -1 ? cleanStr(scoreData[r][emailIdx]) : "";
+          const cleanPhone = scorePhoneIdx !== -1 ? cleanStr(scoreData[r][scorePhoneIdx]).replace(/\D/g, "") : "";
+          const cleanEmail = scoreEmailIdx !== -1 ? cleanStr(scoreData[r][scoreEmailIdx]) : "";
 
           let isActive = true;
-          if (activeIdx !== -1) {
-            const rawStatus = cleanStr(scoreData[r][activeIdx]).toUpperCase();
+          if (scoreActiveIdx !== -1) {
+            const rawStatus = cleanStr(scoreData[r][scoreActiveIdx]).toUpperCase();
             isActive = (rawStatus !== "INACTIVE" && rawStatus !== "FALSE");
           }
 
@@ -3442,7 +3456,7 @@ function getUnifiedRoster(payload) {
             phone: cleanPhone,
             email: cleanEmail,
             active: isActive,
-            score: cleanScore(scoreData[r][ptsIdx]),
+            score: cleanScore(scoreData[r][scorePtsIdx]),
             scoreRow: r + 1, // 1-based row index in Score Sheet
             used: false
           });
@@ -3484,7 +3498,7 @@ function getUnifiedRoster(payload) {
             ? isCheckInTrue(rawCheck)
             : ["x", "true", "yes", "1"].includes(cleanStr(rawCheck).toLowerCase());
 
-          const courtVal = courtIdx !== -1 ? cleanStr(schedData[r][courtIdx]) : "BYE";
+          const courtVal = courtIdx !== -1 ? cleanStr(schedData[r][courtIdx]) : "";
           const schedScore = cleanScore(schedData[r][totalIdx]);
 
           let match = null;
@@ -3508,9 +3522,7 @@ function getUnifiedRoster(payload) {
               // Sched Col G has value, Score Col E is empty -> Sync G -> E
               finalScore = schedScore;
               if (scoreSheet) {
-                let ptsIdx = scoreSheet.getDataRange().getValues()[0].map(h => cleanStr(h).toLowerCase()).findIndex(h => /^pts$|^points$\vert{}^total$/i.test(h));
-                if (ptsIdx === -1) ptsIdx = 4;
-                scoreUpdates.push({ row: match.scoreRow, col: ptsIdx + 1, val: schedScore });
+                scoreUpdates.push({ row: match.scoreRow, col: scorePtsIdx + 1, val: schedScore });
               }
             } else if (schedScore === "" && match.score !== "") {
               // Score Col E has value, Sched Col G is empty -> Sync E -> G
@@ -3520,7 +3532,7 @@ function getUnifiedRoster(payload) {
               // Both populated -> Use Sched Col G as current week total
               finalScore = schedScore;
             } else {
-              // Both empty -> return empty string ""
+              // Both empty
               finalScore = "";
             }
 
@@ -3546,27 +3558,18 @@ function getUnifiedRoster(payload) {
             });
 
             if (scoreSheet) {
-              const numCols = Math.max(scoreSheet.getLastColumn(), 5);
+              const numCols = Math.max(scoreSheet.getLastColumn(), scoreHeaders.length, 5);
               const newRow = new Array(numCols).fill("");
               const nameParts = splitName(pName);
 
-              const scoreHeaders = scoreSheet.getDataRange().getValues()[0].map(h => cleanStr(h).toLowerCase());
-              const firstIdx = scoreHeaders.findIndex(h => /\bfirst\b/i.test(h));
-              const lastIdx = scoreHeaders.findIndex(h => /\blast\b/i.test(h));
-              const fullNameIdx = scoreHeaders.findIndex(h => /(full\s*name|^name$\vert{}^player$|player\s*name)/i.test(h) && !/first|last/i.test(h));
-              const phoneIdx = scoreHeaders.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
-              const activeIdx = scoreHeaders.findIndex(h => /status|active/i.test(h));
-              let ptsIdx = scoreHeaders.findIndex(h => /^pts$|^points$\vert{}^total$/i.test(h));
-              if (ptsIdx === -1) ptsIdx = 4; // Column E
+              if (scoreFirstIdx !== -1) newRow[scoreFirstIdx] = nameParts.first;
+              if (scoreLastIdx !== -1) newRow[scoreLastIdx] = nameParts.last;
+              if (scoreFullNameIdx !== -1) newRow[scoreFullNameIdx] = pName;
+              if (scoreFirstIdx === -1 && scoreLastIdx === -1 && scoreFullNameIdx === -1) newRow[0] = pName;
 
-              if (firstIdx !== -1) newRow[firstIdx] = nameParts.first;
-              if (lastIdx !== -1) newRow[lastIdx] = nameParts.last;
-              if (fullNameIdx !== -1) newRow[fullNameIdx] = pName;
-              if (firstIdx === -1 && lastIdx === -1 && fullNameIdx === -1) newRow[0] = pName;
-
-              if (phoneIdx !== -1) newRow[phoneIdx] = schedPhone;
-              if (activeIdx !== -1) newRow[activeIdx] = "ACTIVE";
-              newRow[ptsIdx] = schedScore; // Syncs Col G value into Col E
+              if (scorePhoneIdx !== -1) newRow[scorePhoneIdx] = schedPhone;
+              if (scoreActiveIdx !== -1) newRow[scoreActiveIdx] = "ACTIVE";
+              newRow[scorePtsIdx] = schedScore; // Syncs Col G value into Col E
 
               newScoreRowsToAppend.push(newRow);
               syncedCount++;
@@ -3621,6 +3624,7 @@ function getUnifiedRoster(payload) {
     return { success: false, error: err.toString(), players: [] };
   }
 }
+
 
 
 
