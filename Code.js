@@ -4,14 +4,6 @@
 let _dbInstance = null;
 
 
-// Global utility map if not defined elsewhere
-function buildColMap(headers) {
-  let map = {};
-  for (let i = 0; i < headers.length; i++) {
-    if (headers[i]) map[headers[i].toString().toLowerCase()] = i;
-  }
-  return map;
-}
 
 
 /**
@@ -784,8 +776,8 @@ function getRankingsAndSchedData(groupName) {
       let winIdx   = findColIdx(["Win %", "WinPct", "Win", "Pct", "Win Rate"]);
       let totalIdx = findColIdx(["Total Points", "TotalPoints", "Total", "Points", "Pts", "Tot", "Score"]);
 
-        html += `<h2 style="margin-top:1rem; background:#FFAAAA; margin-bottom:1.5rem;"> Ranking CODE under REVISION-- this is probably  wrong --  check back later</h3>`;
-        html += `<h3 style="margin-top:1rem; background:#e3f2fd; margin-bottom:1.5rem;"> Ranking CODE under REVISION-- this is probably  wrong --  check back later</h3>`;
+        html += `<h1 style="margin-top:1rem; background:#FFAAAA; margin-bottom:1.5rem;"> Ranking CODE under REVISION-- this is probably  wrong --  check back later</h1>`;
+
 
         
       html += `<h4 style="margin-top:1.5rem;">Ladder Rankings</h4>
@@ -845,6 +837,7 @@ function getRankingsAndSchedData(groupName) {
       html += `</tbody></table>`;
     }
   }
+
 
   if (!hasData) {
     return { html: `<i>No published schedule or rankings found for '${cleanGroup}'.</i>` };
@@ -920,7 +913,6 @@ function doPost(e) { return handleApiRequest(e); }
 function handleApiRequest(e) {
   let requiresLock = false;
   let lock = null;
- logDebug("HandelApiRequest", "Request received", e.postData.contents);
   try {
     e = e || {};
     let urlParams = e.parameter || {};
@@ -1425,17 +1417,6 @@ function startNewSeason() {
   return `✅ New season started across ${clearedCount} score tabs! All weekly scores wiped. Week 1 is configured to begin Oct 4th.`;
 }
 
-function calculateCurrentWeekNumber() {
-  const props = PropertiesService.getDocumentProperties();
-  const startStr = props.getProperty('SEASON_START_DATE');
-  if (!startStr) return 10;
-  const startDate = new Date(startStr);
-  const now = new Date();
-  if (now < startDate) return 1;
-  const diffTime = Math.abs(now - startDate);
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-  return Math.floor(diffDays / 7) + 1;
-}
 
 function addNewUser(info) {
   if (!info.first || !info.last || !info.phone || !info.group) {
@@ -4381,4 +4362,78 @@ function batchUpdatePlayerScores(payload) {
   } catch (err) {
     return { success: false, error: err.toString() };
   }
+}
+
+/**
+ * Timer-triggered function to clear all check-ins and wipe schedule scores/data
+ * across all active Schedule tabs ("Sched Womens", "Sched Mens", "Sched Mixed", etc.).
+ *
+ * Designed to be run automatically on a Google Apps Script Time-Driven Trigger.
+ */
+function resetCheckInsAndSchedData() {
+  return executeWithLock(function() {
+    const ss = getDb();
+    const schedTabs = typeof getActiveScheduleTabs === 'function' 
+      ? getActiveScheduleTabs() 
+      : SCHEDULE_TABS;
+
+    let processedTabs = [];
+
+    schedTabs.forEach(tabName => {
+      const sheet = ss.getSheetByName(tabName);
+      if (!sheet) return;
+
+      const dataRange = sheet.getDataRange();
+      const data = dataRange.getValues();
+      if (data.length <= 1) return; // Header row only or empty
+
+      const headers = data[0].map(h => String(h || '').trim().toLowerCase());
+
+      // Locate target column indices dynamically
+      let checkInIdx = headers.findIndex(h => /check|x/i.test(h));
+      if (checkInIdx === -1 && headers.length >= 3) checkInIdx = 2; // Default Col C (index 2)
+
+      let g1Idx = headers.findIndex(h => /game\s*1|g1/i.test(h));
+      let g2Idx = headers.findIndex(h => /game\s*2|g2/i.test(h));
+      let g3Idx = headers.findIndex(h => /game\s*3|g3/i.test(h));
+      let totIdx = headers.findIndex(h => /total|tot/i.test(h));
+      let enteredIdx = headers.findIndex(h => /entered|submitted|by/i.test(h));
+
+      // Clear data for every row (skip header)
+      for (let r = 1; r < data.length; r++) {
+        if (checkInIdx !== -1) data[r][checkInIdx] = "";
+        if (g1Idx !== -1) data[r][g1Idx] = "";
+        if (g2Idx !== -1) data[r][g2Idx] = "";
+        if (g3Idx !== -1) data[r][g3Idx] = "";
+        if (totIdx !== -1) data[r][totIdx] = "";
+        if (enteredIdx !== -1) data[r][enteredIdx] = "";
+      }
+
+      // Write updated grid back to sheet in a single batch call
+      dataRange.setValues(data);
+
+      // Invalidate relevant cache entries
+      if (typeof CacheService !== 'undefined') {
+        try {
+          const cache = CacheService.getScriptCache();
+          const cleanGroup = tabName.replace(/^Sched\s*/i, "").trim();
+          cache.removeAll([
+            `checkin_cache_${tabName}`,
+            `checkin_cache_Sched_${cleanGroup}`,
+            `SCHEDULE_${cleanGroup}`,
+            `UNIFIED_ROSTER_CACHE_${cleanGroup.toUpperCase()}`,
+            `APP_INIT_DATA`
+          ]);
+        } catch (cErr) {
+          logDebug("resetCheckInsAndSchedData", "Cache clear warning", cErr.message);
+        }
+      }
+
+      processedTabs.push(tabName);
+    });
+
+    const msg = `Cleared check-ins and schedule sheet data for: ${processedTabs.join(", ")}.`;
+    logDebug("resetCheckInsAndSchedData", msg);
+    return { success: true, message: msg };
+  });
 }
