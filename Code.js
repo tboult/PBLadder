@@ -241,7 +241,7 @@ function logDebug(fnName, msg, extra = "") {
 
 
 
-
+function getDb(SHEET_ID) {
   if (_dbInstance) return _dbInstance;
 
   // 1. Resolve sheetId cleanly in the outer function scope
@@ -275,6 +275,7 @@ if (typeof logDebug === 'function') {
 
   return _dbInstance;
 }
+
 
 
 
