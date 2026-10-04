@@ -3309,6 +3309,13 @@ function ensurePlayerCheckedIn(sheetName, targetPlayer) {
  * - Score Sheet: Points read/synced at Column E ("Pts")
  * - Returns player objects containing `score` property (returns "" if empty).
  */
+/**
+ * Unified function to get roster data with score sync and auto-register missing players.
+ * - Sched Sheet: Total score read/synced at Column G ("Total")
+ * - Score Sheet: Points read/synced at Column E ("Pts")
+ * - Returns player objects containing `score` property (returns "" if empty).
+ * - Court status: "NoSchedYet" if no courts are assigned anywhere; "BYE" for unscheduled players once a schedule exists.
+ */
 function getUnifiedRoster(payload) {
   try {
     const payloadObj = payload || {};
@@ -3484,6 +3491,22 @@ function getUnifiedRoster(payload) {
         let totalIdx = headers.findIndex(h => /^total$|^pts$\vert{}^score$/i.test(h));
         if (totalIdx === -1) totalIdx = 6;
 
+        // Check if ANY valid player row currently has an assigned court
+        let hasAnyCourtAssigned = false;
+        if (courtIdx !== -1) {
+          for (let r = 1; r < schedData.length; r++) {
+            const pName = cleanStr(schedData[r][nameIdx]);
+            if (!pName || pName.startsWith("---") || pName.toLowerCase().startsWith("time:")) continue;
+            if (cleanStr(schedData[r][courtIdx]) !== "") {
+              hasAnyCourtAssigned = true;
+              break;
+            }
+          }
+        }
+
+        // Standard fallback label depending on schedule state
+        const fallbackCourt = hasAnyCourtAssigned ? "BYE" : "NoSchedYet";
+
         for (let r = 1; r < schedData.length; r++) {
           const pName = cleanStr(schedData[r][nameIdx]);
           if (!pName || pName.startsWith("---") || pName.toLowerCase().startsWith("time:")) continue;
@@ -3498,7 +3521,8 @@ function getUnifiedRoster(payload) {
             ? isCheckInTrue(rawCheck)
             : ["x", "true", "yes", "1"].includes(cleanStr(rawCheck).toLowerCase());
 
-          const courtVal = courtIdx !== -1 ? cleanStr(schedData[r][courtIdx]) : "";
+          const rawCourt = courtIdx !== -1 ? cleanStr(schedData[r][courtIdx]) : "";
+          const courtVal = rawCourt || fallbackCourt;
           const schedScore = cleanScore(schedData[r][totalIdx]);
 
           let match = null;
@@ -3542,7 +3566,7 @@ function getUnifiedRoster(payload) {
               email: match.email,
               active: match.active,
               checkedIn: isCheckedIn,
-              court: courtVal || "BYE",
+              court: courtVal,
               score: finalScore
             });
           } else {
@@ -3553,7 +3577,7 @@ function getUnifiedRoster(payload) {
               email: "",
               active: true,
               checkedIn: isCheckedIn,
-              court: courtVal || "BYE",
+              court: courtVal,
               score: schedScore // Returns "" if schedScore is empty
             });
 
@@ -3589,7 +3613,11 @@ function getUnifiedRoster(payload) {
       scoreSheet.getRange(startRow, 1, newScoreRowsToAppend.length, newScoreRowsToAppend[0].length).setValues(newScoreRowsToAppend);
     }
 
-    // 4. ADD UNASSIGNED SCORE SHEET PLAYERS (BYE)
+    // 4. ADD UNASSIGNED SCORE SHEET PLAYERS
+    const fallbackCourtForUnassigned = (schedSheet && finalRoster.some(p => p.court && p.court !== "BYE" && p.court !== "NoSchedYet")) 
+      ? "BYE" 
+      : "NoSchedYet";
+
     scorePlayers.forEach(sp => {
       if (!sp.used) {
         finalRoster.push({
@@ -3598,7 +3626,7 @@ function getUnifiedRoster(payload) {
           email: sp.email,
           active: sp.active,
           checkedIn: false,
-          court: "BYE",
+          court: fallbackCourtForUnassigned,
           score: sp.score
         });
       }
