@@ -353,6 +353,29 @@ function logAllCachedValues() {
 }
 
 
+/**
+ * Call this whenever you want to return DB info/status to the frontend
+ */
+function getDbSummary() {
+  const db = getDb();
+  
+  return {
+    id: db.getId(),
+    name: db.getName(),
+    source: db._debugSource,
+    loadedAt: db._debugLoadedAt,
+    fromCache: db._debugFromCache
+  };
+}
+
+google.script.run
+  .withSuccessHandler(function(dbSummary) {
+    console.log("Sheet Name:", dbSummary.name);
+    console.log("Loaded At:", dbSummary.loadedAt);
+    console.log("Was Cached in Warm Container?:", dbSummary.fromCache);
+  })
+  .getDbSummary();
+
 // ==========================================
 // MASTER INITIALIZER ON DOM LOAD
 // ==========================================
@@ -360,6 +383,22 @@ document.addEventListener("DOMContentLoaded", async function () {
   console.log("🚀 Initializing Application...");
 
   let lastCheckedPhone = "";
+
+  console.log(`Trying to load but ignoring requested sheet : "${SHEET_ID}"...`);    
+  if (typeof SHEET_ID !== 'undefined' && SHEET_ID) {
+    try {
+        //const res = await apiCall('getdb', { sheetid: SHEET_ID });
+      const res = await apiCall('getdb');        
+      if (res && (!res.message?.toLowerCase().includes("error"))) {
+        console.log(`Loaded DB from sheet : "${SHEET_ID}"...`);
+      } else {
+        console.log(`Loaded DB from default as sheetID empty...`);
+      }
+    } catch (err) {
+      console.warn("⚠️ API Call 'getdb' failed during startup:", err);
+    }
+  }
+    
 
   console.log(`Trying to load from sheet : "${SHEET_ID}"...`);    
   if (typeof SHEET_ID !== 'undefined' && SHEET_ID) {
@@ -374,6 +413,7 @@ document.addEventListener("DOMContentLoaded", async function () {
       console.warn("⚠️ API Call 'getdb' failed during startup:", err);
     }
   }
+    
 
   if (typeof logAllCachedValues === "function") {
     logAllCachedValues();

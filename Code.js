@@ -245,13 +245,23 @@ function getDb(SHEET_ID) {
   if (_dbInstance && SHEET_ID && _dbInstance.getId() !== SHEET_ID) {
     _dbInstance = null;
   }
-  if (_dbInstance) return _dbInstance;
+    if (_dbInstance) {
+        _dbInstance._debugFromCache = true;        
+        return _dbInstance;
+    }
 
 
   // 1. Resolve sheetId cleanly in the outer function scope
   const sheetId = PropertiesService.getScriptProperties().getProperty("SHEET_ID") || SHEET_ID;
+    if (sheetId) {
+        _dbInstance = SpreadsheetApp.openById(sheetId);
 
-if (typeof logDebug === 'function') {
+    
+    // Attach dynamic tracking variables to the spreadsheet object itself
+    _dbInstance._debugLoadedAt = new Date().toLocaleTimeString();
+    _dbInstance._debugFromCache = false;
+
+        if (typeof logDebug === 'function') {
         logDebug("getDb", "Truig to  opening by Sheet ID", SHEET_ID);
         logDebug("getDb", " Or ", PropertiesService.getScriptProperties().getProperty("SHEET_ID"));
       }
@@ -259,6 +269,7 @@ if (typeof logDebug === 'function') {
   if (sheetId) {
     try {
       _dbInstance = SpreadsheetApp.openById(sheetId);
+        _dbInstance._debugSource = "SHEET_ID_PROP";
        if (typeof logDebug === 'function') {
         logDebug("getDb", "Success opening by Sheet ID", sheetId);
       }
@@ -269,9 +280,11 @@ if (typeof logDebug === 'function') {
       }
     }
   }
-
-  // 3. Fallback to container-bound active spreadsheet
-  _dbInstance = SpreadsheetApp.getActiveSpreadsheet();
+  } else {
+      // 3. Fallback to container-bound active spreadsheet
+      _dbInstance = SpreadsheetApp.getActiveSpreadsheet()
+      _dbInstance._debugSource = "ACTIVE_BOUND";    ;
+  }
   
   if (!_dbInstance) {
     throw new Error("Missing 'SHEET_ID' in Script Properties and no active spreadsheet found.");
