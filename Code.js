@@ -717,7 +717,7 @@ function getRankingsAndSchedData(groupName) {
 
         for (let r = 1; r < sData.length; r++) {
           let pName = sData[r][0];
-          let court = sData[r][1] || 'BYE';
+          let court = sData[r][1];
 
           if (pName && pName !== "Player Name" && !String(pName).startsWith("---")) {
             html += `<tr><td>${pName}</td><td>${court}</td></tr>`;
