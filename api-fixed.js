@@ -356,16 +356,11 @@ function logAllCachedValues() {
 /**
  * Call this whenever you want to return DB info/status to the frontend
  */
-function getDbSummary() {
-  const db = getDb();
-  
-  return {
-    id: db.getId(),
-    name: db.getName(),
-    source: db._debugSource,
-    loadedAt: db._debugLoadedAt,
-    fromCache: db._debugFromCache
-  };
+function printDbSummary() {
+    console.log("name:", db.getName());
+    console.log("    source:", db._debugSource);
+    console.log("    loadedAt:", db._debugLoadedAt);
+    console.log("    fromCache:", db._debugFromCach);
 }
 
 google.script.run
@@ -398,22 +393,7 @@ document.addEventListener("DOMContentLoaded", async function () {
       console.warn("⚠️ API Call 'getdb' failed during startup:", err);
     }
   }
-    
-
-  console.log(`Trying to load from sheet : "${SHEET_ID}"...`);    
-  if (typeof SHEET_ID !== 'undefined' && SHEET_ID) {
-    try {
-      const res = await apiCall('getdb', { sheetid: SHEET_ID });
-      if (res && (!res.message?.toLowerCase().includes("error"))) {
-        console.log(`Loaded DB from sheet : "${SHEET_ID}"...`);
-      } else {
-        console.log(`Loaded DB from default as sheetID empty...`);
-      }
-    } catch (err) {
-      console.warn("⚠️ API Call 'getdb' failed during startup:", err);
-    }
-  }
-    
+    printDbSummary()    ;
 
   if (typeof logAllCachedValues === "function") {
     logAllCachedValues();
