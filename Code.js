@@ -240,10 +240,16 @@ function logDebug(fnName, msg, extra = "") {
 
 
 function getDb(SHEET_ID) {
+    
+ // If an explicit SHEET_ID is provided and differs, clear cached instance
+  if (_dbInstance && SHEET_ID && _dbInstance.getId() !== SHEET_ID) {
+    _dbInstance = null;
+  }
   if (_dbInstance) return _dbInstance;
 
+
   // 1. Resolve sheetId cleanly in the outer function scope
-  const sheetId = SHEET_ID || PropertiesService.getScriptProperties().getProperty("SHEET_ID");
+  const sheetId = PropertiesService.getScriptProperties().getProperty("SHEET_ID") || SHEET_ID;
 
 if (typeof logDebug === 'function') {
         logDebug("getDb", "Truig to  opening by Sheet ID", SHEET_ID);
