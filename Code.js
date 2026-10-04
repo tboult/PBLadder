@@ -2993,6 +2993,44 @@ function testWomensRankingsWeeks1To10() {
 
 
 
+function getDb(SHEET_ID) {
+  if (_dbInstance) return _dbInstance;
+
+  // 1. Resolve sheetId cleanly in the outer function scope
+  const sheetId = SHEET_ID || PropertiesService.getScriptProperties().getProperty("SHEET_ID");
+
+if (typeof logDebug === 'function') {
+        logDebug("getDb", "Truig to  opening by Sheet ID", SHEET_ID);
+        logDebug("getDb", " Or ", PropertiesService.getScriptProperties().getProperty("SHEET_ID"));
+      }
+  // 2. Try opening by ID if an ID exists
+  if (sheetId) {
+    try {
+      _dbInstance = SpreadsheetApp.openById(sheetId);
+       if (typeof logDebug === 'function') {
+        logDebug("getDb", "Success opening by Sheet ID", sheetId);
+      }
+      return _dbInstance;
+    } catch (e) {
+      if (typeof logDebug === 'function') {
+        logDebug("getDb", "Error opening by Sheet ID, falling back to active", e.message);
+      }
+    }
+  }
+
+  // 3. Fallback to container-bound active spreadsheet
+  _dbInstance = SpreadsheetApp.getActiveSpreadsheet();
+  
+  if (!_dbInstance) {
+    throw new Error("Missing 'SHEET_ID' in Script Properties and no active spreadsheet found.");
+  }
+
+  return _dbInstance;
+}
+
+
+
+
 
 
 
