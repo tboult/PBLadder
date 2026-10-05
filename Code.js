@@ -274,8 +274,8 @@ function getDb(SHEET_ID) {
   }
   } else {
       // 3. Fallback to container-bound active spreadsheet
-      _dbInstance = SpreadsheetApp.getActiveSpreadsheet()
-      _dbInstance._debugSource = "ACTIVE_BOUND";    ;
+      //_dbInstance = SpreadsheetApp.getActiveSpreadsheet()
+      _dbInstance._debugSource = "Wanted to bind active ACTIVE_BOUND";    ;
       _dbInstance._debugLoadedAt = new Date().toLocaleTimeString();      
   }
   
