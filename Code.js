@@ -239,7 +239,6 @@ function logDebug(fnName, msg, extra = "") {
 
 
 // Global tracking variables
-let _dbInstance = null;
 let _dbMeta = {
   source: "UNINITIALIZED",
   loadedAt: null,
