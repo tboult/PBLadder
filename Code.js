@@ -959,6 +959,8 @@ function doPost(e) { return handleApiRequest(e); }
 function handleApiRequest(e) {
   let requiresLock = false;
   let lock = null;
+  let hasLock = false; // Track if lock was actually acquired
+
   try {
     e = e || {};
     let urlParams = e.parameter || {};
@@ -977,7 +979,14 @@ function handleApiRequest(e) {
     if (payload.payload && typeof payload.payload === 'object') {
       payload = Object.assign({}, payload, payload.payload);
     }
+    
+    // Resolve sheet ID cleanly across variations
     const sheetId = payload ? (payload.sheetid || payload.SHEET_ID) : null;
+
+    // CRITICAL: Initialize / switch database to requested sheet before executing actions
+    if (typeof getDb === 'function') {
+      getDb(sheetId);
+    }
       
     let rawAction = urlParams.action || bodyParams.action || payload.action || "";
     let action = String(rawAction)
@@ -986,19 +995,19 @@ function handleApiRequest(e) {
 
     if (!action) throw new Error("Invalid or missing API action");
 
-      const WRITE_ACTIONS = [
-          'sortActivePlayers', 'sortActivePlayersForSheet', 'generateScheduleTabs',
-          'updateStandingsWithShift', 'correctScoresNoShift', 'processWeeklyScoresForSheet',
-          'toggleSingleCheckIn', 'checkInPlayer', 'CheckInPlayer', 'saveCheckIns', 
-          'toggleUnifiedActiveStatus', 'submitCourtScores', 'submitScores', 'addNewUser', 
-          'registerPlayer', 'rescheduleFromCheckIns', 'startNewSeason', 'createTestGroupSheets',
-          'setTestGroupState', 'updatePlayerScore'
-      ];
+    const WRITE_ACTIONS = [
+      'sortActivePlayers', 'sortActivePlayersForSheet', 'generateScheduleTabs',
+      'updateStandingsWithShift', 'correctScoresNoShift', 'processWeeklyScoresForSheet',
+      'toggleSingleCheckIn', 'checkInPlayer', 'CheckInPlayer', 'saveCheckIns', 
+      'toggleUnifiedActiveStatus', 'submitCourtScores', 'submitScores', 'addNewUser', 
+      'registerPlayer', 'rescheduleFromCheckIns', 'startNewSeason', 'createTestGroupSheets',
+      'setTestGroupState', 'updatePlayerScore'
+    ];
 
     requiresLock = WRITE_ACTIONS.indexOf(action) !== -1;
     if (requiresLock) {
       lock = LockService.getScriptLock();
-      const hasLock = lock.tryLock(10000);
+      hasLock = lock.tryLock(10000);
       if (!hasLock) {
         return ContentService.createTextOutput(JSON.stringify({ 
           status: "error", 
@@ -1008,31 +1017,24 @@ function handleApiRequest(e) {
     }
 
     let result;
-      switch(action) {
-
+    switch(action) {
 
       case 'getdb':
-              // Return plain metadata object, NOT the Spreadsheet host object
-              const summary = getDbSummary(payload.sheetid);
-              return ContentService
-                  .createTextOutput(JSON.stringify(summary))
-                  .setMimeType(ContentService.MimeType.JSON);
-          break;
+        result = getDbSummary(sheetId);
+        break;
         
-      case 'getInitialAppData':
-        // Resolve nested payload object if frontend passes data as { payload: { phone: "...", group: "..." } }
-        var actualPayload = (payload.payload && typeof payload.payload === 'object') ? payload.payload : payload;
-        var userPhone = actualPayload.phone || payload.phone || null;
-        var groupName = actualPayload.groupName || actualPayload.group || payload.groupName || payload.group || '';
+      case 'getInitialAppData': {
+        const userPhone = payload.phone || null;
+        const groupName = payload.groupName || payload.group || '';
 
-        var initData = getInitialAppData(userPhone) || {};
+        let initData = getInitialAppData(userPhone) || {};
         initData.checkInPlayers = initData.checkInPlayers || [];
 
         // Ignore 'N/A' placeholder values from initial load
         if (groupName && groupName.toUpperCase() !== 'N/A') {
           try {
-              var targetSheet = "Sched " + String(groupName).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
-            var rosterData = getUnifiedRoster({ group: targetSheet });
+            const targetSheet = "Sched " + String(groupName).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
+            const rosterData = getUnifiedRoster({ group: targetSheet });
             if (rosterData && rosterData.success && Array.isArray(rosterData.players) && rosterData.players.length > 0) {
               initData.checkInPlayers = rosterData.players;
             }
@@ -1042,17 +1044,17 @@ function handleApiRequest(e) {
         }
         result = initData;
         break;
+      }
 
-    case 'getActiveGroups':
+      case 'getActiveGroups':
         result = { success: true, groups: getActiveGroups() };
         break;
 
-        
-    case 'createTestGroupSheets':
+      case 'createTestGroupSheets':
         result = createTestGroupSheets();
         break;
 
-    case 'setTestGroupState':
+      case 'setTestGroupState':
         result = setTestGroupState(payload.enabled === true || payload.enabled === 'true');
         break;        
 
@@ -1071,28 +1073,28 @@ function handleApiRequest(e) {
         break;
 
       case 'processWeeklyScoresForSheet':
-          result = processWeeklyScoresForSheet(
-              getValidActiveScoreSheet(payload.group || payload.groupName || payload.arg),
-              payload.weekCol || payload.week || null,
-              payload.shift !== undefined ? payload.shift : true
-          );
-          break;
+        result = processWeeklyScoresForSheet(
+          getValidActiveScoreSheet(payload.group || payload.groupName || payload.arg),
+          payload.weekCol || payload.week || null,
+          payload.shift !== undefined ? payload.shift : true
+        );
+        break;
 
       case 'updateStandingsWithShift':
-          result = processWeeklyScoresForSheet(
-              getValidActiveScoreSheet(payload.arg || payload.group || payload.groupName),
-              payload.weekCol || payload.week || null,
-              true
-          );
-          break;
+        result = processWeeklyScoresForSheet(
+          getValidActiveScoreSheet(payload.arg || payload.group || payload.groupName),
+          payload.weekCol || payload.week || null,
+          true
+        );
+        break;
 
       case 'correctScoresNoShift':
-          result = processWeeklyScoresForSheet(
-              getValidActiveScoreSheet(payload.arg || payload.group || payload.groupName),
-              payload.weekCol || payload.week || null,
-              false
-          );
-          break;
+        result = processWeeklyScoresForSheet(
+          getValidActiveScoreSheet(payload.arg || payload.group || payload.groupName),
+          payload.weekCol || payload.week || null,
+          false
+        );
+        break;
 
       case 'getSchedTabNames':
         result = getSchedTabNames();
@@ -1181,27 +1183,33 @@ function handleApiRequest(e) {
         break;
 
       case 'findPlayerAcrossGroups':
-        return findPlayerAcrossGroups(payload.phone || payload.targetPlayer);        
+        // FIX: Assign to result instead of raw return
+        result = findPlayerAcrossGroups(payload.phone || payload.targetPlayer);        
+        break;
 
       case 'batchUpdatePlayerScores':
-          result = batchUpdatePlayerScores(payload);
-          break;
+        result = batchUpdatePlayerScores(payload);
+        break;
         
       default:
         throw new Error("Invalid or missing API action: " + action);
     }
 
-    return ContentService.createTextOutput(JSON.stringify({ status: "success", data: result }))
+    return ContentService
+      .createTextOutput(JSON.stringify({ status: "success", data: result }))
       .setMimeType(ContentService.MimeType.JSON);
 
   } catch(err) {
-    return ContentService.createTextOutput(JSON.stringify({ 
-      status: "error", 
-      message: err.toString() + (err.stack ? " | Stack: " + err.stack : "") 
-    })).setMimeType(ContentService.MimeType.JSON);
+    return ContentService
+      .createTextOutput(JSON.stringify({ 
+        status: "error", 
+        message: err.toString() + (err.stack ? " | Stack: " + err.stack : "") 
+      }))
+      .setMimeType(ContentService.MimeType.JSON);
 
   } finally {
-    if (requiresLock && lock) {
+    // FIX: Only release lock if it was acquired
+    if (requiresLock && hasLock && lock) {
       try { lock.releaseLock(); } catch(e) {}
     }
   }
