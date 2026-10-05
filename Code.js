@@ -271,7 +271,7 @@ function getDb(SHEET_ID) {
     try {
       _dbInstance = SpreadsheetApp.openById(sheetId);
 //        _dbMeta.source = SHEET_ID ? "EXPLICIT_PARAM" : "SCRIPT_PROPERTIES";
-      _dbMeta.source = propId ? "EXPLICIT_PARAM" : "SCRIPT_PROPERTIES";        
+        _dbMeta.source = propId ?  "SCRIPT_PROPERTIES": "EXPLICIT_PARAM" ;        
       
       if (typeof logDebug === 'function') {
         logDebug("getDb", `Opened by ${_dbMeta.source}`, sheetId);
