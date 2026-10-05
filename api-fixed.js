@@ -390,10 +390,10 @@ let lastCheckedPhone = "";
       const res = await apiCall('getdb', { sheetid: SHEET_ID }); 
 
       if (res && (!res.message?.toLowerCase().includes("error"))) {
-        console.log(`✅ Loaded DB successfully.`);
+          console.log(`✅ Loaded requesed DB successfully.`,res);
         printDbSummary(res);
       } else {
-        console.log(`⚠️ Loaded DB fallback (explicit ID was invalid or ignored):`);
+          console.log(`⚠️ Loaded DB fallback (explicit ID was invalid or ignored):`,res);
         if (res) printDbSummary(res); // <--- Added so you still see what sheet was loaded
       }
     } catch (err) {

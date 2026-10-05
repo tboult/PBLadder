@@ -1015,7 +1015,6 @@ function handleApiRequest(e) {
               return ContentService
                   .createTextOutput(JSON.stringify(summary))
                   .setMimeType(ContentService.MimeType.JSON);
-          }
           break;
         
       case 'getInitialAppData':
