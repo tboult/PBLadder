@@ -922,13 +922,14 @@ async function submitUserRegistration() {
     return '';
   };
 
-  // 1. READ FIELD VALUES (Checks frontReg IDs first)
+  // 1. READ FIELD VALUES
   const first = getInputValue('frontRegFirst', 'regFirst');
   const last = getInputValue('frontRegLast', 'regLast');
   const phone = getInputValue('frontRegPhone', 'regPhone');
   const email = getInputValue('frontRegEmail', 'regEmail');
+  const comment = getInputValue('frontRegComment', 'regComment', 'userComment');
 
-  // 2. READ GROUP FROM TOP SELECTOR OR SAVED LOCAL STORAGE
+  // 2. READ GROUP FROM SELECTOR OR LOCAL STORAGE
   const topGroupSelect = document.getElementById('groupSelect') || 
                          document.getElementById('groupDropdown') || 
                          document.getElementById('adminGroupSelect');
@@ -936,8 +937,8 @@ async function submitUserRegistration() {
   const group = (typeof getSavedGroup === 'function' ? getSavedGroup() : '') || 
                 (topGroupSelect ? topGroupSelect.value : '');
 
-  // LOG VALUES TO CONSOLE FOR EASY DEBUGGING
-  console.log("🔍 Registration Attempt Values:", { first, last, phone, email, group });
+  // Log values for easy debugging
+  console.log("🔍 Registration Attempt Values:", { first, last, phone, email, group, comment });
 
   // 3. VALIDATE GROUP SELECTION
   if (!group) {
@@ -952,7 +953,7 @@ async function submitUserRegistration() {
     if (!last) missing.push("Last Name");
     if (!phone) missing.push("Phone Number");
 
-    alert(`⚠️ Please fill out: ${missing.join(', ')}`);
+    alert(`⚠️ Please fill out required field(s): ${missing.join(', ')}`);
     return;
   }
 
@@ -962,31 +963,43 @@ async function submitUserRegistration() {
   try {
     document.body.style.cursor = 'wait';
 
+    // Call backend Apps Script
     const res = await apiCall('addNewUser', { 
       first, 
       last, 
       phone, 
       email, 
-      group: group,
-      groupName: group,
-      sheet: "Sched " + group
+      group,
+      comment
     });
 
-    if (res && (res.success || !res.error)) {
-      alert(`✅ Registration submitted for ${first} ${last}! You are registered as Pending in group '${group}'.`);
+    // Clean up response string (handle both raw string or object responses)
+    const responseMsg = typeof res === 'string' ? res : (res.message || res.result || JSON.stringify(res));
 
-      // Clear input fields
-      ['frontRegFirst', 'regFirst', 'frontRegLast', 'regLast', 'frontRegPhone', 'regPhone', 'frontRegEmail', 'regEmail'].forEach(id => {
+    // Evaluate response type from backend message prefix
+    const isError = responseMsg.toLowerCase().startsWith('error') || (res && res.error);
+    const isNotice = responseMsg.includes('⚠️ Notice:');
+    const isSuccess = responseMsg.includes('✅ Success:');
+
+    if (isError) {
+      alert(`❌ Registration failed:\n\n${responseMsg}`);
+      if (statusEl) statusEl.innerText = '❌ Registration failed.';
+    } else if (isNotice) {
+      // Handles duplicate player or potential match updates
+      alert(responseMsg);
+      if (statusEl) statusEl.innerText = responseMsg;
+    } else if (isSuccess || responseMsg) {
+      // Handles new successful addition
+      alert(responseMsg);
+
+      // Clear input fields on success
+      ['frontRegFirst', 'regFirst', 'frontRegLast', 'regLast', 'frontRegPhone', 'regPhone', 'frontRegEmail', 'regEmail', 'frontRegComment', 'regComment'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.value = '';
       });
 
       if (typeof cancelRegistration === 'function') cancelRegistration();
       if (statusEl) statusEl.innerText = '✅ Registration complete!';
-    } else {
-      const errMsg = (typeof res === 'string' ? res : res.message) || 'Error submitting registration';
-      alert('❌ Registration failed: ' + errMsg);
-      if (statusEl) statusEl.innerText = '❌ Registration failed: ' + errMsg;
     }
   } catch (err) {
     console.error("Error submitting registration:", err);
