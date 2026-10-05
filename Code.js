@@ -51,7 +51,7 @@ const MAX_POINTS_PER_WEEK = 45;
 const ALWAYS_BYE_BOTTOM = true;
 
 const GROUP_COURT_MAP = {
-  "Womens": [3, 4, 5, 6, 7, 8, 15, 16, 17, 18, 19, 20],
+    "Womens": [3, 4, 5, 6, 7, 8, 11,12,13,14,15, 16, 17, 18, 19, 20],
   "Mens": [5, 6, 9, 10, 13, 14, 15, 16],
   "Mixed": [3, 4, 5, 6, 7, 8, 15, 16, 17, 18, 19, 20],
   "TG": [1, 2, 3, 4],
