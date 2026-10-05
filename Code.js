@@ -1994,15 +1994,16 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
     const ss = getDb();
     const cleanP = (p) => String(p || '').replace(/\D/g, '');
     
-    // Bulletproof court label helper: extracts pure digit string ("Court 5" -> "5") or returns "BYE"
+    // Bulletproof court label helper: extracts pure digit string ("Court 5" -> "5"), "BYE", or ""
     const cleanCourtLabel = (c) => {
-      if (!c) return "BYE";
+      if (c === null || c === undefined) return "";
       let str = String(c).trim();
-      if (!str || str.toUpperCase() === "BYE") return "BYE";
+      if (!str) return "";
+      if (str.toUpperCase() === "BYE") return "BYE";
       let match = str.match(/\d+/);
       if (match) return match[0];
       let cleaned = str.replace(/^(court|crt|score)\s*#?\s*/i, "").trim();
-      return cleaned || "BYE";
+      return cleaned || str;
     };
 
     // Normalize name helper: handles "Last, First" vs "First Last" and extra spaces
@@ -2049,13 +2050,13 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
     // 2. Fetch current list of players and determine check-in statuses
     let players = fetchPlayersFromSheet(targetName);
     let rawCourts = courts ? parseAndSortCourts(courts) : getCourtsForGroup(groupName);
-    let availableCourts = rawCourts.map(cleanCourtLabel).filter(c => c !== "BYE");
+    let availableCourts = rawCourts.map(cleanCourtLabel).filter(c => c !== "BYE" && c !== "");
 
     let checkedInPlayers = [];
     let uncheckedPlayers = [];
 
     players.forEach(p => {
-      let prev = existingMap[normalizeName(p.name)] || { court: "BYE", checkIn: "", g1: "", g2: "", g3: "", total: "", entered: "" };
+      let prev = existingMap[normalizeName(p.name)] || { court: "", checkIn: "", g1: "", g2: "", g3: "", total: "", entered: "" };
       let isChecked = Boolean(p.checkedIn || p.checked || (prev.checkIn && prev.checkIn !== ""));
       p.prev = prev;
       p.isChecked = isChecked;
@@ -2131,14 +2132,14 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
       }
     });
 
-    // Excess players receive BYE
+    // Excess checked-in players receive BYE
     playersToAssign.concat(playersForBye).forEach(p => {
       p.assignedCourt = "BYE";
     });
 
-    // Unchecked players default to BYE
+    // Unchecked players get an empty court assignment (not BYE)
     uncheckedPlayers.forEach(p => {
-      p.assignedCourt = "BYE";
+      p.assignedCourt = "";
     });
 
     // Safety validation: Ensure no court has fewer than 4 players
@@ -2178,14 +2179,14 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
 
     uncheckedPlayers.forEach(p => {
       let normName = normalizeName(p.name);
-      if (normName) playerCourtLookup[normName] = "BYE";
+      if (normName) playerCourtLookup[normName] = "";
 
       let pPhone = cleanP(p.phone || p.cell || p.mobile || p.phoneNumber);
-      if (pPhone && pPhone.length >= 7) playerCourtLookup[pPhone.slice(-7)] = "BYE";
+      if (pPhone && pPhone.length >= 7) playerCourtLookup[pPhone.slice(-7)] = "";
 
       rows.push([
         p.name,
-        "BYE",
+        "",
         "",
         p.prev.g1,
         p.prev.g2,
@@ -2230,16 +2231,10 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
 
           let assignedCourt = "";
 
-          if (rowPhone && rowPhone.length >= 7 && playerCourtLookup[rowPhone.slice(-7)]) {
+          if (rowPhone && rowPhone.length >= 7 && playerCourtLookup[rowPhone.slice(-7)] !== undefined) {
             assignedCourt = playerCourtLookup[rowPhone.slice(-7)];
-          }
-
-          if (!assignedCourt && normRowName && playerCourtLookup[normRowName]) {
+          } else if (normRowName && playerCourtLookup[normRowName] !== undefined) {
             assignedCourt = playerCourtLookup[normRowName];
-          }
-
-          if (!assignedCourt) {
-            assignedCourt = "BYE";
           }
 
           courtValues.push([cleanCourtLabel(assignedCourt)]);
@@ -2261,11 +2256,12 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
     }
 
     let activeCourtsCount = activeCourts.filter(c => courtAssignments[c] && courtAssignments[c].length === 4).length;
-    let totalByes = rows.filter(r => r[1] === "BYE").length - 1;
+    let totalByes = rows.filter(r => r[1] === "BYE").length;
 
     return `✅ Rescheduled '${targetName}' (BYE mode: ${alwaysByeBottom ? 'Bottom Players' : 'Random'}) and synced courts to '${scoreSheetName}' (${numChecked} checked-in, ${activeCourtsCount} full courts assigned, ${totalByes} BYEs).`;
   });
 }
+
 
 /**
  * Fetches the list of players for a given schedule tab or group.
