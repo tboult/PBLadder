@@ -238,52 +238,76 @@ function logDebug(fnName, msg, extra = "") {
 
 
 
+// Global tracking variables
+let _dbInstance = null;
+let _dbMeta = {
+  source: "UNINITIALIZED",
+  loadedAt: null,
+  fromCache: false
+};
 
 function getDb(SHEET_ID) {
-    
- // If an explicit SHEET_ID is provided and differs, clear cached instance
+  // 1. If explicit SHEET_ID differs from loaded instance, reset cache
   if (_dbInstance && SHEET_ID && _dbInstance.getId() !== SHEET_ID) {
-        _dbInstance._debugFromCache = true;
-      _dbInstance._debugLoadedAt = new Date().toLocaleTimeString();
-      _dbInstance._debugSource = "CONFLICING IDS";
+    _dbInstance = null;
+    _dbMeta.source = "CONFLICT_RESET";
   } 
-    if (_dbInstance) {
-        _dbInstance._debugFromCache = true;
-        _dbInstance._debugLoadedAt = new Date().toLocaleTimeString();
-        _dbInstance._debugSource = "CACHE";
-        return _dbInstance;
-    }
 
-  // 1. Resolve sheetId cleanly in the outer function scope
-  const sheetId = PropertiesService.getScriptProperties().getProperty("SHEET_ID") || SHEET_ID;
-  // 2. Try opening by ID if an ID exists
+  // 2. Return cached instance if available
+  if (_dbInstance) {
+    _dbMeta.fromCache = true;
+    _dbMeta.loadedAt = new Date().toLocaleTimeString();
+    return _dbInstance;
+  }
+
+  // 3. Resolve sheetId (Explicit parameter takes precedence over Script Properties)
+  const propId = PropertiesService.getScriptProperties().getProperty("SHEET_ID");
+  const sheetId = SHEET_ID || propId;
+
+  _dbMeta.fromCache = false;
+  _dbMeta.loadedAt = new Date().toLocaleTimeString();
+
+  // 4. Try opening by ID
   if (sheetId) {
     try {
-        _dbInstance = SpreadsheetApp.openById(sheetId);
-        _dbInstance._debugSource = "SHEET_ID_PROP";
-        _dbInstance._debugLoadedAt = new Date().toLocaleTimeString();
-       if (typeof logDebug === 'function') {
-        logDebug("getDb", "Success opening by Sheet ID", sheetId);
+      _dbInstance = SpreadsheetApp.openById(sheetId);
+      _dbMeta.source = SHEET_ID ? "EXPLICIT_PARAM" : "SCRIPT_PROPERTIES";
+      
+      if (typeof logDebug === 'function') {
+        logDebug("getDb", `Opened by ${_dbMeta.source}`, sheetId);
       }
       return _dbInstance;
     } catch (e) {
       if (typeof logDebug === 'function') {
-        logDebug("getDb", "Error opening by Sheet ID, falling back to active", e.message);
+        logDebug("getDb", "Error opening by ID, falling back to active", e.message);
       }
     }
   }
-  } else {
-      // 3. Fallback to container-bound active spreadsheet
-      //_dbInstance = SpreadsheetApp.getActiveSpreadsheet()
-      _dbInstance._debugSource = "Wanted to bind active ACTIVE_BOUND";    ;
-      _dbInstance._debugLoadedAt = new Date().toLocaleTimeString();      
-  }
-  
+
+  // 5. Fallback to container-bound active spreadsheet
+  _dbInstance = SpreadsheetApp.getActiveSpreadsheet();
+  _dbMeta.source = "ACTIVE_BOUND";
+
   if (!_dbInstance) {
-    throw new Error("Missing 'SHEET_ID' in Script Properties and no active spreadsheet found.");
+    throw new Error("Missing SHEET_ID in Script Properties and no active spreadsheet found.");
   }
 
   return _dbInstance;
+}
+
+/**
+ * Returns a JSON-safe plain object containing DB metadata for the PWA frontend.
+ */
+function getDbSummary(SHEET_ID) {
+  const db = getDb(SHEET_ID); // Ensures DB is loaded
+
+  return {
+    id: db.getId(),
+    name: db.getName(),
+    source: _dbMeta.source,
+    loadedAt: _dbMeta.loadedAt,
+    fromCache: _dbMeta.fromCache
+  };
 }
 
 
@@ -983,8 +1007,14 @@ function handleApiRequest(e) {
     let result;
       switch(action) {
 
-    case 'getdb':
-          getDb(payload.sheetid)
+
+      case 'getdb':
+              // Return plain metadata object, NOT the Spreadsheet host object
+              const summary = getDbSummary(payload.sheetid);
+              return ContentService
+                  .createTextOutput(JSON.stringify(summary))
+                  .setMimeType(ContentService.MimeType.JSON);
+          }
           break;
         
       case 'getInitialAppData':

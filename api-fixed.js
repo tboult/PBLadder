@@ -358,21 +358,23 @@ function logAllCachedValues() {
  * @param {Object} dbData - The DB summary JSON returned from apiCall()
  */
 function printDbSummary(dbData) {
-
   if (!dbData) {
     console.warn("⚠️ No DB summary data available to print.");
     return;
   }
 
-  // Handle nested object structure (e.g., if backend returns { dbDebug: { ... } } or directly)
-  const info = dbData.dbDebug || dbData.dbSummary || dbData;
+  // Safely unwrap nested response structures from apiCall wrapper or backend object
+  const info = dbData.dbDebug || dbData.dbSummary || dbData.data || dbData.payload || dbData.result || dbData;
 
   console.log("📊 [DB DEBUG SUMMARY]");
   console.log("   Name:", info.name || info.id || "Unknown");
-  console.log("   Source:", info.source || info._debugSource);
-  console.log("   Loaded At:", info.loadedAt || info._debugLoadedAt);
-  console.log("   From Cache:", info.fromCache ?? info._debugFromCache);
+  console.log("   Source:", info.source || info._debugSource || "N/A");
+  console.log("   Loaded At:", info.loadedAt || info._debugLoadedAt || "N/A");
+  console.log("   From Cache:", info.fromCache ?? info._debugFromCache ?? false);
 }
+
+
+
 // ==========================================
 // MASTER INITIALIZER ON DOM LOAD
 // ==========================================
@@ -381,8 +383,7 @@ document.addEventListener("DOMContentLoaded", async function () {
   console.log("🚀 Initializing Application...");
 let lastCheckedPhone = "";
 
-
-  // Load DB Summary from Backend API
+// 1. Fetch & Verify Database Connection
   if (typeof SHEET_ID !== 'undefined' && SHEET_ID) {
     try {
       console.log(`Trying to load requested sheetID: "${SHEET_ID}"...`);
@@ -390,16 +391,16 @@ let lastCheckedPhone = "";
 
       if (res && (!res.message?.toLowerCase().includes("error"))) {
         console.log(`✅ Loaded DB successfully.`);
-        // Pass the response into the debug printer
         printDbSummary(res);
       } else {
-        console.log(`⚠️ Loaded DB from default as sheetID empty or errored...`);
+        console.log(`⚠️ Loaded DB fallback (explicit ID was invalid or ignored):`);
+        if (res) printDbSummary(res); // <--- Added so you still see what sheet was loaded
       }
     } catch (err) {
       console.warn("⚠️ API Call 'getdb' failed during startup:", err);
     }
   } else {
-    // If no SHEET_ID, make a default call to check loaded DB status
+    // If no SHEET_ID defined locally, query default backend DB
     try {
       const res = await apiCall('getdb');
       printDbSummary(res);
@@ -407,6 +408,7 @@ let lastCheckedPhone = "";
       console.warn("⚠️ Default 'getdb' check failed:", err);
     }
   }
+
 
   if (typeof logAllCachedValues === "function") {
     logAllCachedValues();
