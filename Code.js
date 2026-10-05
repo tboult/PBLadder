@@ -243,8 +243,11 @@ function getDb(SHEET_ID) {
     
  // If an explicit SHEET_ID is provided and differs, clear cached instance
   if (_dbInstance && SHEET_ID && _dbInstance.getId() !== SHEET_ID) {
+        _dbInstance._debugFromCache = true;
+      _dbInstance._debugLoadedAt = new Date().toLocaleTimeString();
+      _dbInstance._debugSource = "CONFLICING IDS";
     _dbInstance = null;
-  }
+  } 
     if (_dbInstance) {
         _dbInstance._debugFromCache = true;
         _dbInstance._debugLoadedAt = new Date().toLocaleTimeString();
