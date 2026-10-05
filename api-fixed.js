@@ -354,51 +354,65 @@ function logAllCachedValues() {
 
 
 /**
- * Call this whenever you want to return DB info/status to the frontend
+ * Call this whenever you want to log DB status received from the backend API
+ * @param {Object} dbData - The DB summary JSON returned from apiCall()
  */
-function printDbSummary() {
-    console.log("name:", db.getName());
-    console.log("    source:", db._debugSource);
-    console.log("    loadedAt:", db._debugLoadedAt);
-    console.log("    fromCache:", db._debugFromCach);
+function printDbSummary(dbData) {
+
+  if (!dbData) {
+    console.warn("⚠️ No DB summary data available to print.");
+    return;
+  }
+
+  // Handle nested object structure (e.g., if backend returns { dbDebug: { ... } } or directly)
+  const info = dbData.dbDebug || dbData.dbSummary || dbData;
+
+  console.log("📊 [DB DEBUG SUMMARY]");
+  console.log("   Name:", info.name || info.id || "Unknown");
+  console.log("   Source:", info.source || info._debugSource);
+  console.log("   Loaded At:", info.loadedAt || info._debugLoadedAt);
+  console.log("   From Cache:", info.fromCache ?? info._debugFromCache);
 }
-
-google.script.run
-  .withSuccessHandler(function(dbSummary) {
-    console.log("Sheet Name:", dbSummary.name);
-    console.log("Loaded At:", dbSummary.loadedAt);
-    console.log("Was Cached in Warm Container?:", dbSummary.fromCache);
-  })
-  .getDbSummary();
-
 // ==========================================
 // MASTER INITIALIZER ON DOM LOAD
 // ==========================================
 document.addEventListener("DOMContentLoaded", async function () {
+
   console.log("🚀 Initializing Application...");
+let lastCheckedPhone = "";
 
-  let lastCheckedPhone = "";
 
-  console.log(`Trying to load but ignoring requested sheet : "${SHEET_ID}"...`);    
+  // Load DB Summary from Backend API
   if (typeof SHEET_ID !== 'undefined' && SHEET_ID) {
     try {
-        //const res = await apiCall('getdb', { sheetid: SHEET_ID });
-      const res = await apiCall('getdb');        
+      console.log(`Trying to load requested sheetID: "${SHEET_ID}"...`);
+      const res = await apiCall('getdb', { sheetid: SHEET_ID }); 
+
       if (res && (!res.message?.toLowerCase().includes("error"))) {
-        console.log(`Loaded DB from sheet : "${SHEET_ID}"...`);
+        console.log(`✅ Loaded DB successfully.`);
+        // Pass the response into the debug printer
+        printDbSummary(res);
       } else {
-        console.log(`Loaded DB from default as sheetID empty...`);
+        console.log(`⚠️ Loaded DB from default as sheetID empty or errored...`);
       }
     } catch (err) {
       console.warn("⚠️ API Call 'getdb' failed during startup:", err);
     }
+  } else {
+    // If no SHEET_ID, make a default call to check loaded DB status
+    try {
+      const res = await apiCall('getdb');
+      printDbSummary(res);
+    } catch (err) {
+      console.warn("⚠️ Default 'getdb' check failed:", err);
+    }
   }
-    printDbSummary()    ;
 
   if (typeof logAllCachedValues === "function") {
     logAllCachedValues();
   }
 
+    
   // 1. Restore Saved UI Preferences (Text Size)
   const savedSize = localStorage.getItem('pwa-text-size') || 'normal';
   if (typeof applyTextSize === "function") {

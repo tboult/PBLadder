@@ -246,7 +246,10 @@ function getDb(SHEET_ID) {
     _dbInstance = null;
   }
     if (_dbInstance) {
-        _dbInstance._debugFromCache = true;        
+        _dbInstance._debugFromCache = true;
+        _dbInstance._debugLoadedAt = new Date().toLocaleTimeString();
+        _dbInstance._debugSource = "CACHE";
+        
         return _dbInstance;
     }
 
@@ -257,9 +260,9 @@ function getDb(SHEET_ID) {
         _dbInstance = SpreadsheetApp.openById(sheetId);
 
     
-    // Attach dynamic tracking variables to the spreadsheet object itself
-    _dbInstance._debugLoadedAt = new Date().toLocaleTimeString();
-    _dbInstance._debugFromCache = false;
+        // Attach dynamic tracking variables to the spreadsheet object itself
+        _dbInstance._debugLoadedAt = new Date().toLocaleTimeString();
+        _dbInstance._debugFromCache = false;
 
         if (typeof logDebug === 'function') {
         logDebug("getDb", "Truig to  opening by Sheet ID", SHEET_ID);
@@ -268,8 +271,9 @@ function getDb(SHEET_ID) {
   // 2. Try opening by ID if an ID exists
   if (sheetId) {
     try {
-      _dbInstance = SpreadsheetApp.openById(sheetId);
+        _dbInstance = SpreadsheetApp.openById(sheetId);
         _dbInstance._debugSource = "SHEET_ID_PROP";
+        _dbInstance._debugLoadedAt = new Date().toLocaleTimeString();
        if (typeof logDebug === 'function') {
         logDebug("getDb", "Success opening by Sheet ID", sheetId);
       }
@@ -284,6 +288,7 @@ function getDb(SHEET_ID) {
       // 3. Fallback to container-bound active spreadsheet
       _dbInstance = SpreadsheetApp.getActiveSpreadsheet()
       _dbInstance._debugSource = "ACTIVE_BOUND";    ;
+      _dbInstance._debugLoadedAt = new Date().toLocaleTimeString();      
   }
   
   if (!_dbInstance) {
