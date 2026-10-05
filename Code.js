@@ -2631,8 +2631,9 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
       else inactivePlayers.push(playerObj);
     }
 
-    const maxMove = typeof MAX_MOVEMENT !== "undefined" ? MAX_MOVEMENT : 4;
+const maxMove = typeof MAX_MOVEMENT !== "undefined" ? MAX_MOVEMENT : 4;
 
+    // 1. Assign Raw Rank based on cumulative %
     activePlayers.sort((a, b) => {
       if (Math.abs(b.cumPct - a.cumPct) > 0.0001) return b.cumPct - a.cumPct;
       let prevA = (a.prevRank > 0) ? a.prevRank : defaultPrevRank;
@@ -2643,14 +2644,15 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
 
     activePlayers.forEach((p, index) => { p.rawRank = index + 1; });
 
+    // 2. Clamp rank to max movement boundary
     activePlayers.forEach(p => {
       let effectivePrevRank = (p.prevRank > 0) ? p.prevRank : defaultPrevRank;
       let minAllowed = Math.max(1, effectivePrevRank - maxMove);
       let maxAllowed = effectivePrevRank + maxMove;
       p.clampedRank = Math.min(Math.max(p.rawRank, minAllowed), maxAllowed);
-      p.isRestricted = RESTRICT_BY_RAW_RANK ? (Math.abs(p.rawRank - effectivePrevRank) > maxMove) : false;
     });
 
+    // 3. Sort by Clamped Rank to get Final Rank
     activePlayers.sort((a, b) => {
       if (a.clampedRank !== b.clampedRank) return a.clampedRank - b.clampedRank; 
       if (Math.abs(b.cumPct - a.cumPct) > 0.0001) return b.cumPct - a.cumPct;    
@@ -2660,16 +2662,21 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
       return b.prevNumPeople - a.prevNumPeople;                                   
     });
 
+    // 4. Assign Final Rank and check dual restriction condition
     activePlayers.forEach((p, index) => {
       p.finalRank = index + 1;
-      if (!RESTRICT_BY_RAW_RANK) {
-        let effectivePrevRank = (p.prevRank > 0) ? p.prevRank : defaultPrevRank;
-        p.isRestricted = (Math.abs(p.finalRank - effectivePrevRank) > maxMove);
-      }
+
+      let effectivePrevRank = (p.prevRank > 0) ? p.prevRank : defaultPrevRank;
+      let rawDiff = Math.abs(p.rawRank - effectivePrevRank);
+      let finalDiff = Math.abs(p.finalRank - effectivePrevRank);
+
+      // -R flag attached ONLY IF raw move > maxMove AND final move > maxMove
+      p.isRestricted = (rawDiff > maxMove) && (finalDiff > maxMove);
+
       let suffix = p.isRestricted ? "-R" : "";
       p.rjStr = p.finalRank + "/" + numActive + suffix;
     });
-
+      
     inactivePlayers.forEach(p => {
       p.rawRank = "";
       p.finalRank = p.prevRank !== defaultPrevRank ? p.prevRank : "";
