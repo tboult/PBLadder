@@ -1,4 +1,16 @@
-const ENV = "prod"; // Change to 'prod' before deploying to main branch
+// Auto-detect whether running on localhost, local IP, or local file
+const isLocalhost = Boolean(
+  window.location.hostname === "localhost" ||
+  window.location.hostname === "127.0.0.1" ||
+  window.location.hostname === "[::1]" ||
+  window.location.hostname.startsWith("192.168.") ||
+  window.location.hostname.startsWith("10.") ||
+  window.location.hostname.endsWith(".local") ||
+  window.location.protocol === "file:"
+);
+
+// Automatically set 'dev' on local testing, 'prod' on live deployment
+const ENV = isLocalhost ? "dev" : "prod";
 
 const CONFIG = {
   dev: {
@@ -12,12 +24,14 @@ const CONFIG = {
     enableDebugLogs: false
   }
 }[ENV] || {
-  // Fallback if ENV string is invalid
+  // Fallback if ENV lookup fails
   apiUrl: "https://script.google.com/macros/s/AKfycbyuY1-ZkbpA2Udpe__rKSE6H4EBfl_OKn_Xep719FJII1u5RxAXhSzU3dyrD0c64diS/exec",
   SHEET_ID: "1iwMMprtim5dgDKOC80qpbRQvHC0nEoKmpulKed8ZeZQ",
   enableDebugLogs: true
 };
 
-// Optional: Convenience exports for direct global access
+// Convenience exports for direct global access
 const SHEET_ID = CONFIG.SHEET_ID;
 const API_URL = CONFIG.apiUrl;
+
+console.log(`🌐 Environment: [${ENV.toUpperCase()}] | Sheet ID: "${SHEET_ID}"`);

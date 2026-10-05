@@ -19,13 +19,11 @@ PROD_DEPLOYMENT_ID="AKfycbweTOjVcY0R1sxXrYfbN2S9jqMz4yr5b1alVoz0gjVy3P3ty42rtHlf
 if [ "$TARGET_ENV" = "prod" ]; then
     DEPLOYMENT_ID="$PROD_DEPLOYMENT_ID"
     CLASP_FILE="prodclasp.json"
-    CONFIG_FILE="prodconfig"    
     THEME_FILE="prodtheme.css"
     echo "🚀 DEPLOYING TO PRODUCTION..."
 else
     DEPLOYMENT_ID="$DEV_DEPLOYMENT_ID"
     CLASP_FILE="devclasp.json"
-    CONFIG_FILE="devconfig"        
     THEME_FILE="devtheme.css"    
     echo "🛠️ DEPLOYING TO DEVELOPMENT ($DEPLOYMENT_ID)..."
 fi
@@ -46,11 +44,6 @@ if [ -f "${TARGET_ENV}manifest.json" ]; then
     echo "📱 Copied ${TARGET_ENV}manifest.json -> appsscript.json"
 fi
 
-# Swap config.js
-if [ -f "${CONFIG_FILE}" ]; then
-    cp "${CONFIG_FILE}" config.js
-    echo "📱 Copied ${CONFIG_FILE} -> config.js"
-fi
 
 # Swap theme.css
 if [ -f "$THEME_FILE" ]; then
