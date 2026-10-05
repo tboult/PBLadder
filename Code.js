@@ -2346,13 +2346,15 @@ function calculateStats(row, col) {
 /**
  * Harvests scores from the Schedule sheet into the Pts column of the Score sheet.
  * Respects manual admin overrides in the Pts column.
+ * Returns warnings only if Sched scores are filled in and differ from hand-entered Pts values.
  */
 function harvestScoresFromSchedules(ss, data, col, targetWeekIdx, cleanGroupName, weekNum) {
-  const schedSheet = ss.getSheetByName("Sched " + cleanGroupName);
-  if (!schedSheet) return;
+  let warnings = [];
+  const schedSheet = ss.getSheetByName("Sched " + cleanGroupName) || ss.getSheetByName("Sched") || ss.getSheetByName("Schedule");
+  if (!schedSheet) return warnings;
 
   const schedData = schedSheet.getDataRange().getValues();
-  if (schedData.length <= 1) return;
+  if (schedData.length <= 1) return warnings;
 
   const ptsColIdx = col.pts !== undefined ? col.pts : col.points;
   const prevWeekIdx = weekNum > 1 ? col["w" + (weekNum - 1)] : undefined;
@@ -2360,18 +2362,33 @@ function harvestScoresFromSchedules(ss, data, col, targetWeekIdx, cleanGroupName
   // Build lookup map from Sched tab
   let schedScoresMap = {};
   const schedHeaders = schedData[0].map(h => String(h || '').trim().toLowerCase());
-  const nameIdx = schedHeaders.findIndex(h => /name|player/i.test(h));
-  const scoreIdx = schedHeaders.findIndex(h => /pts|points|score|total/i.test(h));
+  
+  let nameIdx = schedHeaders.findIndex(h => /name|player/i.test(h));
+  if (nameIdx === -1) nameIdx = 0;
 
-  if (nameIdx === -1 || scoreIdx === -1) return;
+  let scoreIdx = schedHeaders.findIndex(h => /^(pts|points|score|total|tot)$/i.test(h));
+  if (scoreIdx === -1) {
+    scoreIdx = schedHeaders.findIndex(h => /pts|points|score|total/i.test(h));
+  }
+
+  if (scoreIdx === -1) return warnings;
+
+  let hasAnySchedScores = false;
 
   for (let r = 1; r < schedData.length; r++) {
     let pName = String(schedData[r][nameIdx] || '').trim();
+    if (!pName && schedData[r][0]) {
+      pName = ((schedData[r][0] || "") + " " + (schedData[r][1] || "")).trim();
+    }
     let score = schedData[r][scoreIdx];
     if (pName && score !== "" && score !== null && !isNaN(parseFloat(score))) {
       schedScoresMap[pName.toLowerCase()] = parseFloat(score);
+      hasAnySchedScores = true;
     }
   }
+
+  // RULE 1: If Sched sheet is all blanks, do NOT complain about mismatches
+  if (!hasAnySchedScores) return warnings;
 
   // Update Pts column in memory while respecting hand-edited entries
   for (let i = 1; i < data.length; i++) {
@@ -2383,31 +2400,39 @@ function harvestScoresFromSchedules(ss, data, col, targetWeekIdx, cleanGroupName
     if (!pName) continue;
     let pKey = pName.toLowerCase();
 
-    if (schedScoresMap[pKey] !== undefined) {
-      let schedVal = schedScoresMap[pKey];
-      let currentPts = ptsColIdx !== undefined ? row[ptsColIdx] : "";
-      let prevWeekVal = prevWeekIdx !== undefined ? row[prevWeekIdx] : "";
+    let currentPts = ptsColIdx !== undefined ? row[ptsColIdx] : "";
+    let prevWeekVal = prevWeekIdx !== undefined ? row[prevWeekIdx] : "";
 
-      let ptsIsEmpty = (currentPts === "" || currentPts === null || currentPts === undefined);
-      
-      let ptsIsStaleLastWeek = false;
-      if (!ptsIsEmpty && prevWeekVal !== "" && prevWeekVal !== null && prevWeekVal !== undefined) {
-        let parsedPts = parseFloat(currentPts);
-        let parsedPrev = parseFloat(prevWeekVal);
-        if (!isNaN(parsedPts) && !isNaN(parsedPrev) && parsedPts === parsedPrev) {
-          ptsIsStaleLastWeek = true; // Score in Pts is leftover from W(N-1)
-        }
+    let ptsIsEmpty = (currentPts === "" || currentPts === null || currentPts === undefined);
+    
+    let ptsIsStaleLastWeek = false;
+    if (!ptsIsEmpty && prevWeekVal !== "" && prevWeekVal !== null && prevWeekVal !== undefined) {
+      let parsedPts = parseFloat(currentPts);
+      let parsedPrev = parseFloat(prevWeekVal);
+      if (!isNaN(parsedPts) && !isNaN(parsedPrev) && parsedPts === parsedPrev) {
+        ptsIsStaleLastWeek = true; // Score in Pts is leftover from W(N-1)
       }
+    }
 
-      // Overwrite Pts with Sched value ONLY IF Pts is empty OR contains leftover W(N-1) score
+    let schedVal = schedScoresMap[pKey];
+
+    if (schedVal !== undefined) {
+      // RULE 2: If Sched is filled in but Pts is not (or is stale), copy totals to Pts on Score
       if (ptsIsEmpty || ptsIsStaleLastWeek) {
         if (ptsColIdx !== undefined) {
           row[ptsColIdx] = schedVal;
         }
+      } else {
+        // RULE 3: Only complain if Sched is filled in AND different from hand-entered Pts
+        let parsedPts = parseFloat(currentPts);
+        if (!isNaN(parsedPts) && Math.abs(parsedPts - schedVal) > 0.001) {
+          warnings.push(`Mismatch for ${pName}: Pts (${parsedPts}) != Sched Total (${schedVal})`);
+        }
       }
-      // Hand-adjusted Pts values (that don't match last week) remain untouched
     }
   }
+
+  return warnings;
 }
 
 function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
@@ -2470,66 +2495,14 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
       }
     }
 
-    // Check if pct column has points/scores
-    let hasPctPoints = false;
-    if (pctColIdx !== undefined) {
-      for (let i = 1; i < data.length; i++) {
-        let val = data[i][pctColIdx];
-        if (val !== "" && val !== null && val !== undefined && !isNaN(parseFloat(val)) && parseFloat(val) > 0) {
-          hasPctPoints = true;
-          break;
-        }
-      }
-    }
+    // Harvest scores from Sched sheet into Pts, and collect mismatch warnings if applicable
+    const warnings = harvestScoresFromSchedules(ss, data, col, targetWeekIdx, cleanGroupName, weekNum);
 
-    let warnings = [];
-
-    // If pct column does not have points, call harvestScoresFromSchedules
-    if (!hasPctPoints) {
-      harvestScoresFromSchedules(ss, data, col, targetWeekIdx, cleanGroupName, weekNum);
-    } else {
-      // If pct is filled, check if total matches total column in sched sheet and warn if different
-      let schedSheetName = "Sched " + cleanGroupName;
-      let schedSheet = ss.getSheetByName(schedSheetName) || ss.getSheetByName("Sched") || ss.getSheetByName("Schedule");
-      if (schedSheet) {
-        let schedData = schedSheet.getDataRange().getValues();
-        if (schedData.length > 1) {
-          let schedCol = buildColMap(schedData[0]);
-          let schedTotIdx = schedCol.tot !== undefined ? schedCol.tot : schedCol.total;
-          let schedNameIdx = schedCol.name;
-
-          if (schedTotIdx !== undefined) {
-            let schedTotals = {};
-            for (let r = 1; r < schedData.length; r++) {
-              let sName = schedNameIdx !== undefined ? schedData[r][schedNameIdx] : ((schedData[r][0] || "") + " " + (schedData[r][1] || "")).trim();
-              if (sName) {
-                schedTotals[sName.toString().trim().toLowerCase()] = parseFloat(schedData[r][schedTotIdx]) || 0;
-              }
-            }
-
-            for (let i = 1; i < data.length; i++) {
-              let pName = (col.name !== undefined && data[i][col.name]) 
-                ? data[i][col.name].toString().trim() 
-                : ((data[i][col.first] || "") + " " + (data[i][col.last] || "")).trim();
-              if (!pName) continue;
-
-              let sheetTot = totColIdx !== undefined ? (parseFloat(data[i][totColIdx]) || 0) : 0;
-              let schedTot = schedTotals[pName.toLowerCase()];
-
-              if (schedTot !== undefined && Math.abs(sheetTot - schedTot) > 0.001) {
-                warnings.push(`Mismatch for ${pName}: Sheet Total (${sheetTot}) != Sched Total (${schedTot})`);
-              }
-            }
-          }
-        }
-      }
-
-      if (warnings.length > 0) {
-        try {
-          SpreadsheetApp.getUi().alert("⚠️ Schedule Total Mismatch Detected:\n\n" + warnings.join("\n"));
-        } catch (e) {
-          Logger.log("Schedule Total Mismatches: " + warnings.join("; "));
-        }
+    if (warnings.length > 0) {
+      try {
+        SpreadsheetApp.getUi().alert("⚠️ Schedule Total Mismatch Detected:\n\n" + warnings.join("\n"));
+      } catch (e) {
+        Logger.log("Schedule Total Mismatches: " + warnings.join("; "));
       }
     }
 
@@ -2734,7 +2707,6 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, shouldShift = true) {
       if (totColIdx !== undefined) p.rowRaw[totColIdx] = p.cumScore;
       if (posColIdx !== undefined) p.rowRaw[posColIdx] = p.maxPtsForPlayedWeeks;
       if (pctColIdx !== undefined) p.rowRaw[pctColIdx] = p.cumPct;
-      // Note: col.status is intentionally left unchanged so no player is set to INACTIVE
       if (rawRankColIdx !== undefined) p.rowRaw[rawRankColIdx] = "";
       if (currRColIdx !== undefined) p.rowRaw[currRColIdx] = p.rjStr ? p.rjStr.replace(/^'/, "") : "";
       if (rNumIdx !== undefined) p.rowRaw[rNumIdx] = "";
