@@ -1,4 +1,4 @@
-const ENV = "dev"; // Change to 'prod' before deploying to main branch
+const ENV = "prod"; // Change to 'prod' before deploying to main branch
 
 const CONFIG = {
   dev: {
