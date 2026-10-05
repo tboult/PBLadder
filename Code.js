@@ -259,9 +259,11 @@ function getDb(SHEET_ID) {
     return _dbInstance;
   }
 
-  // 3. Resolve sheetId (Script Properties taked precidence over parameter )
   const propId = PropertiesService.getScriptProperties().getProperty("SHEET_ID");
-  const sheetId = propId || SHEET_ID ;
+  // 3. Resolve sheetId (Script Properties taked precidence over parameter )
+  //    const sheetId = propId || SHEET_ID ;
+  // 3. or Resolve sheetId (parrmater argument take precidence of Script Properties parameter )
+  const sheetId = SHEET_ID || propId   ;    
 
   _dbMeta.fromCache = false;
   _dbMeta.loadedAt = new Date().toLocaleTimeString();
@@ -270,8 +272,8 @@ function getDb(SHEET_ID) {
   if (sheetId) {
     try {
       _dbInstance = SpreadsheetApp.openById(sheetId);
-//        _dbMeta.source = SHEET_ID ? "EXPLICIT_PARAM" : "SCRIPT_PROPERTIES";
-        _dbMeta.source = propId ?  "SCRIPT_PROPERTIES": "EXPLICIT_PARAM" ;        
+        _dbMeta.source = SHEET_ID ? "EXPLICIT_PARAM" : "SCRIPT_PROPERTIES";
+//        _dbMeta.source = propId ?  "SCRIPT_PROPERTIES": "EXPLICIT_PARAM" ;        
       
       if (typeof logDebug === 'function') {
         logDebug("getDb", `Opened by ${_dbMeta.source}`, sheetId);
