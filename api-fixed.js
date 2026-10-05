@@ -516,7 +516,8 @@ let lastCheckedPhone = "";
       actionBtn.addEventListener('click', function (e) {
         e.preventDefault();
         const phoneVal = phoneInput.value.trim();
-        if (phoneVal) {
+          if (phoneVal) {
+              localStorage.removeItem('scpb_saved_phone'); // Clean up old key as they start typine
           const digits = phoneVal.replace(/\D/g, "");
           if (digits.length >= 7 && typeof checkRegistrationStatus === "function") {
             checkRegistrationStatus(digits);

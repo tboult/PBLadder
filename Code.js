@@ -1477,6 +1477,21 @@ function startNewSeason() {
   return `✅ New season started across ${clearedCount} score tabs! All weekly scores wiped. Week 1 is configured to begin Oct 4th.`;
 }
 
+// Helper function to format phone numbers to XXX-XXX-XXXX
+function formatPhoneNumber(phone) {
+  if (!phone) return "";
+  const digits = String(phone).replace(/\D/g, "");
+  
+  if (digits.length === 10) {
+    return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
+  } else if (digits.length === 11 && digits.startsWith("1")) {
+    return `${digits.slice(1, 4)}-${digits.slice(4, 7)}-${digits.slice(7)}`;
+  } else if (digits.length === 7) {
+    return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  }
+  
+  return String(phone).trim(); // Fallback if non-standard length
+}
 
 function addNewUser(info) {
   // 1. Validation
@@ -1491,12 +1506,16 @@ function addNewUser(info) {
   const headers = data[0];
   const col = buildColMap(headers);
 
-  // Clean inputs safely
+  // Clean and normalize inputs
   const inputFirst = String(info.first).trim();
   const inputLast = String(info.last).trim();
-  const inputFullName = `${inputFirst} ${inputLast}`.toLowerCase();
-  const inputPhone = String(info.phone).trim();
+  const inputFirstLower = inputFirst.toLowerCase();
+  const inputLastLower = inputLast.toLowerCase();
+  
+  // NORMALIZE PHONE NUMBER WITH DASHES
+  const inputPhone = formatPhoneNumber(info.phone);
   const inputPhoneDigits = inputPhone.replace(/\D/g, "");
+  
   const inputEmail = String(info.email || "").trim();
   const inputGroup = String(info.group).trim();
   const inputComment = String(info.comment || "").trim();
@@ -1511,47 +1530,39 @@ function addNewUser(info) {
 
     const existingFirst = col.first !== undefined ? String(row[col.first] || "").trim() : "";
     const existingLast = col.last !== undefined ? String(row[col.last] || "").trim() : "";
-    const existingName = col.name !== undefined ? String(row[col.name] || "").trim() : "";
     const existingPhoneDigits = col.phone !== undefined ? String(row[col.phone] || "").replace(/\D/g, "") : "";
-    const existingEmail = col.email !== undefined ? String(row[col.email] || "").trim() : "";
 
-    const fullExistingName = (existingFirst && existingLast) 
-      ? `${existingFirst} ${existingLast}`.toLowerCase() 
-      : existingName.toLowerCase();
+    const existingFirstLower = existingFirst.toLowerCase();
+    const existingLastLower = existingLast.toLowerCase();
 
-    // Matching criteria
-    const isNameMatch = (existingFirst.toLowerCase() === inputFirst.toLowerCase() && 
-                         existingLast.toLowerCase() === inputLast.toLowerCase()) ||
-                        (fullExistingName !== "" && fullExistingName === inputFullName);
-
+    const isNameMatch = existingFirstLower === inputFirstLower && existingLastLower === inputLastLower;
     const isPhoneMatch = inputPhoneDigits !== "" && existingPhoneDigits !== "" && existingPhoneDigits === inputPhoneDigits;
-    const isLastNameMatch = existingLast !== "" && existingLast.toLowerCase() === inputLast.toLowerCase();
+    const isLastNameMatch = existingLastLower !== "" && existingLastLower === inputLastLower;
 
-    // Check if matching row is missing any incoming information
     if (isNameMatch || (isPhoneMatch && isLastNameMatch)) {
       let missing = [];
       if (!existingFirst && col.first !== undefined) missing.push("First Name");
       if (!existingLast && col.last !== undefined) missing.push("Last Name");
       if (!existingPhoneDigits && col.phone !== undefined) missing.push("Phone");
-      if (!existingEmail && inputEmail && col.email !== undefined) missing.push("Email");
+      if (!String(row[col.email] || "").trim() && inputEmail && col.email !== undefined) missing.push("Email");
 
       if (missing.length > 0) {
-        potentialMatchRow = i + 1; // 1-based row number for Sheets
+        potentialMatchRow = i + 1;
         missingFields = missing;
         break;
       } else {
         exactMatchRow = i + 1;
-        break; // Record exists and has all required information
+        break;
       }
     }
   }
 
-  // --- 3. HANDLE EXACT MATCH ---
+  // --- 3. EXACT MATCH FOUND ---
   if (exactMatchRow > -1) {
     return `⚠️ Notice: User '${inputFirst} ${inputLast}' is already registered in '${targetSheet.getName()}' (Row ${exactMatchRow}).`;
   }
 
-  // --- 4. HANDLE POTENTIAL MATCH (UPDATE MISSING INFO + ADD COMMENT) ---
+  // --- 4. POTENTIAL MATCH FOUND (UPDATE MISSING INFO + COMMENT) ---
   if (potentialMatchRow > -1) {
     let updateNotes = [];
 
@@ -1564,7 +1575,7 @@ function addNewUser(info) {
       updateNotes.push(`Added Last: ${inputLast}`);
     }
     if (col.phone !== undefined && !String(data[potentialMatchRow - 1][col.phone]).trim()) {
-      targetSheet.getRange(potentialMatchRow, col.phone + 1).setValue(inputPhone);
+      targetSheet.getRange(potentialMatchRow, col.phone + 1).setValue(inputPhone); // Writes formatted phone
       updateNotes.push(`Added Phone: ${inputPhone}`);
     }
     if (col.email !== undefined && inputEmail && !String(data[potentialMatchRow - 1][col.email]).trim()) {
@@ -1572,22 +1583,17 @@ function addNewUser(info) {
       updateNotes.push(`Added Email: ${inputEmail}`);
     }
 
-    // Build comment timestamp and message
     const timestamp = new Date().toLocaleDateString();
     const noteMsg = `[Updated ${timestamp}]: ${updateNotes.join(", ")}.${inputComment ? " Comment: " + inputComment : ""}`;
 
-    // Update 'Comment' column if it exists
     if (col.comment !== undefined) {
       const existingComment = String(data[potentialMatchRow - 1][col.comment] || "").trim();
       const updatedComment = existingComment ? `${existingComment} | ${noteMsg}` : noteMsg;
       targetSheet.getRange(potentialMatchRow, col.comment + 1).setValue(updatedComment);
     }
 
-    // Add cell note for visual admin feedback
-    const nameColIdx = (col.first !== undefined ? col.first : (col.name !== undefined ? col.name : 0)) + 1;
+    const nameColIdx = (col.first !== undefined ? col.first : 0) + 1;
     targetSheet.getRange(potentialMatchRow, nameColIdx).setNote(noteMsg);
-
-    // Highlight row yellow
     targetSheet.getRange(potentialMatchRow, 1, 1, headers.length).setBackground("#ffff00");
 
     return `⚠️ Notice: Found potential match for '${inputFirst} ${inputLast}' at Row ${potentialMatchRow}. Updated missing field(s): [${missingFields.join(", ")}] and added comment.`;
@@ -1596,40 +1602,33 @@ function addNewUser(info) {
   // --- 5. INSERT NEW PLAYER (NO MATCH FOUND) ---
   let targetRowNumber = -1;
 
-  // Search for the first empty slot (where Name and Status are empty)
   for (let i = 1; i < data.length; i++) {
     const row = data[i];
-    const nameVal = col.name !== undefined ? String(row[col.name] || "").trim() : "";
     const firstVal = col.first !== undefined ? String(row[col.first] || "").trim() : "";
+    const lastVal = col.last !== undefined ? String(row[col.last] || "").trim() : "";
     const statusVal = col.status !== undefined ? String(row[col.status] || "").trim() : "";
 
-    if (nameVal === "" && firstVal === "" && statusVal === "") {
+    if (firstVal === "" && lastVal === "" && statusVal === "") {
       targetRowNumber = i + 1;
       break;
     }
   }
 
-  // Write specifically to mapped cells to preserve formulas in unmapped columns
   if (targetRowNumber > -1) {
     if (col.first !== undefined) targetSheet.getRange(targetRowNumber, col.first + 1).setValue(inputFirst);
     if (col.last !== undefined) targetSheet.getRange(targetRowNumber, col.last + 1).setValue(inputLast);
-    if (col.name !== undefined) targetSheet.getRange(targetRowNumber, col.name + 1).setValue(`${inputFirst} ${inputLast}`);
-    if (col.phone !== undefined) targetSheet.getRange(targetRowNumber, col.phone + 1).setValue(inputPhone);
+    if (col.phone !== undefined) targetSheet.getRange(targetRowNumber, col.phone + 1).setValue(inputPhone); // Writes formatted phone
     if (col.email !== undefined) targetSheet.getRange(targetRowNumber, col.email + 1).setValue(inputEmail);
-    if (col.group !== undefined) targetSheet.getRange(targetRowNumber, col.group + 1).setValue(inputGroup);
     if (col.status !== undefined) targetSheet.getRange(targetRowNumber, col.status + 1).setValue("Inactive");
     if (col.comment !== undefined && inputComment) targetSheet.getRange(targetRowNumber, col.comment + 1).setValue(inputComment);
 
     targetSheet.getRange(targetRowNumber, 1, 1, headers.length).setBackground("#ffff00");
   } else {
-    // Append row fallback
     let newRow = new Array(headers.length).fill("");
     if (col.first !== undefined) newRow[col.first] = inputFirst;
     if (col.last !== undefined) newRow[col.last] = inputLast;
-    if (col.name !== undefined) newRow[col.name] = `${inputFirst} ${inputLast}`;
-    if (col.phone !== undefined) newRow[col.phone] = inputPhone;
+    if (col.phone !== undefined) newRow[col.phone] = inputPhone; // Writes formatted phone
     if (col.email !== undefined) newRow[col.email] = inputEmail;
-    if (col.group !== undefined) newRow[col.group] = inputGroup;
     if (col.status !== undefined) newRow[col.status] = "Inactive";
     if (col.comment !== undefined) newRow[col.comment] = inputComment;
 

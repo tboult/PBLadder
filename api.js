@@ -177,7 +177,7 @@ async function clearAllAdminScores() {
 
 async function onGroupRadioChange(selectedGroup) {
   console.log(`onGroupRadioChange ${selectedGroup}`);
-  const cleanGroup = String(selectedGroup).replace(/^(Sched|Score)\s*/i, '').trim() || 'Mixed';
+  const cleanGroup = String(selectedGroup).replace(/^(Sched|Score)\s*/i, '').trim() ;
 
   // 1. Force DOM elements directly to show loading immediately
   const statusDisplay = document.getElementById("frontStatusDisplay");
@@ -1103,13 +1103,12 @@ function setSelectedGroup(groupName) {
 
 // 1. Sync UI state across all radio groups on all tabs
 function syncGroupRadioUI(explicitGroup) {
-  // Read from parameter OR localStorage, defaulting to 'Mixed' if empty
+  // Read from parameter OR localStorage, 
   const rawGroup = explicitGroup 
     || localStorage.getItem('scpb_selected_group') 
-    || localStorage.getItem('scpb_saved_group') 
-    || 'Mixed';
+    || localStorage.getItem('scpb_saved_group') ;
 
-  const cleanGroup = String(rawGroup).replace(/^(Sched|Score)\s*/i, '').trim() || 'Mixed';
+  const cleanGroup = String(rawGroup).replace(/^(Sched|Score)\s*/i, '').trim();
 
   // FIX: Added 'adminGroupRadio' so all 3 tab radio sets are selected!
   const allGroupRadios = document.querySelectorAll(
@@ -2452,9 +2451,11 @@ async function checkRegistrationStatus(phone) {
   const cleanPhoneInput = String(phone || '').replace(/\D/g, '');
   const statusMsg = document.getElementById('phoneStatus') || document.getElementById('checkInStatus');
 
-  if (!cleanPhoneInput || cleanPhoneInput.length < 7) {
+  localStorage.removeItem('scpb_saved_phone'); // Clean up old key as they start typine
+
+  if (!cleanPhoneInput || cleanPhoneInput.length < 10) {
     if (statusMsg) {
-      statusMsg.innerText = "Please enter a valid phone number.";
+      statusMsg.innerText = "Please enter a valid 10 digit phone number.";
       statusMsg.style.color = "#dc3545";
     }
     return;
