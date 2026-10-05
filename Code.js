@@ -246,8 +246,6 @@ function getDb(SHEET_ID) {
         _dbInstance._debugFromCache = true;
       _dbInstance._debugLoadedAt = new Date().toLocaleTimeString();
       _dbInstance._debugSource = "CONFLICING IDS";
-      return _dbInstance;        
-
   } 
     if (_dbInstance) {
         _dbInstance._debugFromCache = true;
@@ -256,21 +254,8 @@ function getDb(SHEET_ID) {
         return _dbInstance;
     }
 
-
   // 1. Resolve sheetId cleanly in the outer function scope
   const sheetId = PropertiesService.getScriptProperties().getProperty("SHEET_ID") || SHEET_ID;
-    if (sheetId) {
-        _dbInstance = SpreadsheetApp.openById(sheetId);
-
-    
-        // Attach dynamic tracking variables to the spreadsheet object itself
-        _dbInstance._debugLoadedAt = new Date().toLocaleTimeString();
-        _dbInstance._debugFromCache = false;
-
-        if (typeof logDebug === 'function') {
-        logDebug("getDb", "Truig to  opening by Sheet ID", SHEET_ID);
-        logDebug("getDb", " Or ", PropertiesService.getScriptProperties().getProperty("SHEET_ID"));
-      }
   // 2. Try opening by ID if an ID exists
   if (sheetId) {
     try {
