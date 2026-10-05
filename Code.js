@@ -975,7 +975,8 @@ function handleApiRequest(e) {
     if (payload.payload && typeof payload.payload === 'object') {
       payload = Object.assign({}, payload, payload.payload);
     }
-
+    const sheetId = payload ? (payload.sheetid || payload.SHEET_ID) : null;
+      
     let rawAction = urlParams.action || bodyParams.action || payload.action || "";
     let action = String(rawAction)
       .replace(/[\u00A0\u1680\u180E\u2000-\u200B\u202F\u205F\u3000\uFEFF]/g, " ")
