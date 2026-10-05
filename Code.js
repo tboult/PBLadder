@@ -822,7 +822,7 @@ function getRankingsAndSchedData(groupName) {
       let winIdx   = findColIdx(["Win %", "WinPct", "Win", "Pct", "Win Rate"]);
       let totalIdx = findColIdx(["Total Points", "TotalPoints", "Total", "Points", "Pts", "Tot", "Score"]);
 
-        html += `<h3 style="margin-top:1rem; background:#FFFFAA; margin-bottom:1.5rem;"> Ranking CODE under REVISION-- this is probably close but will check again with PK later in week.  Note -I suffix mean last known ranking but currently inactive.</h1>`;
+        html += `<h3 style="margin-top:1rem; background:#FFFFAA; margin-bottom:1.5rem;"> Ranking CODE under REVISION-- this is based on end of last spring and is probably close but will check again with PK later in week.  Note -I suffix mean last known ranking but currently inactive.</h1>`;
 
 
         
