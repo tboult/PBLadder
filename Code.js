@@ -259,9 +259,9 @@ function getDb(SHEET_ID) {
     return _dbInstance;
   }
 
-  // 3. Resolve sheetId (Explicit parameter takes precedence over Script Properties)
+  // 3. Resolve sheetId (Script Properties taked precidence over parameter )
   const propId = PropertiesService.getScriptProperties().getProperty("SHEET_ID");
-  const sheetId = SHEET_ID || propId;
+  const sheetId = propId || SHEET_ID ;
 
   _dbMeta.fromCache = false;
   _dbMeta.loadedAt = new Date().toLocaleTimeString();
