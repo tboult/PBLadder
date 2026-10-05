@@ -246,13 +246,13 @@ function getDb(SHEET_ID) {
         _dbInstance._debugFromCache = true;
       _dbInstance._debugLoadedAt = new Date().toLocaleTimeString();
       _dbInstance._debugSource = "CONFLICING IDS";
-    _dbInstance = null;
+      return _dbInstance;        
+
   } 
     if (_dbInstance) {
         _dbInstance._debugFromCache = true;
         _dbInstance._debugLoadedAt = new Date().toLocaleTimeString();
         _dbInstance._debugSource = "CACHE";
-        
         return _dbInstance;
     }
 
