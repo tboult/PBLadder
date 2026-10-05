@@ -552,6 +552,8 @@ let lastCheckedPhone = "";
     versionEl.textContent = `v${CURRENT_APP_VERSION}`;
   }
 
+    initAdminView();
+
 
 });
 

@@ -40,8 +40,18 @@ function filterAdminPlayers() {
     const attrName = escapeHtmlAttr(rawName);
     const attrPhone = escapeHtmlAttr(cleanPhone);
 
-    const isActive = player.active === true || String(player.active).toLowerCase() === 'true' || String(player.status).toLowerCase() === 'active';
-    const isCheckedIn = player.checkedIn === true || player.isCheckedIn === true || String(player.checkedIn).toLowerCase() === 'true' || String(player.status).toLowerCase() === 'checked in';
+    // Active status evaluation
+    const isActive = player.active === true 
+      || String(player.active).toLowerCase() === 'true' 
+      || String(player.status).toLowerCase() === 'active';
+
+    // Comprehensive Check-In evaluation (handles 'X', true, timestamps, and multiple property names)
+    const checkInVal = player.checkedIn ?? player.isCheckedIn ?? player.checked ?? player.checkIn;
+    const isCheckedIn = checkInVal === true 
+      || String(checkInVal).toLowerCase() === 'true' 
+      || String(checkInVal).toUpperCase() === 'X' 
+      || (typeof checkInVal === 'string' && checkInVal.trim().length > 0 && checkInVal.trim().toLowerCase() !== 'false')
+      || String(player.status).toLowerCase() === 'checked in';
     
     const rawScore = (player.score !== undefined && player.score !== null) 
       ? player.score 
@@ -64,19 +74,18 @@ function filterAdminPlayers() {
     </div>
 
     <!-- Check-In Button -->
-    <button type="button" class="btn-main" style="padding:0.35rem 0.6rem; font-size:0.8rem; background-color:${isCheckedIn ? '#2e7d32' : '#757575'}; color:white; white-space:nowrap;" onclick="toggleAdminCheckIn(this, '${attrName}', '${attrPhone}',${isCheckedIn})">
+    <button type="button" class="btn-main" style="padding:0.35rem 0.6rem; font-size:0.8rem; background-color:${isCheckedIn ? '#2e7d32' : '#757575'}; color:white; white-space:nowrap;" onclick="toggleAdminCheckIn(this, '${attrName}', '${attrPhone}', ${isCheckedIn})">
       ${isCheckedIn ? '✅ Checked In' : '⬜ Check In'}
     </button>
 
     <!-- Active/Inactive Button -->
-    <button type="button" class="btn-sub" style="padding:0.35rem 0.6rem; font-size:0.8rem; background-color:${isActive ? '#1976d2' : '#d32f2f'}; color:white; white-space:nowrap;" onclick="toggleAdminPlayerActive(this, '${attrName}', '${attrPhone}',${isActive})">
+    <button type="button" class="btn-sub" style="padding:0.35rem 0.6rem; font-size:0.8rem; background-color:${isActive ? '#1976d2' : '#d32f2f'}; color:white; white-space:nowrap;" onclick="toggleAdminPlayerActive(this, '${attrName}', '${attrPhone}', ${isActive})">
       ${isActive ? 'Active' : 'Inactive'}
     </button>
   </div>
 </div>    `;
   }).join('');
 }
-
 
 
 async function saveAllAdminScores() {
@@ -491,16 +500,16 @@ async function toggleAdminPlayerActive(btnEl, playerName, phone, currentActiveSt
 let adminPollingInterval;
 
 // Call this when the Admin UI view is opened
-function initAdminView(currentGroup) {
-  loadAdminPlayerData(currentGroup);
+function initAdminView() {
+  loadAdminPlayerData();
   
   // Clear any existing intervals
   if (adminPollingInterval) clearInterval(adminPollingInterval);
   
-  // Set polling for every 60 seconds
+  // Set polling for every 15 seconds
   adminPollingInterval = setInterval(() => {
-    loadAdminPlayerData(currentGroup, true); 
-  }, 60000);
+    loadAdminPlayerData( null , true); 
+  }, 15000);
 }
 
 // Call this when the Admin UI is closed or hidden
@@ -509,7 +518,13 @@ function teardownAdminView() {
 }
 
 async function loadAdminPlayerData(group, isBackgroundPoll = false) {
-  return await loadAdminPlayerStatusCache(group);
+    if(localStorage.getItem('activeTab') != 'admin') return;
+    const cachedGroup = (typeof getSavedGroup === 'function' ? getSavedGroup() : '') ||
+          localStorage.getItem("scpb_saved_group") || 
+          localStorage.getItem("scpb_selected_group");
+    const targetgroup = group || cachedGroup;
+    console.log("loadAdminPlayerData",targetgroup, isBackgroundPoll)
+  return await loadAdminPlayerStatusCache(targetgroup);
 }
 
 
@@ -806,3 +821,133 @@ async function setTestGroup(enabled) {
 }
 
 
+
+
+async function reloadAdminScores() {
+  const groupRadio = document.querySelector('input[name="adminGroupRadio"]:checked')
+                  || document.querySelector('input[name="helpGroupRadio"]:checked')
+                  || document.querySelector('input[name="checkinGroupRadio"]:checked');
+  const groupName = groupRadio ? groupRadio.value : (typeof getSavedGroup === 'function' ? getSavedGroup() : localStorage.getItem('scpb_selected_group'));
+
+  if (!groupName) return alert('Please select a target group first.');
+
+  const reloadBtn = document.getElementById('btnReloadScores');
+  if (reloadBtn) {
+    reloadBtn.disabled = true;
+    reloadBtn.innerText = '⏳ Reloading...';
+  }
+
+try {
+    // Fetch fresh data from server
+    
+        await loadAdminPlayerStatusCache(groupName);
+  } catch (err) {
+    console.error("Error reloading scores:", err);
+  } finally {
+    if (reloadBtn) {
+      reloadBtn.disabled = false;
+      reloadBtn.innerText = '🔄 Reload Scores';
+    }
+  }
+}
+
+
+async function saveAllAdminScores() {
+  const groupRadio = document.querySelector('input[name="adminGroupRadio"]:checked')
+                  || document.querySelector('input[name="helpGroupRadio"]:checked');
+  const groupName = groupRadio ? groupRadio.value : (typeof getSavedGroup === 'function' ? getSavedGroup() : localStorage.getItem('scpb_selected_group'));
+
+  if (!groupName) return alert('Please select a target group first.');
+  if (!Array.isArray(adminPlayersCache) || adminPlayersCache.length === 0) return;
+
+  const updatesToPerform = [];
+
+  // 1. Scan and validate input fields
+  for (const player of adminPlayersCache) {
+    const rawName = player.name || `${player.first || ''} ${player.last || ''}`.trim() || 'Unknown Player';
+    const rawPhone = player.phone || player.cell || player.mobile || player.phoneNumber || '';
+    const cleanPhone = String(rawPhone).replace(/\D/g, '');
+
+    const scoreInput = document.getElementById(`admin_score_${cleanPhone}`);
+    if (!scoreInput) continue;
+
+    const rawInputVal = scoreInput.value.trim();
+
+    // Skip blank fields so existing scores are untouched
+    if (rawInputVal === '') continue;
+
+    const newScore = isNaN(Number(rawInputVal)) ? rawInputVal : Number(rawInputVal);
+
+    // ⛔ VALIDATION: Check score boundaries
+    if (typeof newScore === 'number') {
+      const maxLimit = typeof MAX_TOTAL_SCORE !== 'undefined' ? MAX_TOTAL_SCORE : 60;
+      if (newScore < 0 || newScore > maxLimit) {
+        alert(`Invalid score (${newScore}) for ${rawName}.\n\nScores must be between 0 and ${maxLimit}.`);
+        scoreInput.focus();
+        return; // Stop saving immediately
+      }
+    }
+
+    const cachedRaw = (player.score !== undefined && player.score !== null) 
+      ? player.score 
+      : (player.points ?? player.total ?? '');
+    const cachedScore = (cachedRaw === 0) ? 0 : (cachedRaw || '');
+
+    if (String(newScore) !== String(cachedScore)) {
+      updatesToPerform.push({
+        playerName: rawName,
+        phone: cleanPhone,
+        score: newScore,
+        playerRef: player
+      });
+    }
+  }
+
+  if (updatesToPerform.length === 0) {
+    alert('No new valid score entries detected.');
+    return;
+  }
+
+  // Retrieve admin phone to log into the sheet's 'Entered' column
+  const currentAdminPhone = localStorage.getItem('scpb_admin_phone') || localStorage.getItem('user_phone') || '';
+
+  const saveBtn = document.getElementById('btnSaveAllScores');
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.innerText = '⏳ Saving Scores...';
+  }
+
+  try {
+    const res = await apiCall('batchUpdatePlayerScores', {
+      group: groupName,
+      groupName: groupName,
+      adminPhone: currentAdminPhone, // Stamped into 'Entered' column on Sched sheet
+      updates: updatesToPerform.map(u => ({
+        playerName: u.playerName,
+        phone: u.phone,
+        score: u.score
+      }))
+    });
+
+    if (res && (res.success || !res.error)) {
+      updatesToPerform.forEach(u => {
+        u.playerRef.score = u.score;
+        u.playerRef.points = u.score;
+        u.playerRef.total = u.score;
+      });
+
+      alert(`Successfully saved ${updatesToPerform.length} score change(s).`);
+    } else {
+      alert('Failed to update scores: ' + (res?.message || res?.error || 'Server Error'));
+    }
+
+  } catch (err) {
+    console.error("Error saving scores:", err);
+    alert('Network error saving score changes.');
+  } finally {
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.innerText = '💾 Save All Scores';
+    }
+  }
+}
