@@ -38,7 +38,7 @@ fi
 
 # 5. Swap .clasp.json to target the correct Apps Script project
 cp "$CLASP_FILE" .clasp.json
-echo "📋 Copied config to .clasp.json -> $CLASP_FILE"
+echo "📋 Copied config to $CLASP_FILE -> .clasp.json  "
 
 # Swap appsscript.json if environment manifests exist
 if [ -f "${TARGET_ENV}manifest.json" ]; then
