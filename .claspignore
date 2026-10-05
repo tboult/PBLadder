@@ -2,6 +2,7 @@
 index.html
 sw.js
 api.js
+config.js
 api-fixed.js
 admin.js
 manifest.json
