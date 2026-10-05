@@ -10,13 +10,12 @@ const MAX_GAME_SCORE=15;
 
 
 
-
-  const GROUP_COURT_MAP = {
-      "Womens": [3,4,5,6,7,8,15,16,17,18,19,20],
-      "Mens": [5,6,9,10,13,14,15,16],
-      "Mixed": [3,4,5,6,7,8,15,16,17,18,19,20],
-      "Default": [5,6,9,10,13,14,15,16]
-  };
+const GROUP_COURT_MAP = {
+  "Womens": [3, 4, 5, 6, 7, 8, 11,12,13,14,15, 16, 17, 18, 19, 20],
+  "Mens": [5, 6, 9, 10, 13, 14, 15, 16],
+  "Mixed": [3, 4, 5, 6, 7, 8, 15, 16, 17, 18, 19, 20],
+  "Default": [5, 6, 9, 10, 13, 14, 15, 16]
+};
 
   console.log('window.API_URL:', window.API_URL);  
   
@@ -594,5 +593,54 @@ function validateGameScoreInput(inputEl) {
     inputEl.style.color = '#000000';
     
     if (errorEl) errorEl.remove();
+  }
+}
+
+
+function forceRefresh() {
+  const currentGroup = getSavedGroup();
+  if (currentGroup) loadUnifiedRosterData(currentGroup, true);
+  }
+
+  
+
+
+  function getCourtsForGroup(groupName) {
+    return (typeof GROUP_COURT_MAP !== 'undefined' && GROUP_COURT_MAP[groupName]) || (typeof GROUP_COURT_MAP !== 'undefined' && GROUP_COURT_MAP["Default"]) || [];
+  }
+
+
+  function getSelectedCourts() {
+    const selected = [];
+    const checkboxes = document.querySelectorAll('#admin-court-list input[type="checkbox"]:checked');
+    checkboxes.forEach(cb => selected.push(parseInt(cb.value, 10)));
+    return selected;
+  }
+  
+
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js')
+        .then(reg => console.log('PWA Service Worker registered:', reg.scope))
+        .catch(err => console.warn('Service Worker registration failed:', err));
+    });
+  }
+
+
+function updateGlobalLoaderStatus() {
+  const loader = document.getElementById('globalLoader');
+  const loaderText = document.getElementById('globalLoaderText');
+  if (!loader || !loaderText) return;
+
+  if (typeof isInitialLoading !== 'undefined' && isInitialLoading) {
+    loaderText.innerText = "Loading app...";
+      loader.style.display = "flex";
+      isInitialLoading = false;      
+  } else if (typeof isProcessingQueue !== 'undefined' && typeof apiQueue !== 'undefined' && (isProcessingQueue || apiQueue.length > 0)) {
+    const pending = apiQueue.length;
+    loaderText.innerText = pending > 0 ? `Syncing (${pending + 1})...` : "Syncing...";
+    loader.style.display = "flex";
+  } else {
+    loader.style.display = "none";
   }
 }
