@@ -2074,7 +2074,6 @@ const NEW_PLAYER_SLACK = 0;
 const SCALE_AGAINST_RETURNER_POOL = true;
 
 const MARK_NEW_PLAYERS = false;
-const RANK_DEBUG_LOG = true;
 
 /* ---------- window construction --------------------------------------- */
 
