@@ -1,5 +1,5 @@
 // --- ADMIN CONFIGURATION ---
-  const ADMIN_PHONES = ['7199630573', '7196490138','8055506356','4147586069',"6025701430"]; 
+  const ADMIN_PHONES = ['7199630573', '7196490138','8055506356',"6025701430"]; 
   // --- ADMIN ROSTER CACHE SYSTEM ---
   let adminPlayersCache = null;
   let adminCacheTimestamp = 0;
@@ -508,7 +508,7 @@ function initAdminView() {
   
   // Set polling for every 15 seconds
   adminPollingInterval = setInterval(() => {
-    loadAdminPlayerData( null , true); 
+      loadAdminPlayerData( null , true); 
   }, 15000);
 }
 
