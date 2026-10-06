@@ -1471,6 +1471,7 @@ function calculateStats(row, col) {
   }
   return { total: total, winPct: played > 0 ? total / (played * MAX_POINTS_PER_WEEK) : 0 };
 }
+
 /**
  * Normalizes player names to ensure accurate lookup across sheets.
  * - Flips "Last, First" to "First Last"
@@ -1483,7 +1484,6 @@ function normalizeName(rawName) {
   let s = String(rawName).trim().toLowerCase();
   if (!s) return "";
 
-  // Convert "Last, First" -> "First Last"
   if (s.includes(",")) {
     let parts = s.split(",").map(p => p.trim()).filter(Boolean);
     if (parts.length >= 2) {
@@ -1491,13 +1491,8 @@ function normalizeName(rawName) {
     }
   }
 
-  // Strip accents / diacritics (e.g., Renée -> Renee)
   s = s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-
-  // Remove punctuation (apostrophes, hyphens, periods, etc.)
   s = s.replace(/[^a-z0-9\s]/g, "");
-
-  // Collapse multiple whitespaces into a single space
   return s.replace(/\s+/g, " ").trim();
 }
 
@@ -1526,12 +1521,11 @@ function harvestScoresFromSchedules(ss, data, col, targetWeekIdx, schedSheet, we
 
   const schedHeaders = schedData[0].map(h => String(h || '').trim().toLowerCase());
   
-  // Locate columns on Schedule tab
   let nameIdx = schedHeaders.findIndex(h => /^(name|player|player name|full name)$/i.test(h));
-  if (nameIdx === -1) nameIdx = 0; // Default Column A
+  if (nameIdx === -1) nameIdx = 0;
 
   let phoneIdx = schedHeaders.findIndex(h => /phone|cell|mobile/i.test(h));
-  if (phoneIdx === -1) phoneIdx = 9; // Fallback to Column J (index 9)
+  if (phoneIdx === -1) phoneIdx = 9; // Default to Column J
 
   let scoreIdx = schedHeaders.findIndex(h => /^(pts|points|score|total|tot)$/i.test(h));
   if (scoreIdx === -1) {
@@ -1540,9 +1534,8 @@ function harvestScoresFromSchedules(ss, data, col, targetWeekIdx, schedSheet, we
 
   if (scoreIdx === -1) return warnings;
 
-  // Build lookup maps from Schedule tab using normalized keys
-  let schedScoresByCompositeKey = {}; // Key: "normalizedname_phone"
-  let schedScoresByNameKey = {};      // Key: "normalizedname"
+  let schedScoresByCompositeKey = {};
+  let schedScoresByNameKey = {};
   let hasAnySchedScores = false;
 
   for (let r = 1; r < schedData.length; r++) {
@@ -1564,11 +1557,9 @@ function harvestScoresFromSchedules(ss, data, col, targetWeekIdx, schedSheet, we
 
   if (!hasAnySchedScores) return warnings;
 
-  // Match and update Pts column on Score Sheet
   for (let i = 1; i < data.length; i++) {
     let row = data[i];
     
-    // Construct name from Score sheet (First + Last Name prioritized)
     let firstName = col.first !== undefined ? String(row[col.first] || "").trim() : "";
     let lastName = col.last !== undefined ? String(row[col.last] || "").trim() : "";
     
@@ -1584,7 +1575,6 @@ function harvestScoresFromSchedules(ss, data, col, targetWeekIdx, schedSheet, we
 
     let compositeKey = normName + "_" + scorePhoneDigits;
 
-    // Match order: [Name + Phone] -> [Name Only]
     let schedVal = schedScoresByCompositeKey[compositeKey];
     if (schedVal === undefined) {
       schedVal = schedScoresByNameKey[normName];
@@ -1620,6 +1610,7 @@ function harvestScoresFromSchedules(ss, data, col, targetWeekIdx, schedSheet, we
 
   return warnings;
 }
+
 function processWeeklyScoresForSheet(sheet, forcedWeek) {
   return executeWithLock(function() {
     const ss = typeof getDb === "function" ? getDb() : SpreadsheetApp.getActiveSpreadsheet();
@@ -1694,12 +1685,14 @@ function processWeeklyScoresForSheet(sheet, forcedWeek) {
         }
       }
 
-      // Overwrite current week column W(N) with Pts score directly (NO SHIFTING)
+      // Copy Pts directly into W(N); write "" if blank to mark player as non-participant
       if (ptsColIdx !== undefined && targetWeekIdx !== undefined) {
         for (let i = 1; i < data.length; i++) {
           let ptsVal = data[i][ptsColIdx];
           if (ptsVal !== "" && ptsVal !== null && ptsVal !== undefined && !isNaN(parseFloat(ptsVal))) {
             data[i][targetWeekIdx] = parseFloat(ptsVal);
+          } else {
+            data[i][targetWeekIdx] = "";
           }
         }
       }
@@ -1767,7 +1760,6 @@ function processWeeklyScoresForSheet(sheet, forcedWeek) {
         let cumScore = 0;
         let numWeekNonZero = 0;
 
-        // Iterate across W1 to W10
         for (let w = 1; w <= 10; w++) {
           let wIdx = col["w" + w];
           if (wIdx !== undefined && row[wIdx] !== "" && row[wIdx] !== null) {
@@ -1775,13 +1767,12 @@ function processWeeklyScoresForSheet(sheet, forcedWeek) {
             if (!isNaN(val)) {
               cumScore += val;
               if (val > 0) {
-                numWeekNonZero++; // Count only weeks where points > 0
+                numWeekNonZero++;
               }
             }
           }
         }
 
-        // Possible points = 45 * NumWeekNonZero
         let maxPtsForPlayedWeeks = 45 * numWeekNonZero;
         let cumPct = maxPtsForPlayedWeeks > 0 ? (cumScore / maxPtsForPlayedWeeks) : 0;
 
@@ -1920,7 +1911,6 @@ function processWeeklyScoresForSheet(sheet, forcedWeek) {
         clearAllGroupCaches(cleanGroupName);
       }
 
-      // Cleanup hidden backup sheets on success
       if (backupScore) ss.deleteSheet(backupScore);
       if (backupSched) ss.deleteSheet(backupSched);
 
@@ -1928,7 +1918,6 @@ function processWeeklyScoresForSheet(sheet, forcedWeek) {
       return `✅ Standings and Week ${weekNum} Rankings (R${weekNum}) processed for '${sheet.getName()}'! (${activePlayers.length} Active, ${inactivePlayers.length} Inactive)${warnSummary}`;
 
     } catch (error) {
-      // Automatic restoration on failure
       if (backupScore && sheet) {
         sheet.clear();
         backupScore.getDataRange().copyTo(sheet.getRange(1, 1));
@@ -1945,9 +1934,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek) {
       
       try {
         SpreadsheetApp.getUi().alert(errMsg);
-      } catch(e) {
-        // Fallback for non-UI executions
-      }
+      } catch(e) {}
       
       return errMsg;
     }
