@@ -1992,6 +1992,19 @@ function safeParseRankVal(val, defaultPrevRank, currentPopulation) {
   return bad;
 }
 
+/* Ranking code goals
+Inputs per row. Identity (First/Last, or a Name column), current-week points (Pts), weekly scores (W1…W10), and the prior standing string in R(N-1). The prior string carries three facts at once: position, the field size it came from, and whether movement was capped. Pos, Pct, RNum are derived and rewritten each run.
+
+Outputs per row. R(N) holds the primary standing string. LASTR holds the Method 2 standing for comparison. SortVal holds the merit-only rank, NewLeft the final primary rank — both integers in [1,𝑁]. Rows are physically ordered by final rank, active first, inactive after.
+
+The requirements the code has to satisfy simultaneously.
+
+Merit order comes from cumulative win percentage across weeks actually played, cumPct =cumScore/(45 ⋅weeksPlayed). Continuity caps weekly movement at ±MAX_MOVEMENT from the prior standing. Population normalization converts the prior standing to a percentile before applying the cap, so a rank of 23 out of 49 means the 47th percentile rather than position 23 in a 28-player field. The result must be a permutation of 1…𝑁 with no duplicates, no gaps, and no placement outside a player's window. Inactive players keep their prior string with -I and are excluded from the permutation. Transparency requires -R when upward movement was capped, -r when a drop was limited, and the diagnostic columns to be reproducible from the raw data. Safety requires a backup, a restore on failure, and an explicit error rather than a silent illegal placement.
+
+New players, having no history, anchor near the bottom. They may finish modestly above the weakest returning players but may not enter the upper field on one week's result. This overrides the ±4 windows of returning players when the two conflict.
+*/
+
+
 /* ---------- feasibility (earliest-deadline-first, exact) -------------- */
 
 function rankingIsFeasible(items, usedSlots) {
@@ -2014,36 +2027,165 @@ function rankingIsFeasible(items, usedSlots) {
   return true;
 }
 
+/* =========================================================================
+ *  NEW-PLAYER POLICY
+ *
+ *  "BOTTOM_BAND"   : newcomers are confined to the bottom of the field.
+ *                    Their band is hard; returning players' windows widen
+ *                    around it if the two conflict.
+ *  "UNCONSTRAINED" : newcomers may land anywhere (previous behaviour).
+ * ========================================================================= */
+const NEW_PLAYER_POLICY = "BOTTOM_BAND";
+
+/* How far above the block of newcomers the best newcomer may reach.
+ * 0 = newcomers occupy the last K places exactly.
+ * 4 = the best newcomer may finish up to 4 places above that block. */
+const NEW_PLAYER_SLACK = 4;
+
+/* Append "-N" to a newcomer's standing instead of "-R"/"-r". */
+const MARK_NEW_PLAYERS = false;
+
 /* ---------- window construction --------------------------------------- */
 
 function applyWindows(items, window, numSlots) {
+  /* The newcomer band depends only on how many newcomers there are,
+   * so it is identical on every iteration of the feasibility search. */
+  let newCount = 0;
+  items.forEach(function (p) { if (p.isNew) newCount++; });
+
+  const bandStart = (NEW_PLAYER_POLICY === "BOTTOM_BAND" && newCount > 0)
+    ? Math.max(1, numSlots - newCount - NEW_PLAYER_SLACK + 1)
+    : 1;
+
   items.forEach(function (p) {
-    if (p.unconstrained) {
+    if (p.isNew && NEW_PLAYER_POLICY === "BOTTOM_BAND") {
+      /* Hard band. Deliberately NOT widened by findSmallestFeasibleWindow:
+       * newcomer placement takes precedence over returning players' caps. */
+      p.minAllowed = bandStart;
+      p.maxAllowed = numSlots;
+    } else if (p.isNew) {
       p.minAllowed = 1;
       p.maxAllowed = numSlots;
     } else {
       p.minAllowed = Math.max(1, p.effectivePrevRank - window);
       p.maxAllowed = Math.min(numSlots, p.effectivePrevRank + window);
     }
+
     if (p.minAllowed > p.maxAllowed) {
-      /* Defensive: cannot occur once effectivePrevRank is clamped. */
       p.minAllowed = 1;
       p.maxAllowed = numSlots;
     }
+
     p.clampedTarget = Math.max(
       p.minAllowed,
       Math.min(p.sortVal, p.maxAllowed)
     );
   });
+
+  return bandStart;
 }
 
 function findSmallestFeasibleWindow(items, baseWindow, numSlots) {
+  /* Only returning players' windows grow. The newcomer band is fixed,
+   * which is what makes the bottom anchor override the +/- cap. */
   for (let w = baseWindow; w <= numSlots; w++) {
     applyWindows(items, w, numSlots);
     if (rankingIsFeasible(items, {})) return w;
   }
   applyWindows(items, numSlots, numSlots);
   return numSlots;
+}
+
+/* ---------- one complete ranking pass --------------------------------- */
+
+function computeBoundedRanks(sourcePlayers, numActive, baseMove, isScaledMode) {
+  const items = sourcePlayers.map(function (p) {
+    const item = {
+      uid: p.rowIndex,
+      name: p.name,
+      sortVal: p.sortVal,
+      cumPct: p.cumPct,
+      hasPrior: p.hasPrior,
+      priorRank: p.priorRank,
+      priorNumPeople: p.priorNumPeople,
+      priorPercent: p.priorPercent,
+      isNew: !p.hasPrior
+    };
+
+    if (item.isNew) {
+      /* No history. effectivePrevRank is recorded for the log only;
+       * the band in applyWindows is what actually governs placement. */
+      item.effectivePrevRank = numActive;
+      return item;
+    }
+
+    let eff;
+    if (isScaledMode) {
+      let pct = item.priorPercent;
+      if (pct === null || pct === undefined) {
+        pct = (item.priorNumPeople > 0)
+          ? (item.priorRank / item.priorNumPeople) * 100
+          : null;
+      }
+      eff = (pct === null)
+        ? item.priorRank
+        : Math.round((pct / 100) * numActive);
+    } else {
+      eff = item.priorRank;
+    }
+
+    /* Clamp into the current field so the window can never be empty. */
+    item.effectivePrevRank =
+      Math.max(1, Math.min(numActive, Math.round(eff)));
+    return item;
+  });
+
+  const windowUsed = findSmallestFeasibleWindow(items, baseMove, numActive);
+  const bandStart = applyWindows(items, windowUsed, numActive);
+  assignRanksWithinWindows(items, numActive);
+
+  /* Validation: permutation plus window compliance. */
+  const seen = {};
+  items.forEach(function (p) {
+    if (seen[p.finalRank]) {
+      throw new Error("Duplicate final rank " + p.finalRank +
+        " for " + p.name + ".");
+    }
+    seen[p.finalRank] = true;
+
+    if (p.finalRank < p.minAllowed || p.finalRank > p.maxAllowed) {
+      throw new Error("Illegal rank " + p.finalRank + " for " + p.name +
+        " (window " + p.minAllowed + "-" + p.maxAllowed + ").");
+    }
+  });
+
+  items.forEach(function (p) {
+    let suffix = "";
+
+    if (p.isNew) {
+      /* A newcomer whose merit exceeded the band was held down by the
+       * newcomer rule, not by a movement cap. */
+      if (MARK_NEW_PLAYERS) {
+        suffix = "-N";
+      } else if (p.sortVal < p.minAllowed) {
+        suffix = "-R";
+      }
+    } else if (p.sortVal < p.minAllowed) {
+      suffix = "-R";              /* earned better, held back */
+    } else if (p.sortVal > p.maxAllowed) {
+      suffix = "-r";              /* earned worse, protected */
+    }
+
+    p.restrictionSuffix = suffix;
+    p.isRestricted = (suffix !== "");
+    p.percentile = (p.finalRank / numActive) * 100;
+
+    p.outStr = isScaledMode
+      ? (p.percentile.toFixed(1) + "%" + suffix)
+      : (p.finalRank + "/" + numActive + suffix);
+  });
+
+  return { items: items, windowUsed: windowUsed, bandStart: bandStart };
 }
 
 /* ---------- merit-greedy assignment with feasibility guard ------------ */
@@ -2085,93 +2227,6 @@ function assignRanksWithinWindows(items, numSlots) {
   }
 
   return items;
-}
-
-/* ---------- one complete ranking pass --------------------------------- */
-
-function computeBoundedRanks(sourcePlayers, numActive, baseMove, isScaledMode) {
-  const items = sourcePlayers.map(function (p) {
-    const item = {
-      uid: p.rowIndex,
-      name: p.name,
-      sortVal: p.sortVal,
-      cumPct: p.cumPct,
-      hasPrior: p.hasPrior,
-      priorRank: p.priorRank,
-      priorNumPeople: p.priorNumPeople,
-      priorPercent: p.priorPercent,
-      unconstrained: false
-    };
-
-    if (!item.hasPrior && TREAT_UNRANKED_AS_UNCONSTRAINED) {
-      /* No prior standing, so there is nothing to move away from. */
-      item.unconstrained = true;
-      item.effectivePrevRank = item.sortVal;
-      return item;
-    }
-
-    let eff;
-    if (isScaledMode) {
-      /* Percentile baseline: prefer a stored percentile, else derive one. */
-      let pct = item.priorPercent;
-      if (pct === null || pct === undefined) {
-        pct = (item.priorNumPeople > 0)
-          ? (item.priorRank / item.priorNumPeople) * 100
-          : null;
-      }
-      eff = (pct === null)
-        ? item.priorRank
-        : Math.round((pct / 100) * numActive);
-    } else {
-      eff = item.priorRank;
-    }
-
-    /* Clamp into the current field. This is the fix for empty windows. */
-    eff = Math.max(1, Math.min(numActive, Math.round(eff)));
-    item.effectivePrevRank = eff;
-    return item;
-  });
-
-  const windowUsed = findSmallestFeasibleWindow(items, baseMove, numActive);
-  applyWindows(items, windowUsed, numActive);
-  assignRanksWithinWindows(items, numActive);
-
-  /* Validation: permutation plus window compliance. */
-  const seen = {};
-  items.forEach(function (p) {
-    if (seen[p.finalRank]) {
-      throw new Error("Duplicate final rank " + p.finalRank +
-        " for " + p.name + ".");
-    }
-    seen[p.finalRank] = true;
-
-    if (p.finalRank < p.minAllowed || p.finalRank > p.maxAllowed) {
-      throw new Error("Illegal rank " + p.finalRank + " for " + p.name +
-        " (window " + p.minAllowed + "-" + p.maxAllowed + ").");
-    }
-  });
-
-  /* Direction of restriction and output string. */
-  items.forEach(function (p) {
-    let suffix = "";
-    if (!p.unconstrained) {
-      if (p.sortVal < p.minAllowed) {
-        suffix = "-R";          /* earned a better rank, held back */
-      } else if (p.sortVal > p.maxAllowed) {
-        suffix = "-r";          /* earned a worse rank, protected */
-      }
-    }
-    p.restrictionSuffix = suffix;
-    p.isRestricted = (suffix !== "");
-
-    p.percentile = (p.finalRank / numActive) * 100;
-
-    p.outStr = isScaledMode
-      ? (p.percentile.toFixed(1) + "%" + suffix)
-      : (p.finalRank + "/" + numActive + suffix);
-  });
-
-  return { items: items, windowUsed: windowUsed };
 }
 
 /* =========================================================================
@@ -2496,14 +2551,15 @@ function processWeeklyScoresForSheet(sheet, forcedWeek,
       const secondName = invertPrimaryToAbsolute
         ? "Percentile-scaled" : "Absolute";
 
-      let msg = "Processed '" + sheet.getName() + "'. " +
-        numActive + " active, " + inactivePlayers.length + " inactive. " +
-        "Week " + weekNum + " = " + primaryName +
-        "; LASTR = " + secondName + ". " +
-        "Movement cap used: scaled ±" + scaled.windowUsed +
-        ", absolute ±" + absolute.windowUsed +
-        " (requested ±" + maxMove + ").";
-
+        let msg = "Processed '" + sheet.getName() + "'. " +
+            numActive + " active, " + inactivePlayers.length + " inactive. " +
+            "Week " + weekNum + " = " + primaryName +
+            "; LASTR = " + secondName + ". " +
+            "Movement cap used: scaled \u00B1" + scaled.windowUsed +
+            ", absolute \u00B1" + absolute.windowUsed +
+            " (requested \u00B1" + maxMove + "). " +
+            "Newcomer band starts at rank " + scaled.bandStart + ".";
+        
       if (scaled.windowUsed > maxMove || absolute.windowUsed > maxMove) {
         msg += " The requested cap was mathematically impossible for this " +
                "field; the smallest feasible cap was used.";
