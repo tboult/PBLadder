@@ -2604,6 +2604,11 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRankAsPrimary) 
         " (requested \u00B1" + maxMove + "). " +
           "Newcomer band starts at rank " + scaled.bandStart + ".";
 
+        if (typeof updateRankingsSheetForGroup === "function") {
+            updateRankingsSheetForGroup(
+                ss, cleanGroupName, activePlayers, inactivePlayers, weekNum);
+        }
+
         
       if (scaled.windowUsed > maxMove || absolute.windowUsed > maxMove) {
         msg += " The requested cap was mathematically impossible for this " +
@@ -2622,7 +2627,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRankAsPrimary) 
         ss.deleteSheet(backupScore);
       }
       if (backupSched && schedSheet) {
-        schedSheet.clear();
+          schedSheet.clear();
         backupSched.getDataRange().copyTo(schedSheet.getRange(1, 1));
         ss.deleteSheet(backupSched);
       }
@@ -2633,41 +2638,111 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRankAsPrimary) 
 
 
 
+/**
+ * Writes the Rankings tab for one group.
+ *
+ * Reads the new engine's properties:
+ *   p.primaryStr       standing string under the primary method
+ *                      ("17.9%-R" percentile, "5/28-R" absolute)
+ *   p.method2Str       standing string under the secondary method
+ *   p.primaryFinalRank integer 1..N, or numActive+1 for inactive rows
+ *
+ * p.rjStr is no longer produced and is read only as a legacy fallback.
+ */
+function updateRankingsSheetForGroup(ss, groupName, activePlayers,
+                                     inactivePlayers, weekNum) {
 
-function updateRankingsSheetForGroup(ss, groupName, activePlayers, inactivePlayers, weekNum) {
-  let rankSheetName = "Rankings " + groupName;
-  let rankSheet = ss.getSheetByName(rankSheetName) || ss.insertSheet(rankSheetName);
+  /* Set false to drop the Method 2 comparison column once the
+   * percentile method is accepted by the players. */
+  const SHOW_METHOD2 = true;
+
+  const rankSheetName = "Rankings " + groupName;
+  const rankSheet = ss.getSheetByName(rankSheetName)
+    || ss.insertSheet(rankSheetName);
+
   rankSheet.clear();
-  
-  let rankOut = [["Rank", "Name", "Win %", "Total Points"]];
-  
-  function cleanRankStr(val, fallback) {
-    if (val === null || val === undefined || val === "") return fallback;
-    let str = String(val).replace(/^'/, "").trim();
-    return str || fallback;
+
+  const header = ["Rank", "#", "Name", "Win %", "Total Points"];
+  if (SHOW_METHOD2) header.push("Method 2");
+  const rankOut = [header];
+
+  function standingOf(p, fallback) {
+    const v = (p.primaryStr !== undefined && p.primaryStr !== null
+               && p.primaryStr !== "")
+      ? p.primaryStr
+      : p.rjStr;                       /* legacy fallback */
+    if (v === null || v === undefined || v === "") return fallback;
+    return String(v).replace(/^'/, "").trim() || fallback;
   }
 
-  activePlayers.forEach(p => {
-    let pctVal = p.cumPct !== undefined ? p.cumPct : (p.winPct || 0);
-    let winPctStr = (pctVal * 100).toFixed(1) + "%";
-    let scoreVal = p.cumScore !== undefined ? p.cumScore : (p.total || 0);
-    let rankStr = cleanRankStr(p.rjStr, "");
-    rankOut.push([rankStr, p.name, winPctStr, scoreVal]);
-  });
-  
-  inactivePlayers.forEach(p => {
-    let pctVal = p.cumPct !== undefined ? p.cumPct : (p.winPct || 0);
-    let winPctStr = (pctVal * 100).toFixed(1) + "%";
-    let scoreVal = p.cumScore !== undefined ? p.cumScore : (p.total || 0);
-    let rankStr = cleanRankStr(p.rjStr, "INACTIVE");
-    rankOut.push([rankStr, p.name, winPctStr, scoreVal]);
+  function method2Of(p) {
+    if (p.method2Str === undefined || p.method2Str === null) return "";
+    return String(p.method2Str).replace(/^'/, "").trim();
+  }
+
+  function pushRow(p, standingFallback, numberCell) {
+    const pctVal = (p.cumPct !== undefined) ? p.cumPct : (p.winPct || 0);
+    const scoreVal = (p.cumScore !== undefined) ? p.cumScore : (p.total || 0);
+
+    const row = [
+      standingOf(p, standingFallback),
+      numberCell,
+      p.name,
+      (pctVal * 100).toFixed(1) + "%",
+      scoreVal
+    ];
+    if (SHOW_METHOD2) row.push(method2Of(p));
+    rankOut.push(row);
+  }
+
+  /* Active rows ordered by the primary method, not by merit. */
+  const actives = (activePlayers || []).slice().sort(function (a, b) {
+    const ra = (a.primaryFinalRank !== undefined)
+      ? a.primaryFinalRank : Number.MAX_SAFE_INTEGER;
+    const rb = (b.primaryFinalRank !== undefined)
+      ? b.primaryFinalRank : Number.MAX_SAFE_INTEGER;
+    if (ra !== rb) return ra - rb;
+    return (b.cumPct || 0) - (a.cumPct || 0);
   });
 
-  let range = rankSheet.getRange(1, 1, rankOut.length, 4);
-  range.setNumberFormat("@");
+  actives.forEach(function (p) {
+    pushRow(p, "", (p.primaryFinalRank !== undefined)
+      ? p.primaryFinalRank : "");
+  });
+
+  /* Inactive rows keep their carried-forward standing, already "-I". */
+  const inactives = (inactivePlayers || []).slice().sort(function (a, b) {
+    return (b.cumPct || 0) - (a.cumPct || 0);
+  });
+
+  inactives.forEach(function (p) {
+    pushRow(p, "INACTIVE", "");
+  });
+
+  const width = header.length;
+  const range = rankSheet.getRange(1, 1, rankOut.length, width);
+
+  /* Text format on the standing columns only, so "17.9%-R" and "5/28-R"
+   * survive and Total Points stays numeric and sortable. */
+  rankSheet.getRange(1, 1, rankOut.length, 1).setNumberFormat("@");
+  rankSheet.getRange(1, 4, rankOut.length, 1).setNumberFormat("@");
+  if (SHOW_METHOD2) {
+    rankSheet.getRange(1, width, rankOut.length, 1).setNumberFormat("@");
+  }
+
   range.setValues(rankOut);
-  rankSheet.getRange(1, 1, 1, 4).setFontWeight("bold");
+  rankSheet.getRange(1, 1, 1, width).setFontWeight("bold");
+  rankSheet.setFrozenRows(1);
+
+  if (weekNum !== undefined && weekNum !== null && weekNum !== "") {
+    rankSheet.getRange(1, 1).setNote(
+      "Week " + weekNum + " standings. " +
+      "Rank column uses the primary method. " +
+      "-R upward movement capped, -r drop limited, -I inactive.");
+  }
 }
+
+
 
 
 
