@@ -1992,6 +1992,32 @@ function safeParseRankVal(val, defaultPrevRank, currentPopulation) {
   return bad;
 }
 
+/**
+ * Renders an inactive player's carried-forward standing.
+ * asPercent true  -> "44.9%-I"   (percentile method)
+ * asPercent false -> "22/49-I"   (absolute method)
+ * A prior value with no denominator cannot yield a percentile,
+ * so it falls back to the bare rank.
+ */
+function formatInactiveStanding(player, asPercent) {
+  if (!player.hasPrior) return "";
+
+  let pct = player.priorPercent;
+  if ((pct === null || pct === undefined) && player.priorNumPeople > 0) {
+    pct = (player.priorRank / player.priorNumPeople) * 100;
+  }
+
+  if (asPercent) {
+    return (pct === null || pct === undefined)
+      ? (player.priorRank + "-I")
+      : (pct.toFixed(1) + "%-I");
+  }
+
+  return (player.priorNumPeople > 0)
+    ? (player.priorRank + "/" + player.priorNumPeople + "-I")
+    : (player.priorRank + "-I");
+}
+
 /* Ranking code goals
 Inputs per row. Identity (First/Last, or a Name column), current-week points (Pts), weekly scores (W1…W10), and the prior standing string in R(N-1). The prior string carries three facts at once: position, the field size it came from, and whether movement was capped. Pos, Pct, RNum are derived and rewritten each run.
 
@@ -2037,13 +2063,18 @@ function rankingIsFeasible(items, usedSlots) {
  * ========================================================================= */
 const NEW_PLAYER_POLICY = "BOTTOM_BAND";
 
-/* How far above the block of newcomers the best newcomer may reach.
- * 0 = newcomers occupy the last K places exactly.
- * 4 = the best newcomer may finish up to 4 places above that block. */
-const NEW_PLAYER_SLACK = 4;
+/* 0 = newcomers occupy the last K places and sit below every returner.
+ * 4 = the best newcomer may reach 4 places above that block. */
+const NEW_PLAYER_SLACK = 0;
 
-/* Append "-N" to a newcomer's standing instead of "-R"/"-r". */
+/* Scale prior standings against the number of RETURNING players rather
+ * than the whole field. Without this, every player whose prior rank
+ * exceeds the field size collapses onto the last slot and the movement
+ * cap has to be abandoned to find any legal arrangement. */
+const SCALE_AGAINST_RETURNER_POOL = true;
+
 const MARK_NEW_PLAYERS = false;
+const RANK_DEBUG_LOG = true;
 
 /* ---------- window construction --------------------------------------- */
 
@@ -2099,6 +2130,15 @@ function findSmallestFeasibleWindow(items, baseWindow, numSlots) {
 /* ---------- one complete ranking pass --------------------------------- */
 
 function computeBoundedRanks(sourcePlayers, numActive, baseMove, isScaledMode) {
+  let returnerCount = 0;
+  sourcePlayers.forEach(function (p) { if (p.hasPrior) returnerCount++; });
+
+  /* Returners compete for the slots above the newcomer band, so the
+   * prior standing is scaled into that space, not the whole field. */
+  const pool = (SCALE_AGAINST_RETURNER_POOL && returnerCount > 0)
+    ? returnerCount
+    : numActive;
+
   const items = sourcePlayers.map(function (p) {
     const item = {
       uid: p.rowIndex,
@@ -2113,8 +2153,7 @@ function computeBoundedRanks(sourcePlayers, numActive, baseMove, isScaledMode) {
     };
 
     if (item.isNew) {
-      /* No history. effectivePrevRank is recorded for the log only;
-       * the band in applyWindows is what actually governs placement. */
+      /* Recorded for the log only; the band in applyWindows governs. */
       item.effectivePrevRank = numActive;
       return item;
     }
@@ -2127,16 +2166,13 @@ function computeBoundedRanks(sourcePlayers, numActive, baseMove, isScaledMode) {
           ? (item.priorRank / item.priorNumPeople) * 100
           : null;
       }
-      eff = (pct === null)
-        ? item.priorRank
-        : Math.round((pct / 100) * numActive);
+      eff = (pct === null) ? item.priorRank : (pct / 100) * pool;
     } else {
       eff = item.priorRank;
     }
 
-    /* Clamp into the current field so the window can never be empty. */
     item.effectivePrevRank =
-      Math.max(1, Math.min(numActive, Math.round(eff)));
+      Math.max(1, Math.min(pool, Math.round(eff)));
     return item;
   });
 
@@ -2144,7 +2180,6 @@ function computeBoundedRanks(sourcePlayers, numActive, baseMove, isScaledMode) {
   const bandStart = applyWindows(items, windowUsed, numActive);
   assignRanksWithinWindows(items, numActive);
 
-  /* Validation: permutation plus window compliance. */
   const seen = {};
   items.forEach(function (p) {
     if (seen[p.finalRank]) {
@@ -2163,8 +2198,6 @@ function computeBoundedRanks(sourcePlayers, numActive, baseMove, isScaledMode) {
     let suffix = "";
 
     if (p.isNew) {
-      /* A newcomer whose merit exceeded the band was held down by the
-       * newcomer rule, not by a movement cap. */
       if (MARK_NEW_PLAYERS) {
         suffix = "-N";
       } else if (p.sortVal < p.minAllowed) {
@@ -2185,8 +2218,14 @@ function computeBoundedRanks(sourcePlayers, numActive, baseMove, isScaledMode) {
       : (p.finalRank + "/" + numActive + suffix);
   });
 
-  return { items: items, windowUsed: windowUsed, bandStart: bandStart };
+  return {
+    items: items,
+    windowUsed: windowUsed,
+    bandStart: bandStart,
+    pool: pool
+  };
 }
+
 
 /* ---------- merit-greedy assignment with feasibility guard ------------ */
 
@@ -2233,9 +2272,12 @@ function assignRanksWithinWindows(items, numSlots) {
  *  MAIN
  * ========================================================================= */
 
-function processWeeklyScoresForSheet(sheet, forcedWeek,
-                                     invertPrimaryToAbsolute) {
-  invertPrimaryToAbsolute = (invertPrimaryToAbsolute === true);
+function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRankAsPrimary) {
+  /* true (and omitted) -> percentile in Week N, absolute in LASTR.
+   * false              -> absolute in Week N, percentile in LASTR.
+   * This restores the original meaning of the third argument. */
+    const primaryIsScaled = (useScaledRankAsPrimary === false) ? false : true;
+    
 
   return executeWithLock(function () {
     const ss = (typeof getDb === "function")
@@ -2448,17 +2490,20 @@ function processWeeklyScoresForSheet(sheet, forcedWeek,
           throw new Error("Missing method result for row " + p.rowIndex);
         }
 
-        if (invertPrimaryToAbsolute) {
-          p.primaryStr = a.outStr;
-          p.primaryFinalRank = a.finalRank;
-          p.primaryIsRestr = a.isRestricted;
-          p.method2Str = s.outStr;
-        } else {
+
+       if (primaryIsScaled) {
           p.primaryStr = s.outStr;
           p.primaryFinalRank = s.finalRank;
           p.primaryIsRestr = s.isRestricted;
           p.method2Str = a.outStr;
-        }
+       } else {
+          p.primaryStr = a.outStr;
+          p.primaryFinalRank = a.finalRank;
+          p.primaryIsRestr = a.isRestricted;
+          p.method2Str = s.outStr;
+        }          
+
+
 
         p.diagSortVal = p.sortVal;
         p.diagNewLeft = p.primaryFinalRank;
@@ -2477,12 +2522,12 @@ function processWeeklyScoresForSheet(sheet, forcedWeek,
       });
 
       /* ---- inactive players keep prior value, marked -I ---- */
-      inactivePlayers.forEach(function (p) {
+        inactivePlayers.forEach(function (p) {
         p.primaryFinalRank = numActive + 1;
-        const base = (p.priorRawStr || "").replace(/-\s*[RrIi]\s*$/, "").trim();
-        p.primaryStr = base ? (base + "-I") : "";
-        p.method2Str = p.primaryStr;
+        p.primaryStr = formatInactiveStanding(p, primaryIsScaled);
+        p.method2Str  = formatInactiveStanding(p, !primaryIsScaled);
       });
+
 
       /* ---- write back ---- */
       activePlayers.forEach(function (p) {
@@ -2546,19 +2591,20 @@ function processWeeklyScoresForSheet(sheet, forcedWeek,
       if (backupScore) ss.deleteSheet(backupScore);
       if (backupSched) ss.deleteSheet(backupSched);
 
-      const primaryName = invertPrimaryToAbsolute
-        ? "Absolute" : "Percentile-scaled";
-      const secondName = invertPrimaryToAbsolute
-        ? "Percentile-scaled" : "Absolute";
 
-        let msg = "Processed '" + sheet.getName() + "'. " +
-            numActive + " active, " + inactivePlayers.length + " inactive. " +
-            "Week " + weekNum + " = " + primaryName +
-            "; LASTR = " + secondName + ". " +
-            "Movement cap used: scaled \u00B1" + scaled.windowUsed +
-            ", absolute \u00B1" + absolute.windowUsed +
-            " (requested \u00B1" + maxMove + "). " +
-            "Newcomer band starts at rank " + scaled.bandStart + ".";
+      const primaryName = primaryIsScaled ? "Percentile-scaled" : "Absolute";
+      const secondName  = primaryIsScaled ? "Absolute" : "Percentile-scaled";
+
+      let msg = "Processed '" + sheet.getName() + "'. " +
+        numActive + " active, " + inactivePlayers.length + " inactive. " +
+        "Week " + weekNum + " = " + primaryName +
+        "; LASTR = " + secondName + ". " +
+        "Scaling pool: " + scaled.pool + ". " +
+        "Movement cap used: scaled \u00B1" + scaled.windowUsed +
+        ", absolute \u00B1" + absolute.windowUsed +
+        " (requested \u00B1" + maxMove + "). " +
+          "Newcomer band starts at rank " + scaled.bandStart + ".";
+
         
       if (scaled.windowUsed > maxMove || absolute.windowUsed > maxMove) {
         msg += " The requested cap was mathematically impossible for this " +
