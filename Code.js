@@ -1677,6 +1677,12 @@ function findColIndex(colMap, headerRow, candidateNames) {
  * @param {number|string} forcedWeek - Forced week override (optional)
  * @param {boolean} [useScaledRank=false] - Optional argument: set to true to scale old ranks by percentage
  */
+/**
+ * Main Processing Function with Strict Movement-Bounded Ranking
+ * @param {Sheet} sheet - Google Sheet tab
+ * @param {number|string} forcedWeek - Forced week override (optional)
+ * @param {boolean} [useScaledRank=false] - Optional argument: set to true to scale old ranks by percentage
+ */
 function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRank = false) {
   return executeWithLock(function() {
     const ss = typeof getDb === "function" ? getDb() : SpreadsheetApp.getActiveSpreadsheet();
@@ -1686,6 +1692,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRank = false) {
     let cleanGroupName = sheet.getName().replace(/^Score\s+/i, "").trim();
     const schedSheet = ss.getSheetByName("Sched " + cleanGroupName) || ss.getSheetByName("Sched") || ss.getSheetByName("Schedule");
 
+    // Backup creation
     let backupScore, backupSched;
     let ts = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "HHmmss");
     
@@ -1761,7 +1768,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRank = false) {
         }
       }
 
-      // Identify active player count
+      // Count active players
       let numActive = 0;
       for (let i = 1; i < data.length; i++) {
         let pName = (col.name !== undefined && data[i][col.name]) 
@@ -1830,7 +1837,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRank = false) {
 
       const maxMove = typeof MAX_MOVEMENT !== "undefined" ? Number(MAX_MOVEMENT) : 4;
 
-      // 1. Determine unconstrained SortVal based on Cumulative Win %
+      // Stage 1: Sort strictly by cumulative win percentage to establish unconstrained SortVal
       activePlayers.sort((a, b) => {
         if (Math.abs(b.cumPct - a.cumPct) > 0.0001) return b.cumPct - a.cumPct;
         let prevA = (a.lastRank > 0) ? a.lastRank : defaultPrevRank;
@@ -1844,67 +1851,81 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRank = false) {
         p.rawRank = index + 1;
       });
 
-      // 2. Establish movement boundaries
+      // Stage 2: Calculate legal movement envelope
       activePlayers.forEach(p => {
-        let rawPrevRank = (p.lastRank > 0) ? p.lastRank : defaultPrevRank;
-        let effectivePrevRank = rawPrevRank;
+        let baseline = (p.lastRank > 0) ? p.lastRank : defaultPrevRank;
+        let effectivePrev = baseline;
 
         if (useScaledRank && p.prevNumPeople > 0 && numActive > 0) {
-          let pct = rawPrevRank / p.prevNumPeople;
-          effectivePrevRank = Math.round(pct * numActive);
-          effectivePrevRank = Math.max(1, Math.min(numActive, effectivePrevRank));
+          let pct = baseline / p.prevNumPeople;
+          effectivePrev = Math.round(pct * numActive);
+          effectivePrev = Math.max(1, Math.min(numActive, effectivePrev));
         }
 
-        p.effectivePrevRank = effectivePrevRank;
-        p.minAllowed = Math.max(1, effectivePrevRank - maxMove);
-        p.maxAllowed = Math.min(numActive, effectivePrevRank + maxMove);
+        p.effectivePrevRank = effectivePrev;
+        p.minAllowed = Math.max(1, effectivePrev - maxMove);
+        p.maxAllowed = Math.min(numActive, effectivePrev + maxMove);
         p.clampedTarget = Math.max(p.minAllowed, Math.min(p.sortVal, p.maxAllowed));
       });
 
-      // 3. Collision-resistant rank assignment
+      // Stage 3: Stable multi-key sort on clampedTarget and performance
       activePlayers.sort((a, b) => {
         if (a.clampedTarget !== b.clampedTarget) return a.clampedTarget - b.clampedTarget;
         if (Math.abs(b.cumPct - a.cumPct) > 0.0001) return b.cumPct - a.cumPct;
-        if (a.effectivePrevRank !== b.effectivePrevRank) return a.effectivePrevRank - b.effectivePrevRank;
-        return a.sortVal - b.sortVal;
+        if (a.sortVal !== b.sortVal) return a.sortVal - b.sortVal;
+        return a.effectivePrevRank - b.effectivePrevRank;
       });
 
-      let occupiedRanks = new Set();
-      activePlayers.forEach(p => {
-        let assigned = null;
-        for (let r = p.clampedTarget; r <= p.maxAllowed; r++) {
-          if (!occupiedRanks.has(r)) {
-            assigned = r;
-            break;
-          }
-        }
-        if (assigned === null) {
-          for (let r = p.clampedTarget - 1; r >= p.minAllowed; r--) {
-            if (!occupiedRanks.has(r)) {
-              assigned = r;
+      // Stage 4: Assign continuous dense rank and enforce strict hard bounds
+      let rankingList = [...activePlayers];
+      for (let i = 0; i < rankingList.length; i++) {
+        rankingList[i].finalRank = i + 1;
+      }
+
+      // Relaxation pass to ensure no player violates [minAllowed, maxAllowed]
+      let adjusted = true;
+      let iterations = 0;
+      while (adjusted && iterations < 100) {
+        adjusted = false;
+        iterations++;
+        for (let i = 0; i < rankingList.length; i++) {
+          let p = rankingList[i];
+          let curRank = i + 1;
+
+          if (curRank < p.minAllowed) {
+            // Player ranked too high; shift down
+            let targetIdx = p.minAllowed - 1;
+            if (targetIdx < rankingList.length && targetIdx > i) {
+              rankingList.splice(i, 1);
+              rankingList.splice(targetIdx, 0, p);
+              adjusted = true;
+              break;
+            }
+          } else if (curRank > p.maxAllowed) {
+            // Player ranked too low; shift up
+            let targetIdx = p.maxAllowed - 1;
+            if (targetIdx >= 0 && targetIdx < i) {
+              rankingList.splice(i, 1);
+              rankingList.splice(targetIdx, 0, p);
+              adjusted = true;
               break;
             }
           }
         }
-        if (assigned === null) {
-          for (let r = 1; r <= numActive; r++) {
-            if (!occupiedRanks.has(r)) {
-              assigned = r;
-              break;
-            }
-          }
-        }
+      }
 
-        occupiedRanks.add(assigned);
-        p.finalRank = assigned;
-        p.newLeft = assigned;
-
-        p.isRestricted = Math.abs(p.sortVal - p.effectivePrevRank) > maxMove;
+      // Finalize strings and restricted flags
+      rankingList.forEach((p, index) => {
+        p.finalRank = index + 1;
+        p.newLeft = index + 1;
+        p.isRestricted = (Math.abs(p.sortVal - p.effectivePrevRank) > maxMove) || (Math.abs(p.finalRank - p.effectivePrevRank) >= maxMove);
         let suffix = p.isRestricted ? "-R" : "";
         p.rjStr = p.finalRank + "/" + numActive + suffix;
       });
 
-      // 4. Format Inactive Players
+      activePlayers = rankingList;
+
+      // Format Inactive Players
       inactivePlayers.forEach(p => {
         p.rawRank = "";
         p.sortVal = "";
@@ -1921,7 +1942,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRank = false) {
         }
       });
 
-      // 5. Populate and write rows back
+      // Write-back to row structures
       activePlayers.forEach(p => {
         if (col.group !== undefined) p.rowRaw[col.group] = cleanGroupName;
         if (totColIdx !== undefined) p.rowRaw[totColIdx] = p.cumScore;
@@ -1930,7 +1951,6 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRank = false) {
         if (col.status !== undefined) p.rowRaw[col.status] = "ACTIVE";
         if (rawRankColIdx !== undefined) p.rowRaw[rawRankColIdx] = p.sortVal;
         
-        // Write diagnostic fields
         if (lastRColIdx !== undefined) p.rowRaw[lastRColIdx] = p.lastRank;
         if (sortValColIdx !== undefined) p.rowRaw[sortValColIdx] = p.sortVal;
         if (newLeftColIdx !== undefined) p.rowRaw[newLeftColIdx] = p.newLeft;
@@ -1956,7 +1976,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRank = false) {
         if (rNumIdx !== undefined) p.rowRaw[rNumIdx] = "";
       });
 
-      // Sort rows by final assigned rank for active players
+      // Sort rows physically by final assigned rank
       activePlayers.sort((a, b) => a.finalRank - b.finalRank);
 
       let finalRows = [headerRow];
