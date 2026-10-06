@@ -1618,43 +1618,6 @@ function harvestScoresFromSchedules(ss, data, col, targetWeekIdx, schedSheet, we
   return warnings;
 }
 
-function safeParseRankVal(val, defaultPrevRank) {
-  if (val === null || val === undefined || val === "") {
-    return { rank: defaultPrevRank, numPeople: 0, rawStr: "", isRestricted: false, isInactive: false };
-  }
-  
-  let str = (val instanceof Date) 
-    ? ((val.getMonth() + 1) + "/" + val.getDate()) 
-    : String(val).trim();
-  
-  str = str.replace(/^'/, "").trim();
-  if (!str) return { rank: defaultPrevRank, numPeople: 0, rawStr: "", isRestricted: false, isInactive: false };
-
-  let hasR = /R/i.test(str);
-  let hasI = /I/i.test(str);
-
-  let nums = str.match(/\d+/g);
-  let rank = defaultPrevRank;
-  let numPeople = 0;
-
-  if (nums && nums.length >= 2) {
-    rank = parseInt(nums[0], 10);
-    numPeople = parseInt(nums[1], 10);
-  } else if (nums && nums.length === 1) {
-    rank = parseInt(nums[0], 10);
-  }
-
-  if (isNaN(rank) || rank <= 0) rank = defaultPrevRank;
-  if (isNaN(numPeople)) numPeople = 0;
-
-  return {
-    rank: rank,
-    numPeople: numPeople,
-    isRestricted: hasR && !hasI,
-    isInactive: hasI,
-    rawStr: str
-  };
-}
 
 
 /**
@@ -1672,27 +1635,243 @@ function findColIndex(colMap, headerRow, candidateNames) {
 }
 
 /**
- * Main Processing Function
- * @param {Sheet} sheet - Google Sheet tab
- * @param {number|string} forcedWeek - Forced week override (optional)
- * @param {boolean} [useScaledRank=false] - Optional argument: set to true to scale old ranks by percentage
+ * Parse previous-rank values.
+ *
+ * Supported formats include:
+ *   23R49
+ *   23/49
+ *   23/49-R
+ *   23/49-r
+ *   17.6%
+ *   17.6%-R
+ *   17.6%-r
+ *   17.6%-I
+ *
+ * @param {*} val
+ * @param {number} defaultPrevRank
+ * @param {number} [currentPopulation=0]
+ *        Current active-player count. Required to convert a percentage
+ *        into an equivalent rank.
+ *
+ * @return {{
+ *   rank: number,
+ *   numPeople: number,
+ *   percentage: number|null,
+ *   restriction: string,
+ *   isRestricted: boolean,
+ *   isInactive: boolean,
+ *   isPercentage: boolean,
+ *   rawStr: string
+ * }}
  */
+function safeParseRankVal(val, defaultPrevRank, currentPopulation) {
+  currentPopulation = Number(currentPopulation) || 0;
+
+  const emptyResult = {
+    rank: defaultPrevRank,
+    numPeople: 0,
+    percentage: null,
+    restriction: "",
+    isRestricted: false,
+    isInactive: false,
+    isPercentage: false,
+    rawStr: ""
+  };
+
+  if (val === null || val === undefined || val === "") {
+    return emptyResult;
+  }
+
+  let str;
+
+  if (val instanceof Date) {
+    str =
+      (val.getMonth() + 1) +
+      "/" +
+      val.getDate();
+  } else {
+    str = String(val).trim();
+  }
+
+  str = str.replace(/^'/, "").trim();
+
+  if (!str) {
+    return emptyResult;
+  }
+
+  /*
+   * Read the suffix separately.
+   *
+   * Uppercase R = upward movement was restricted.
+   * Lowercase r = downward movement was restricted.
+   * I or i = inactive.
+   */
+  let restriction = "";
+
+  if (/-R(?:\s*)$/i.test(str)) {
+    restriction = str.match(/-R\s*$/i)[0].includes("r")
+      ? "r"
+      : "R";
+  }
+
+  /*
+   * The case-insensitive test above cannot distinguish R from r
+   * reliably after normalization, so inspect the final suffix directly.
+   */
+  const suffixMatch = str.match(/-([RrIi])\s*$/);
+
+  if (suffixMatch) {
+    restriction = suffixMatch[1];
+    str = str.replace(/-([RrIi])\s*$/, "").trim();
+  }
+
+  /*
+   * Also support formats such as 23R49, where R is between numbers.
+   * Do not treat that R as the directional suffix.
+   */
+  const inactiveMatch = str.match(/I\s*$/i);
+
+  if (inactiveMatch) {
+    restriction = "I";
+    str = str.replace(/I\s*$/i, "").trim();
+  }
+
+  /*
+   * Percentage format.
+   *
+   * Example:
+   *   17.6%-R
+   *
+   * This means rank position 17.6% through the field, not rank 17
+   * out of 6.
+   */
+  const percentMatch = str.match(
+    /^(\d+(?:\.\d+)?)\s*%\s*$/
+  );
+
+  if (percentMatch) {
+    const percentage = Number(percentMatch[1]);
+
+    if (!Number.isFinite(percentage)) {
+      return emptyResult;
+    }
+
+    let rank = defaultPrevRank;
+
+    if (currentPopulation > 0) {
+      rank = Math.round(
+        (percentage / 100) * currentPopulation
+      );
+
+      rank = Math.max(
+        1,
+        Math.min(currentPopulation, rank)
+      );
+    }
+
+    return {
+      rank: rank,
+      numPeople: currentPopulation,
+      percentage: percentage,
+      restriction: restriction,
+      isRestricted: restriction === "R" || restriction === "r",
+      isInactive: restriction === "I",
+      isPercentage: true,
+      rawStr: String(val).trim()
+    };
+  }
+
+  /*
+   * Fraction or compact-rank format.
+   *
+   * Supported:
+   *   23/49
+   *   23R49
+   *   23/49-R
+   */
+  const numericMatch = str.match(
+    /^(\d+)(?:\s*\/\s*|\s*[Rr]\s*)(\d+)?$/i
+  );
+
+  if (numericMatch) {
+    let rank = Number(numericMatch[1]);
+    let numPeople = numericMatch[2]
+      ? Number(numericMatch[2])
+      : 0;
+
+    if (!Number.isFinite(rank) || rank <= 0) {
+      rank = defaultPrevRank;
+    }
+
+    if (!Number.isFinite(numPeople)) {
+      numPeople = 0;
+    }
+
+    return {
+      rank: rank,
+      numPeople: numPeople,
+      percentage:
+        numPeople > 0
+          ? (rank / numPeople) * 100
+          : null,
+      restriction: restriction,
+      isRestricted: restriction === "R" || restriction === "r",
+      isInactive: restriction === "I",
+      isPercentage: false,
+      rawStr: String(val).trim()
+    };
+  }
+
+  /*
+   * Fallback for a plain numeric value such as "23".
+   */
+  const plainNumberMatch = str.match(
+    /^(\d+(?:\.\d+)?)$/
+  );
+
+  if (plainNumberMatch) {
+    const rank = Number(plainNumberMatch[1]);
+
+    return {
+      rank:
+        Number.isFinite(rank) && rank > 0
+          ? Math.round(rank)
+          : defaultPrevRank,
+      numPeople: 0,
+      percentage: null,
+      restriction: restriction,
+      isRestricted: restriction === "R" || restriction === "r",
+      isInactive: restriction === "I",
+      isPercentage: false,
+      rawStr: String(val).trim()
+    };
+  }
+
+  return {
+    ...emptyResult,
+    rawStr: String(val).trim()
+  };
+}
+
 /**
- * Main Processing Function with Strict Movement-Bounded Ranking
- * @param {Sheet} sheet - Google Sheet tab
- * @param {number|string} forcedWeek - Forced week override (optional)
- * @param {boolean} [useScaledRank=false] - Optional argument: set to true to scale old ranks by percentage
+ * Main Processing Function
+ * 
+ * - Primary Method (Default): Percentage-Scaled bounds written to Week N (e.g. R1) as percentage strings (e.g., "17.9%-R").
+ * - Method 2 (Secondary): Absolute unscaled bounds written to LASTR column as integer rank fractions (e.g., "5/28-R").
+ * - invertPrimaryToAbsolute: Set to true to swap outputs (Absolute to Week N, Scaled to LASTR).
  */
-function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRank = false) {
+function processWeeklyScoresForSheet(sheet, forcedWeek, invertPrimaryToAbsolute = false) {
   return executeWithLock(function() {
     const ss = typeof getDb === "function" ? getDb() : SpreadsheetApp.getActiveSpreadsheet();
     if (!sheet) sheet = ss.getActiveSheet();
     if (typeof checkAndRunWeeklyBackup === "function") checkAndRunWeeklyBackup();
 
     let cleanGroupName = sheet.getName().replace(/^Score\s+/i, "").trim();
-    const schedSheet = ss.getSheetByName("Sched " + cleanGroupName) || ss.getSheetByName("Sched") || ss.getSheetByName("Schedule");
+    const schedSheet = ss.getSheetByName("Sched " + cleanGroupName) || 
+                       ss.getSheetByName("Sched") || 
+                       ss.getSheetByName("Schedule");
 
-    // Backup creation
+    // Create temporary backups
     let backupScore, backupSched;
     let ts = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "HHmmss");
     
@@ -1727,9 +1906,11 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRank = false) {
       let ptsColIdx     = col.pts !== undefined ? col.pts : col.points;
       let rawRankColIdx = col.rawRankCol !== undefined ? col.rawRankCol : col.rawRank;
       let rNumIdx       = col.rNum !== undefined ? col.rNum : col.rnum;
-      let lastRColIdx   = col.lastr;
-      let sortValColIdx = col.sortval;
-      let newLeftColIdx = col.newleft;
+      
+      // Target output columns
+      let lastRColIdx   = col.lastr;    // Reallocated to store Method 2 results
+      let sortValColIdx = col.sortval;  // Stores raw unconstrained performance rank
+      let newLeftColIdx = col.newleft;  // Stores primary target before collision resolution
 
       let weekNum;
       if (forcedWeek !== null && forcedWeek !== undefined && forcedWeek !== "") {
@@ -1744,7 +1925,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRank = false) {
       let prevWeekNum   = weekNum - 1;
       let prevRColIdx   = col["r" + prevWeekNum];
 
-      // Sync schedule scores to Score sheet if function exists
+      // Sync Schedule Scores
       if (typeof harvestScoresFromSchedules === "function") {
         const warnings = harvestScoresFromSchedules(ss, data, col, targetWeekIdx, schedSheet, weekNum);
         if (warnings && warnings.length > 0) {
@@ -1756,7 +1937,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRank = false) {
         }
       }
 
-      // Sync points to current week column
+      // Sync Points to Week Column
       if (ptsColIdx !== undefined && targetWeekIdx !== undefined) {
         for (let i = 1; i < data.length; i++) {
           let ptsVal = data[i][ptsColIdx];
@@ -1785,6 +1966,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRank = false) {
       let activePlayers = [];
       let inactivePlayers = [];
 
+      // Extract Player Records
       for (let i = 1; i < data.length; i++) {
         let row = data[i];
         let firstName = col.first !== undefined ? String(row[col.first] || "").trim() : "";
@@ -1815,8 +1997,8 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRank = false) {
         let maxPtsForPlayedWeeks = 45 * numWeekNonZero;
         let cumPct = maxPtsForPlayedWeeks > 0 ? (cumScore / maxPtsForPlayedWeeks) : 0;
         
-        let prevRankCellVal = prevRColIdx !== undefined ? row[prevRColIdx] : "";
-        let prevRankInfo = safeParseRankVal(prevRankCellVal, defaultPrevRank);
+          let prevRankCellVal =   prevRColIdx !== undefined     ? row[prevRColIdx]     : "";
+          let prevRankInfo = safeParseRankVal(  prevRankCellVal,   defaultPrevRank,  numActive );
 
         let playerObj = {
           rowIndex: i,
@@ -1837,7 +2019,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRank = false) {
 
       const maxMove = typeof MAX_MOVEMENT !== "undefined" ? Number(MAX_MOVEMENT) : 4;
 
-      // Stage 1: Sort strictly by cumulative win percentage to establish unconstrained SortVal
+      // 1. Establish unconstrained SortVal (Pure performance rank based on cumulative win %)
       activePlayers.sort((a, b) => {
         if (Math.abs(b.cumPct - a.cumPct) > 0.0001) return b.cumPct - a.cumPct;
         let prevA = (a.lastRank > 0) ? a.lastRank : defaultPrevRank;
@@ -1851,98 +2033,148 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRank = false) {
         p.rawRank = index + 1;
       });
 
-      // Stage 2: Calculate legal movement envelope
-      activePlayers.forEach(p => {
-        let baseline = (p.lastRank > 0) ? p.lastRank : defaultPrevRank;
-        let effectivePrev = baseline;
+      // Pipeline helper to resolve bounded placement
+      function computeBoundedRanks(isScaledMode) {
+        let players = activePlayers.map(p => ({ ...p }));
 
-        if (useScaledRank && p.prevNumPeople > 0 && numActive > 0) {
-          let pct = baseline / p.prevNumPeople;
-          effectivePrev = Math.round(pct * numActive);
-          effectivePrev = Math.max(1, Math.min(numActive, effectivePrev));
-        }
+        players.forEach(p => {
+          let rawPrev = (p.lastRank > 0) ? p.lastRank : defaultPrevRank;
+          let effectivePrev = rawPrev;
 
-        p.effectivePrevRank = effectivePrev;
-        p.minAllowed = Math.max(1, effectivePrev - maxMove);
-        p.maxAllowed = Math.min(numActive, effectivePrev + maxMove);
-        p.clampedTarget = Math.max(p.minAllowed, Math.min(p.sortVal, p.maxAllowed));
-      });
+          // Scaled Mode: converts prior rank to equivalent percentile in current field
+          if (isScaledMode && p.prevNumPeople > 0 && numActive > 0) {
+            let pct = rawPrev / p.prevNumPeople;
+            effectivePrev = Math.round(pct * numActive);
+            effectivePrev = Math.max(1, Math.min(numActive, effectivePrev));
+          }
 
-      // Stage 3: Stable multi-key sort on clampedTarget and performance
-      activePlayers.sort((a, b) => {
-        if (a.clampedTarget !== b.clampedTarget) return a.clampedTarget - b.clampedTarget;
-        if (Math.abs(b.cumPct - a.cumPct) > 0.0001) return b.cumPct - a.cumPct;
-        if (a.sortVal !== b.sortVal) return a.sortVal - b.sortVal;
-        return a.effectivePrevRank - b.effectivePrevRank;
-      });
+          p.effectivePrevRank = effectivePrev;
+          p.minAllowed = Math.max(1, effectivePrev - maxMove); // Ceiling (best allowed rank number)
+          p.maxAllowed = Math.min(numActive, effectivePrev + maxMove); // Floor (worst allowed rank number)
+          p.clampedTarget = Math.max(p.minAllowed, Math.min(p.sortVal, p.maxAllowed));
+        });
 
-      // Stage 4: Assign continuous dense rank and enforce strict hard bounds
-      let rankingList = [...activePlayers];
-      for (let i = 0; i < rankingList.length; i++) {
-        rankingList[i].finalRank = i + 1;
-      }
+        // Pre-sort by clampedTarget, tie-breaking by SortVal
+        players.sort((a, b) => {
+          if (a.clampedTarget !== b.clampedTarget) return a.clampedTarget - b.clampedTarget;
+          if (Math.abs(b.cumPct - a.cumPct) > 0.0001) return b.cumPct - a.cumPct;
+          if (a.sortVal !== b.sortVal) return a.sortVal - b.sortVal;
+          return a.effectivePrevRank - b.effectivePrevRank;
+        });
 
-      // Relaxation pass to ensure no player violates [minAllowed, maxAllowed]
-      let adjusted = true;
-      let iterations = 0;
-      while (adjusted && iterations < 100) {
-        adjusted = false;
-        iterations++;
-        for (let i = 0; i < rankingList.length; i++) {
-          let p = rankingList[i];
-          let curRank = i + 1;
+        // Resolve dense slots 1..N
+        let slots = new Array(numActive).fill(null);
+        players.forEach(p => {
+          let chosen = -1;
+          let targetIdx = p.clampedTarget - 1;
 
-          if (curRank < p.minAllowed) {
-            // Player ranked too high; shift down
-            let targetIdx = p.minAllowed - 1;
-            if (targetIdx < rankingList.length && targetIdx > i) {
-              rankingList.splice(i, 1);
-              rankingList.splice(targetIdx, 0, p);
-              adjusted = true;
-              break;
-            }
-          } else if (curRank > p.maxAllowed) {
-            // Player ranked too low; shift up
-            let targetIdx = p.maxAllowed - 1;
-            if (targetIdx >= 0 && targetIdx < i) {
-              rankingList.splice(i, 1);
-              rankingList.splice(targetIdx, 0, p);
-              adjusted = true;
-              break;
+          // Attempt ideal slot downward within permitted range
+          for (let s = targetIdx; s <= p.maxAllowed - 1; s++) {
+            if (slots[s] === null) { chosen = s; break; }
+          }
+          // If occupied, search upward within permitted range
+          if (chosen === -1) {
+            for (let s = targetIdx - 1; s >= p.minAllowed - 1; s--) {
+              if (slots[s] === null) { chosen = s; break; }
             }
           }
-        }
+          // Fallback to nearest open slot
+          if (chosen === -1) {
+            let minD = 999;
+            for (let s = 0; s < numActive; s++) {
+              if (slots[s] === null && Math.abs(s - targetIdx) < minD) {
+                minD = Math.abs(s - targetIdx);
+                chosen = s;
+              }
+            }
+          }
+
+          slots[chosen] = p;
+          p.finalRank = chosen + 1;
+
+          // Directional restriction evaluation
+          // Upward move capped: raw performance was higher (smaller number) than allowed ceiling
+          let cappedUpward = (p.sortVal < p.minAllowed) || (p.effectivePrevRank - p.finalRank >= maxMove && p.sortVal < p.finalRank);
+          // Downward move capped: raw performance was lower (larger number) than allowed floor
+          let cappedDownward = (p.sortVal > p.maxAllowed) || (p.finalRank - p.effectivePrevRank >= maxMove && p.sortVal > p.finalRank);
+
+          let suffix = "";
+          if (cappedUpward) {
+            suffix = "-R"; // Upward restricted
+          } else if (cappedDownward) {
+            suffix = "-r"; // Downward restricted
+          }
+
+          p.restrictionSuffix = suffix;
+          p.isRestricted = (suffix !== "");
+
+          if (isScaledMode) {
+            // Percent output: e.g. "17.9%-R"
+            let rankPct = ((p.finalRank / numActive) * 100).toFixed(1);
+            p.outStr = rankPct + "%" + suffix;
+          } else {
+            // Absolute fraction output: e.g. "5/28-R"
+            p.outStr = p.finalRank + "/" + numActive + suffix;
+          }
+        });
+
+        return players;
       }
 
-      // Finalize strings and restricted flags
-      rankingList.forEach((p, index) => {
-        p.finalRank = index + 1;
-        p.newLeft = index + 1;
-        p.isRestricted = (Math.abs(p.sortVal - p.effectivePrevRank) > maxMove) || (Math.abs(p.finalRank - p.effectivePrevRank) >= maxMove);
-        let suffix = p.isRestricted ? "-R" : "";
-        p.rjStr = p.finalRank + "/" + numActive + suffix;
-      });
+      // Compute both methods
+      let scaledResults = computeBoundedRanks(true);
+      let absoluteResults = computeBoundedRanks(false);
 
-      activePlayers = rankingList;
+      // Map outputs to active players
+      activePlayers.forEach(p => {
+        let scaledMatch = scaledResults.find(r => r.name === p.name);
+        let absoluteMatch = absoluteResults.find(r => r.name === p.name);
 
-      // Format Inactive Players
-      inactivePlayers.forEach(p => {
-        p.rawRank = "";
-        p.sortVal = "";
-        p.newLeft = "";
-        p.finalRank = p.lastRank !== defaultPrevRank ? p.lastRank : "";
-        if (p.lastRank > 0 && p.lastRank !== defaultPrevRank) {
-          let numP = p.prevNumPeople > 0 ? p.prevNumPeople : numActive;
-          p.rjStr = p.lastRank + "/" + numP + "-I";
-        } else if (p.prevRawStr) {
-          let cleanStr = p.prevRawStr.replace(/-(R|I)$/i, "").trim();
-          p.rjStr = cleanStr ? (cleanStr + "-I") : "";
+        let scaledStr = scaledMatch ? scaledMatch.outStr : "";
+        let scaledFinalRank = scaledMatch ? scaledMatch.finalRank : defaultPrevRank;
+        let scaledTarget = scaledMatch ? scaledMatch.clampedTarget : p.sortVal;
+        let scaledRestricted = scaledMatch ? scaledMatch.isRestricted : false;
+
+        let absStr = absoluteMatch ? absoluteMatch.outStr : "";
+        let absFinalRank = absoluteMatch ? absoluteMatch.finalRank : defaultPrevRank;
+        let absTarget = absoluteMatch ? absoluteMatch.clampedTarget : p.sortVal;
+        let absRestricted = absoluteMatch ? absoluteMatch.isRestricted : false;
+
+        if (!invertPrimaryToAbsolute) {
+          p.primaryStr       = scaledStr;        // Primary to Week N (e.g., R1)
+          p.primaryFinalRank = scaledFinalRank;
+          p.primaryIsRestr   = scaledRestricted;
+          p.method2Str       = absStr;           // Method 2 to LASTR
+          p.targetForDebug   = scaledTarget;
         } else {
-          p.rjStr = "";
+          p.primaryStr       = absStr;
+          p.primaryFinalRank = absFinalRank;
+          p.primaryIsRestr   = absRestricted;
+          p.method2Str       = scaledStr;
+          p.targetForDebug   = absTarget;
         }
       });
 
-      // Write-back to row structures
+      // Format inactive players
+      inactivePlayers.forEach(p => {
+        p.sortVal = "";
+        p.targetForDebug = "";
+        p.primaryFinalRank = p.lastRank !== defaultPrevRank ? p.lastRank : "";
+        if (p.lastRank > 0 && p.lastRank !== defaultPrevRank) {
+          let numP = p.prevNumPeople > 0 ? p.prevNumPeople : numActive;
+          p.primaryStr = p.lastRank + "/" + numP + "-I";
+          p.method2Str = p.primaryStr;
+        } else if (p.prevRawStr) {
+          let cleanStr = p.prevRawStr.replace(/-(R|r|I)$/i, "").trim();
+          p.primaryStr = cleanStr ? (cleanStr + "-I") : "";
+          p.method2Str = p.primaryStr;
+        } else {
+          p.primaryStr = "";
+          p.method2Str = "";
+        }
+      });
+
+      // Populate sheet rows
       activePlayers.forEach(p => {
         if (col.group !== undefined) p.rowRaw[col.group] = cleanGroupName;
         if (totColIdx !== undefined) p.rowRaw[totColIdx] = p.cumScore;
@@ -1951,15 +2183,16 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRank = false) {
         if (col.status !== undefined) p.rowRaw[col.status] = "ACTIVE";
         if (rawRankColIdx !== undefined) p.rowRaw[rawRankColIdx] = p.sortVal;
         
-        if (lastRColIdx !== undefined) p.rowRaw[lastRColIdx] = p.lastRank;
-        if (sortValColIdx !== undefined) p.rowRaw[sortValColIdx] = p.sortVal;
-        if (newLeftColIdx !== undefined) p.rowRaw[newLeftColIdx] = p.newLeft;
+        // Output Mappings
+        if (lastRColIdx !== undefined) p.rowRaw[lastRColIdx] = p.method2Str;       // Method 2 (Absolute)
+        if (sortValColIdx !== undefined) p.rowRaw[sortValColIdx] = p.sortVal;     // Raw performance rank
+        if (newLeftColIdx !== undefined) p.rowRaw[newLeftColIdx] = p.targetForDebug; // Clamped target
 
-        if (currRColIdx !== undefined) p.rowRaw[currRColIdx] = p.rjStr ? p.rjStr.replace(/^'/, "") : "";
+        if (currRColIdx !== undefined) p.rowRaw[currRColIdx] = p.primaryStr.replace(/^'/, "");
         
         if (rNumIdx !== undefined) {
           let rNumPct = (p.cumPct * 100).toFixed(2);
-          p.rowRaw[rNumIdx] = p.isRestricted ? (rNumPct + "R") : rNumPct;
+          p.rowRaw[rNumIdx] = p.primaryIsRestr ? (rNumPct + "R") : rNumPct;
         }
       });
 
@@ -1969,15 +2202,15 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRank = false) {
         if (posColIdx !== undefined) p.rowRaw[posColIdx] = p.maxPtsForPlayedWeeks;
         if (pctColIdx !== undefined) p.rowRaw[pctColIdx] = p.cumPct;
         if (rawRankColIdx !== undefined) p.rowRaw[rawRankColIdx] = "";
-        if (lastRColIdx !== undefined) p.rowRaw[lastRColIdx] = p.lastRank !== defaultPrevRank ? p.lastRank : "";
+        if (lastRColIdx !== undefined) p.rowRaw[lastRColIdx] = p.method2Str;
         if (sortValColIdx !== undefined) p.rowRaw[sortValColIdx] = "";
         if (newLeftColIdx !== undefined) p.rowRaw[newLeftColIdx] = "";
-        if (currRColIdx !== undefined) p.rowRaw[currRColIdx] = p.rjStr ? p.rjStr.replace(/^'/, "") : "";
+        if (currRColIdx !== undefined) p.rowRaw[currRColIdx] = p.primaryStr.replace(/^'/, "");
         if (rNumIdx !== undefined) p.rowRaw[rNumIdx] = "";
       });
 
-      // Sort rows physically by final assigned rank
-      activePlayers.sort((a, b) => a.finalRank - b.finalRank);
+      // Sort rows physically by Primary Final Rank
+      activePlayers.sort((a, b) => a.primaryFinalRank - b.primaryFinalRank);
 
       let finalRows = [headerRow];
       activePlayers.forEach(p => finalRows.push(p.rowRaw));
@@ -1986,6 +2219,9 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRank = false) {
       if (currRColIdx !== undefined) {
         sheet.getRange(1, currRColIdx + 1, finalRows.length, 1).setNumberFormat('@');
       }
+      if (lastRColIdx !== undefined) {
+        sheet.getRange(1, lastRColIdx + 1, finalRows.length, 1).setNumberFormat('@');
+      }
 
       sheet.clearContents();
       sheet.getRange(1, 1, finalRows.length, finalRows[0].length).setValues(finalRows);
@@ -1993,8 +2229,9 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRank = false) {
       if (backupScore) ss.deleteSheet(backupScore);
       if (backupSched) ss.deleteSheet(backupSched);
 
-      let modeTxt = useScaledRank ? "Percentage-Scaled" : "Absolute";
-      return `Standings processed using ${modeTxt} Mode for '${sheet.getName()}' (${activePlayers.length} Active, ${inactivePlayers.length} Inactive).`;
+      let primaryName = invertPrimaryToAbsolute ? "Absolute" : "Percentage-Scaled";
+      let secondaryName = invertPrimaryToAbsolute ? "Percentage-Scaled" : "Absolute";
+      return `Processed '${sheet.getName()}'. Primary (Week ${weekNum}): ${primaryName} | Method 2 (LASTR column): ${secondaryName}.`;
 
     } catch (error) {
       if (backupScore && sheet) {
@@ -2011,6 +2248,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRank = false) {
     }
   });
 }
+
 
 
 
