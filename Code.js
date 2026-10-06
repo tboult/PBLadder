@@ -1611,7 +1611,57 @@ function harvestScoresFromSchedules(ss, data, col, targetWeekIdx, schedSheet, we
   return warnings;
 }
 
-function processWeeklyScoresForSheet(sheet, forcedWeek) {
+/**
+ * Flexible Rank Parser
+ * Accepts: "40/49", "40R49", "40/49-R", "40/49-I", "40R49-I", etc.
+ */
+function safeParseRankVal(val, defaultPrevRank) {
+  if (val === null || val === undefined || val === "") {
+    return { rank: defaultPrevRank, numPeople: 0, rawStr: "", isRestricted: false, isInactive: false };
+  }
+  
+  let str = (val instanceof Date) 
+    ? ((val.getMonth() + 1) + "/" + val.getDate()) 
+    : String(val).trim();
+  
+  str = str.replace(/^'/, "").trim();
+  if (!str) return { rank: defaultPrevRank, numPeople: 0, rawStr: "", isRestricted: false, isInactive: false };
+
+  let hasR = /R/i.test(str);
+  let hasI = /I/i.test(str);
+
+  // Extract all number sequences (captures both 40/49 and 40R49)
+  let nums = str.match(/\d+/g);
+
+  let rank = defaultPrevRank;
+  let numPeople = 0;
+
+  if (nums && nums.length >= 2) {
+    rank = parseInt(nums[0], 10);
+    numPeople = parseInt(nums[1], 10);
+  } else if (nums && nums.length === 1) {
+    rank = parseInt(nums[0], 10);
+  }
+
+  if (isNaN(rank) || rank <= 0) rank = defaultPrevRank;
+  if (isNaN(numPeople)) numPeople = 0;
+
+  return {
+    rank: rank,
+    numPeople: numPeople,
+    isRestricted: hasR && !hasI,
+    isInactive: hasI,
+    rawStr: str
+  };
+}
+
+/**
+ * Main Processing Function
+ * @param {Sheet} sheet - Google Sheet tab
+ * @param {number|string} forcedWeek - Forced week override (optional)
+ * @param {boolean} [useScaledRank=false] - Optional argument: set to true to scale old ranks by percentage
+ */
+function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRank = false) {
   return executeWithLock(function() {
     const ss = typeof getDb === "function" ? getDb() : SpreadsheetApp.getActiveSpreadsheet();
     if (!sheet) sheet = ss.getActiveSheet();
@@ -1620,9 +1670,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek) {
     let cleanGroupName = sheet.getName().replace(/^Score\s+/i, "").trim();
     const schedSheet = ss.getSheetByName("Sched " + cleanGroupName) || ss.getSheetByName("Sched") || ss.getSheetByName("Schedule");
 
-    // ==========================================
-    // 1. CREATE FAILSAFE BACKUPS
-    // ==========================================
+    // Backup creation
     let backupScore, backupSched;
     let ts = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "HHmmss");
     
@@ -1644,9 +1692,6 @@ function processWeeklyScoresForSheet(sheet, forcedWeek) {
       backupSched.hideSheet();
     }
 
-    // ==========================================
-    // 2. EXECUTE CORE LOGIC IN TRY/CATCH
-    // ==========================================
     try {
       const data = sheet.getDataRange().getValues();
       if (data.length <= 1) throw new Error("No player data found on tab: " + sheet.getName());
@@ -1662,7 +1707,6 @@ function processWeeklyScoresForSheet(sheet, forcedWeek) {
       let pctColIdx = col.pct !== undefined ? col.pct : col.winPct;
       let ptsColIdx = col.pts !== undefined ? col.pts : col.points;
 
-      // Determine target week number (1 to 10)
       let weekNum;
       if (forcedWeek !== null && forcedWeek !== undefined && forcedWeek !== "") {
         let match = forcedWeek.toString().match(/\d+/);
@@ -1674,7 +1718,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek) {
       let targetWeekKey = "w" + weekNum;
       let targetWeekIdx = col[targetWeekKey];
 
-      // Harvest scores from Schedule sheet into Pts column
+      // Harvest schedule scores
       const warnings = harvestScoresFromSchedules(ss, data, col, targetWeekIdx, schedSheet, weekNum);
 
       if (warnings.length > 0) {
@@ -1685,7 +1729,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek) {
         }
       }
 
-      // Copy Pts directly into W(N); write "" if blank to mark player as non-participant
+      // Sync Pts to current week column; write "" if blank
       if (ptsColIdx !== undefined && targetWeekIdx !== undefined) {
         for (let i = 1; i < data.length; i++) {
           let ptsVal = data[i][ptsColIdx];
@@ -1704,13 +1748,13 @@ function processWeeklyScoresForSheet(sheet, forcedWeek) {
 
       let prevRColIdx = col["r" + (weekNum - 1)];
       if (prevRColIdx === undefined && weekNum > 1 && typeof getColIdx === "function") {
-        prevRColIdx = getColIdx(col, ["R" + (weekNum - 1), "r" + (weekNum - 1), "R " + (weekNum - 1)]);
+        prevRColIdx = getColIdx(col, ["R" + (weekNum - 1)], "r" + (weekNum - 1));
       }
 
       let rawRankColIdx = col.rawRankCol !== undefined ? col.rawRankCol : col.rawRank;
       let rNumIdx = col.rNum !== undefined ? col.rNum : col.rnum;
 
-      // Active player count calculation
+      // Calculate active player count
       let numActive = 0;
       for (let i = 1; i < data.length; i++) {
         let pName = (col.name !== undefined && data[i][col.name]) 
@@ -1725,25 +1769,9 @@ function processWeeklyScoresForSheet(sheet, forcedWeek) {
 
       let defaultPrevRank = numActive + 1;
 
-      function safeParseRankVal(val) {
-        if (val === null || val === undefined || val === "") return { rank: defaultPrevRank, numPeople: 0, rawStr: "" };
-        let str = (val instanceof Date) ? ((val.getMonth() + 1) + "/" + val.getDate()) : val.toString().trim();
-        str = str.replace(/^'/, "");
-        let clean = str.replace(/-(R|I)$/i, "").trim();
-        let parts = clean.split("/");
-        let rank = parseInt(parts[0], 10);
-        let numPeople = parts.length > 1 ? parseInt(parts[1], 10) : 0;
-        return {
-          rank: (isNaN(rank) || rank === Infinity) ? defaultPrevRank : rank,
-          numPeople: isNaN(numPeople) ? 0 : numPeople,
-          rawStr: str
-        };
-      }
-
       let activePlayers = [];
       let inactivePlayers = [];
 
-      // Recalculate Total and Possible across 10 rolling weeks
       for (let i = 1; i < data.length; i++) {
         let row = data[i];
         let firstName = col.first !== undefined ? String(row[col.first] || "").trim() : "";
@@ -1766,9 +1794,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek) {
             let val = parseFloat(row[wIdx]);
             if (!isNaN(val)) {
               cumScore += val;
-              if (val > 0) {
-                numWeekNonZero++;
-              }
+              if (val > 0) numWeekNonZero++;
             }
           }
         }
@@ -1776,28 +1802,13 @@ function processWeeklyScoresForSheet(sheet, forcedWeek) {
         let maxPtsForPlayedWeeks = 45 * numWeekNonZero;
         let cumPct = maxPtsForPlayedWeeks > 0 ? (cumScore / maxPtsForPlayedWeeks) : 0;
 
-        let prevRankInfo = { rank: defaultPrevRank, numPeople: 0, rawStr: "" };
-        if (prevRColIdx !== undefined && row[prevRColIdx] !== "" && row[prevRColIdx] !== null) {
-          prevRankInfo = safeParseRankVal(row[prevRColIdx]);
-        } else {
-          let recent = typeof getMostRecentRank === "function" ? getMostRecentRank(row, col, weekNum - 1) : "";
-          if (recent && typeof recent === "object" && recent.rank !== undefined) {
-            prevRankInfo = recent;
-            if (prevRankInfo.rank === Infinity || isNaN(prevRankInfo.rank)) prevRankInfo.rank = defaultPrevRank;
-          } else {
-            prevRankInfo = safeParseRankVal(recent);
-          }
-        }
+        let prevRankInfo = safeParseRankVal(prevRColIdx !== undefined ? row[prevRColIdx] : "", defaultPrevRank);
 
-        let currentWeekScore = hasScore ? parseFloat(rawScoreVal) : 0;
         let playerObj = {
           rowIndex: i,
           rowRaw: [...row],
           name: pName,
           isActive: hasScore,
-          total: cumScore,
-          winPct: cumPct,
-          currentWeekScore: currentWeekScore,
           cumScore: cumScore,
           maxPtsForPlayedWeeks: maxPtsForPlayedWeeks,
           cumPct: cumPct,
@@ -1812,7 +1823,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek) {
 
       const maxMove = typeof MAX_MOVEMENT !== "undefined" ? MAX_MOVEMENT : 4;
 
-      // Assign Raw Rank based on cumulative win percentage
+      // Sort by cumulative Win % for Raw Rank
       activePlayers.sort((a, b) => {
         if (Math.abs(b.cumPct - a.cumPct) > 0.0001) return b.cumPct - a.cumPct;
         let prevA = (a.prevRank > 0) ? a.prevRank : defaultPrevRank;
@@ -1823,9 +1834,19 @@ function processWeeklyScoresForSheet(sheet, forcedWeek) {
 
       activePlayers.forEach((p, index) => { p.rawRank = index + 1; });
 
-      // Clamp rank movement
+      // Apply Clamping Mode (Absolute vs. Percentage-Scaled)
       activePlayers.forEach(p => {
-        let effectivePrevRank = (p.prevRank > 0) ? p.prevRank : defaultPrevRank;
+        let rawPrevRank = (p.prevRank > 0) ? p.prevRank : defaultPrevRank;
+        let effectivePrevRank = rawPrevRank;
+
+        // Mode 2: Percentage Scaling
+        if (useScaledRank && p.prevNumPeople > 0 && numActive > 0) {
+          let pct = rawPrevRank / p.prevNumPeople;
+          effectivePrevRank = Math.round(pct * numActive);
+          effectivePrevRank = Math.max(1, Math.min(numActive, effectivePrevRank));
+        }
+
+        p.effectivePrevRank = effectivePrevRank;
         let minAllowed = Math.max(1, effectivePrevRank - maxMove);
         let maxAllowed = effectivePrevRank + maxMove;
         p.clampedRank = Math.min(Math.max(p.rawRank, minAllowed), maxAllowed);
@@ -1841,17 +1862,18 @@ function processWeeklyScoresForSheet(sheet, forcedWeek) {
         return b.prevNumPeople - a.prevNumPeople;                                  
       });
 
-      // Assign Final Rank
+      // Assign Final Rank and Check Restriction
       activePlayers.forEach((p, index) => {
         p.finalRank = index + 1;
-        let effectivePrevRank = (p.prevRank > 0) ? p.prevRank : defaultPrevRank;
-        let rawDiff = Math.abs(p.rawRank - effectivePrevRank);
-        let finalDiff = Math.abs(p.finalRank - effectivePrevRank);
+        let refPrev = p.effectivePrevRank;
+        let rawDiff = Math.abs(p.rawRank - refPrev);
+        let finalDiff = Math.abs(p.finalRank - refPrev);
         p.isRestricted = (rawDiff > maxMove) && (finalDiff > maxMove);
         let suffix = p.isRestricted ? "-R" : "";
         p.rjStr = p.finalRank + "/" + numActive + suffix;
       });
         
+      // Format Inactive Players
       inactivePlayers.forEach(p => {
         p.rawRank = "";
         p.finalRank = p.prevRank !== defaultPrevRank ? p.prevRank : "";
@@ -1866,7 +1888,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek) {
         }
       });
 
-      // Update row data for Active players
+      // Write-back updates
       activePlayers.forEach(p => {
         if (col.group !== undefined) p.rowRaw[col.group] = cleanGroupName;
         if (totColIdx !== undefined) p.rowRaw[totColIdx] = p.cumScore;
@@ -1882,7 +1904,6 @@ function processWeeklyScoresForSheet(sheet, forcedWeek) {
         }
       });
 
-      // Update row data for Inactive players
       inactivePlayers.forEach(p => {
         if (col.group !== undefined) p.rowRaw[col.group] = cleanGroupName;
         if (totColIdx !== undefined) p.rowRaw[totColIdx] = p.cumScore;
@@ -1903,19 +1924,12 @@ function processWeeklyScoresForSheet(sheet, forcedWeek) {
 
       sheet.clearContents();
       sheet.getRange(1, 1, finalRows.length, finalRows[0].length).setValues(finalRows);
-      
-      if (typeof updateRankingsSheetForGroup === "function") {
-        updateRankingsSheetForGroup(ss, cleanGroupName, activePlayers, inactivePlayers, weekNum);
-      }
-      if (typeof clearAllGroupCaches === "function") {
-        clearAllGroupCaches(cleanGroupName);
-      }
 
       if (backupScore) ss.deleteSheet(backupScore);
       if (backupSched) ss.deleteSheet(backupSched);
 
-      let warnSummary = warnings.length > 0 ? ` (⚠️ ${warnings.length} Sched Total mismatches detected)` : "";
-      return `✅ Standings and Week ${weekNum} Rankings (R${weekNum}) processed for '${sheet.getName()}'! (${activePlayers.length} Active, ${inactivePlayers.length} Inactive)${warnSummary}`;
+      let modeTxt = useScaledRank ? "Percentage-Scaled" : "Absolute";
+      return `✅ Standings processed using ${modeTxt} Mode for '${sheet.getName()}'! (${activePlayers.length} Active, ${inactivePlayers.length} Inactive)`;
 
     } catch (error) {
       if (backupScore && sheet) {
@@ -1928,18 +1942,11 @@ function processWeeklyScoresForSheet(sheet, forcedWeek) {
         backupSched.getDataRange().copyTo(schedSheet.getRange(1, 1));
         ss.deleteSheet(backupSched);
       }
-      
-      let errMsg = "❌ Processing failed! Original data has been safely restored. Error: " + error.message;
-      Logger.log(errMsg);
-      
-      try {
-        SpreadsheetApp.getUi().alert(errMsg);
-      } catch(e) {}
-      
-      return errMsg;
+      return "❌ Processing failed! Data restored. Error: " + error.message;
     }
   });
 }
+
 
 
 function updateRankingsSheetForGroup(ss, groupName, activePlayers, inactivePlayers, weekNum) {
