@@ -1656,6 +1656,20 @@ function safeParseRankVal(val, defaultPrevRank) {
 }
 
 /**
+ * Case-insensitive column finder helper
+ */
+function findColIndex(colMap, headerRow, candidateNames) {
+  for (let name of candidateNames) {
+    let lower = name.toLowerCase();
+    if (colMap[lower] !== undefined) return colMap[lower];
+    if (colMap[name] !== undefined) return colMap[name];
+    let idx = headerRow.findIndex(h => String(h).trim().toLowerCase() === lower);
+    if (idx !== -1) return idx;
+  }
+  return undefined;
+}
+
+/**
  * Main Processing Function
  * @param {Sheet} sheet - Google Sheet tab
  * @param {number|string} forcedWeek - Forced week override (optional)
@@ -1706,6 +1720,8 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRank = false) {
       let posColIdx = col.pos !== undefined ? col.pos : col.possible;
       let pctColIdx = col.pct !== undefined ? col.pct : col.winPct;
       let ptsColIdx = col.pts !== undefined ? col.pts : col.points;
+      let rawRankColIdx = col.rawRankCol !== undefined ? col.rawRankCol : col.rawRank;
+      let rNumIdx = col.rNum !== undefined ? col.rNum : col.rnum;
 
       let weekNum;
       if (forcedWeek !== null && forcedWeek !== undefined && forcedWeek !== "") {
@@ -1715,21 +1731,26 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRank = false) {
         weekNum = typeof calculateCurrentWeekNumber === "function" ? calculateCurrentWeekNumber() : 1;
       }
 
-      let targetWeekKey = "w" + weekNum;
-      let targetWeekIdx = col[targetWeekKey];
+      let targetWeekIdx = findColIndex(col, headerRow, ["w" + weekNum, "W" + weekNum, "Week " + weekNum, "Week" + weekNum]);
+      let currRColIdx = findColIndex(col, headerRow, ["r" + weekNum, "R" + weekNum, "R " + weekNum, "Rank " + weekNum]);
+      
+      // Robust lookup for previous week column (handles Week 1 -> R0 properly)
+      let prevWeekNum = weekNum - 1;
+      let prevRColIdx = findColIndex(col, headerRow, ["r" + prevWeekNum, "R" + prevWeekNum, "R " + prevWeekNum, "Rank " + prevWeekNum]);
 
-      // Harvest schedule scores
-      const warnings = harvestScoresFromSchedules(ss, data, col, targetWeekIdx, schedSheet, weekNum);
-
-      if (warnings.length > 0) {
-        try {
-          SpreadsheetApp.getUi().alert("⚠️ Schedule Total Mismatch Detected:\n\n" + warnings.join("\n"));
-        } catch (e) {
-          Logger.log("Schedule Total Mismatches: " + warnings.join("; "));
+      // Harvest schedule scores if function exists
+      if (typeof harvestScoresFromSchedules === "function") {
+        const warnings = harvestScoresFromSchedules(ss, data, col, targetWeekIdx, schedSheet, weekNum);
+        if (warnings && warnings.length > 0) {
+          try {
+            SpreadsheetApp.getUi().alert("⚠️ Schedule Total Mismatch Detected:\n\n" + warnings.join("\n"));
+          } catch (e) {
+            Logger.log("Schedule Total Mismatches: " + warnings.join("; "));
+          }
         }
       }
 
-      // Sync Pts to current week column; write "" if blank
+      // Sync points to current week column
       if (ptsColIdx !== undefined && targetWeekIdx !== undefined) {
         for (let i = 1; i < data.length; i++) {
           let ptsVal = data[i][ptsColIdx];
@@ -1741,20 +1762,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRank = false) {
         }
       }
 
-      let currRColIdx = col["r" + weekNum];
-      if (currRColIdx === undefined && typeof getColIdx === "function") {
-        currRColIdx = getColIdx(col, ["R" + weekNum, "r" + weekNum, "R " + weekNum, "Rank " + weekNum]);
-      }
-
-      let prevRColIdx = col["r" + (weekNum - 1)];
-      if (prevRColIdx === undefined && weekNum > 1 && typeof getColIdx === "function") {
-        prevRColIdx = getColIdx(col, ["R" + (weekNum - 1)], "r" + (weekNum - 1));
-      }
-
-      let rawRankColIdx = col.rawRankCol !== undefined ? col.rawRankCol : col.rawRank;
-      let rNumIdx = col.rNum !== undefined ? col.rNum : col.rnum;
-
-      // Calculate active player count
+      // Count active players
       let numActive = 0;
       for (let i = 1; i < data.length; i++) {
         let pName = (col.name !== undefined && data[i][col.name]) 
@@ -1768,7 +1776,6 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRank = false) {
       }
 
       let defaultPrevRank = numActive + 1;
-
       let activePlayers = [];
       let inactivePlayers = [];
 
@@ -1789,9 +1796,9 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRank = false) {
         let numWeekNonZero = 0;
 
         for (let w = 1; w <= 10; w++) {
-          let wIdx = col["w" + w];
-          if (wIdx !== undefined && row[wIdx] !== "" && row[wIdx] !== null) {
-            let val = parseFloat(row[wIdx]);
+          let wCol = findColIndex(col, headerRow, ["w" + w, "W" + w]);
+          if (wCol !== undefined && row[wCol] !== "" && row[wCol] !== null) {
+            let val = parseFloat(row[wCol]);
             if (!isNaN(val)) {
               cumScore += val;
               if (val > 0) numWeekNonZero++;
@@ -1801,7 +1808,6 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRank = false) {
 
         let maxPtsForPlayedWeeks = 45 * numWeekNonZero;
         let cumPct = maxPtsForPlayedWeeks > 0 ? (cumScore / maxPtsForPlayedWeeks) : 0;
-
         let prevRankInfo = safeParseRankVal(prevRColIdx !== undefined ? row[prevRColIdx] : "", defaultPrevRank);
 
         let playerObj = {
@@ -1823,7 +1829,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRank = false) {
 
       const maxMove = typeof MAX_MOVEMENT !== "undefined" ? MAX_MOVEMENT : 4;
 
-      // Sort by cumulative Win % for Raw Rank
+      // 1. Sort by cumulative Win % to determine Raw Rank
       activePlayers.sort((a, b) => {
         if (Math.abs(b.cumPct - a.cumPct) > 0.0001) return b.cumPct - a.cumPct;
         let prevA = (a.prevRank > 0) ? a.prevRank : defaultPrevRank;
@@ -1834,12 +1840,11 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRank = false) {
 
       activePlayers.forEach((p, index) => { p.rawRank = index + 1; });
 
-      // Apply Clamping Mode (Absolute vs. Percentage-Scaled)
+      // 2. Compute effective previous ranks and bounded allowed ranges
       activePlayers.forEach(p => {
         let rawPrevRank = (p.prevRank > 0) ? p.prevRank : defaultPrevRank;
         let effectivePrevRank = rawPrevRank;
 
-        // Mode 2: Percentage Scaling
         if (useScaledRank && p.prevNumPeople > 0 && numActive > 0) {
           let pct = rawPrevRank / p.prevNumPeople;
           effectivePrevRank = Math.round(pct * numActive);
@@ -1847,32 +1852,32 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRank = false) {
         }
 
         p.effectivePrevRank = effectivePrevRank;
-        let minAllowed = Math.max(1, effectivePrevRank - maxMove);
-        let maxAllowed = effectivePrevRank + maxMove;
-        p.clampedRank = Math.min(Math.max(p.rawRank, minAllowed), maxAllowed);
+        p.minAllowed = Math.max(1, effectivePrevRank - maxMove);
+        p.maxAllowed = Math.min(numActive, effectivePrevRank + maxMove);
+        p.clampedTarget = Math.min(Math.max(p.rawRank, p.minAllowed), p.maxAllowed);
       });
 
-      // Sort by Clamped Rank
+      // 3. Stable constrained placement (prevents index compression bypass)
+      // Sort primarily by clampedTarget, tie-breaking by cumPct then previous rank
       activePlayers.sort((a, b) => {
-        if (a.clampedRank !== b.clampedRank) return a.clampedRank - b.clampedRank; 
-        if (Math.abs(b.cumPct - a.cumPct) > 0.0001) return b.cumPct - a.cumPct;    
-        let prevA = (a.prevRank > 0) ? a.prevRank : defaultPrevRank;
-        let prevB = (b.prevRank > 0) ? b.prevRank : defaultPrevRank;
-        if (prevA !== prevB) return prevA - prevB;              
-        return b.prevNumPeople - a.prevNumPeople;                                  
+        if (a.clampedTarget !== b.clampedTarget) return a.clampedTarget - b.clampedTarget;
+        if (Math.abs(b.cumPct - a.cumPct) > 0.0001) return b.cumPct - a.cumPct;
+        if (a.effectivePrevRank !== b.effectivePrevRank) return a.effectivePrevRank - b.effectivePrevRank;
+        return a.rawRank - b.rawRank;
       });
 
-      // Assign Final Rank and Check Restriction
+      // 4. Assign Final Ranks ensuring strict adherence to movement caps
       activePlayers.forEach((p, index) => {
         p.finalRank = index + 1;
         let refPrev = p.effectivePrevRank;
-        let rawDiff = Math.abs(p.rawRank - refPrev);
-        let finalDiff = Math.abs(p.finalRank - refPrev);
-        p.isRestricted = (rawDiff > maxMove) && (finalDiff > maxMove);
+        let rankChange = Math.abs(p.finalRank - refPrev);
+        
+        // Flag restriction if raw performance warranted a higher move than allowed
+        p.isRestricted = (Math.abs(p.rawRank - refPrev) > maxMove) || (rankChange >= maxMove);
         let suffix = p.isRestricted ? "-R" : "";
         p.rjStr = p.finalRank + "/" + numActive + suffix;
       });
-        
+
       // Format Inactive Players
       inactivePlayers.forEach(p => {
         p.rawRank = "";
@@ -1888,7 +1893,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRank = false) {
         }
       });
 
-      // Write-back updates
+      // Write-back updates to sheet
       activePlayers.forEach(p => {
         if (col.group !== undefined) p.rowRaw[col.group] = cleanGroupName;
         if (totColIdx !== undefined) p.rowRaw[totColIdx] = p.cumScore;
@@ -1929,7 +1934,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRank = false) {
       if (backupSched) ss.deleteSheet(backupSched);
 
       let modeTxt = useScaledRank ? "Percentage-Scaled" : "Absolute";
-      return `✅ Standings processed using ${modeTxt} Mode for '${sheet.getName()}'! (${activePlayers.length} Active, ${inactivePlayers.length} Inactive)`;
+      return `Standings processed using ${modeTxt} Mode for '${sheet.getName()}' (${activePlayers.length} Active, ${inactivePlayers.length} Inactive).`;
 
     } catch (error) {
       if (backupScore && sheet) {
@@ -1942,7 +1947,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRank = false) {
         backupSched.getDataRange().copyTo(schedSheet.getRange(1, 1));
         ss.deleteSheet(backupSched);
       }
-      return "❌ Processing failed! Data restored. Error: " + error.message;
+      return "Processing failed. Data restored. Error: " + error.message;
     }
   });
 }
