@@ -1853,41 +1853,365 @@ function safeParseRankVal(val, defaultPrevRank, currentPopulation) {
   };
 }
 
-/**
- * Main Processing Function
- * 
- * - Primary Method (Default): Percentage-Scaled bounds written to Week N (e.g. R1) as percentage strings (e.g., "17.9%-R").
- * - Method 2 (Secondary): Absolute unscaled bounds written to LASTR column as integer rank fractions (e.g., "5/28-R").
- * - invertPrimaryToAbsolute: Set to true to swap outputs (Absolute to Week N, Scaled to LASTR).
- */
-function processWeeklyScoresForSheet(sheet, forcedWeek, invertPrimaryToAbsolute = false) {
-  return executeWithLock(function() {
-    const ss = typeof getDb === "function" ? getDb() : SpreadsheetApp.getActiveSpreadsheet();
+/* =========================================================================
+ *  RANK ENGINE — corrected
+ *  Primary  (default)  : percentile-scaled bounds  -> Week N column (e.g. R1)
+ *  Method 2 (default)  : absolute bounds           -> LASTR column
+ *  Pass invertPrimaryToAbsolute = true to swap them.
+ * ========================================================================= */
+
+const TREAT_UNRANKED_AS_UNCONSTRAINED = true;
+const RANK_DEBUG_LOG = true;
+
+/* ---------- column resolution ---------------------------------------- */
+
+function resolveCol(col, headerRow, names) {
+  for (let i = 0; i < names.length; i++) {
+    const n = names[i];
+    if (col && col[n] !== undefined) return col[n];
+    if (col && col[String(n).toLowerCase()] !== undefined) {
+      return col[String(n).toLowerCase()];
+    }
+  }
+  const want = names.map(n => String(n).trim().toLowerCase());
+  for (let c = 0; c < headerRow.length; c++) {
+    const h = String(headerRow[c] || "").trim().toLowerCase();
+    if (want.indexOf(h) !== -1) return c;
+  }
+  return undefined;
+}
+
+/* ---------- rank-string parser ---------------------------------------
+ * Accepts:  23/49   23R49   23/49-R   23/49-r   23/49-I
+ *           17.6%   17.6%-R   17.6%-r   17.6%-I   23
+ * Uppercase R = upward movement was capped.
+ * Lowercase r = downward movement was capped.
+ * --------------------------------------------------------------------- */
+
+function safeParseRankVal(val, defaultPrevRank, currentPopulation) {
+  currentPopulation = Number(currentPopulation) || 0;
+
+  const empty = {
+    rank: defaultPrevRank,
+    numPeople: 0,
+    percent: null,
+    restriction: "",
+    isRestricted: false,
+    isInactive: false,
+    isPercent: false,
+    hasPrior: false,
+    isSuspect: false,
+    rawStr: ""
+  };
+
+  if (val === null || val === undefined || val === "") return empty;
+
+  let str = (val instanceof Date)
+    ? ((val.getMonth() + 1) + "/" + val.getDate())
+    : String(val).trim();
+
+  str = str.replace(/^'/, "").trim();
+  if (!str) return empty;
+
+  const raw = str;
+
+  /* Trailing directional suffix. Case matters: R != r. */
+  let restriction = "";
+  const sfx = str.match(/-\s*([RrIi])\s*$/);
+  if (sfx) {
+    restriction = (sfx[1] === "i") ? "I" : sfx[1];
+    str = str.replace(/-\s*([RrIi])\s*$/, "").trim();
+  }
+
+  /* Percentile form: 17.6% */
+  const pm = str.match(/^(\d+(?:\.\d+)?)\s*%$/);
+  if (pm) {
+    const pct = Number(pm[1]);
+    let rank = defaultPrevRank;
+    if (currentPopulation > 0 && isFinite(pct)) {
+      rank = Math.round((pct / 100) * currentPopulation);
+      rank = Math.max(1, Math.min(currentPopulation, rank));
+    }
+    return {
+      rank: rank,
+      numPeople: currentPopulation,
+      percent: pct,
+      restriction: restriction,
+      isRestricted: (restriction === "R" || restriction === "r"),
+      isInactive: (restriction === "I"),
+      isPercent: true,
+      hasPrior: true,
+      isSuspect: !(pct >= 0 && pct <= 100),
+      rawStr: raw
+    };
+  }
+
+  /* Fraction or compact form: 23/49 or 23R49 */
+  const fm = str.match(/^(\d+)\s*(?:\/|[Rr])\s*(\d+)$/);
+  if (fm) {
+    let rank = parseInt(fm[1], 10);
+    let numPeople = parseInt(fm[2], 10);
+    if (!isFinite(rank) || rank <= 0) rank = defaultPrevRank;
+    if (!isFinite(numPeople) || numPeople < 0) numPeople = 0;
+    return {
+      rank: rank,
+      numPeople: numPeople,
+      percent: (numPeople > 0) ? (rank / numPeople) * 100 : null,
+      restriction: restriction,
+      isRestricted: (restriction === "R" || restriction === "r"),
+      isInactive: (restriction === "I"),
+      isPercent: false,
+      hasPrior: true,
+      /* rank cannot exceed field size; flags corrupted history */
+      isSuspect: (numPeople > 0 && rank > numPeople),
+      rawStr: raw
+    };
+  }
+
+  /* Bare integer */
+  const nm = str.match(/^(\d+)$/);
+  if (nm) {
+    const rank = parseInt(nm[1], 10);
+    return {
+      rank: (rank > 0) ? rank : defaultPrevRank,
+      numPeople: 0,
+      percent: null,
+      restriction: restriction,
+      isRestricted: (restriction === "R" || restriction === "r"),
+      isInactive: (restriction === "I"),
+      isPercent: false,
+      hasPrior: true,
+      isSuspect: false,
+      rawStr: raw
+    };
+  }
+
+  const bad = Object.assign({}, empty);
+  bad.rawStr = raw;
+  bad.isSuspect = true;
+  return bad;
+}
+
+/* ---------- feasibility (earliest-deadline-first, exact) -------------- */
+
+function rankingIsFeasible(items, usedSlots) {
+  const used = {};
+  for (const s in usedSlots) if (usedSlots[s]) used[s] = true;
+
+  const sorted = items.slice().sort(function (a, b) {
+    if (a.maxAllowed !== b.maxAllowed) return a.maxAllowed - b.maxAllowed;
+    return a.minAllowed - b.minAllowed;
+  });
+
+  for (let i = 0; i < sorted.length; i++) {
+    const it = sorted[i];
+    let placed = false;
+    for (let s = it.minAllowed; s <= it.maxAllowed; s++) {
+      if (!used[s]) { used[s] = true; placed = true; break; }
+    }
+    if (!placed) return false;
+  }
+  return true;
+}
+
+/* ---------- window construction --------------------------------------- */
+
+function applyWindows(items, window, numSlots) {
+  items.forEach(function (p) {
+    if (p.unconstrained) {
+      p.minAllowed = 1;
+      p.maxAllowed = numSlots;
+    } else {
+      p.minAllowed = Math.max(1, p.effectivePrevRank - window);
+      p.maxAllowed = Math.min(numSlots, p.effectivePrevRank + window);
+    }
+    if (p.minAllowed > p.maxAllowed) {
+      /* Defensive: cannot occur once effectivePrevRank is clamped. */
+      p.minAllowed = 1;
+      p.maxAllowed = numSlots;
+    }
+    p.clampedTarget = Math.max(
+      p.minAllowed,
+      Math.min(p.sortVal, p.maxAllowed)
+    );
+  });
+}
+
+function findSmallestFeasibleWindow(items, baseWindow, numSlots) {
+  for (let w = baseWindow; w <= numSlots; w++) {
+    applyWindows(items, w, numSlots);
+    if (rankingIsFeasible(items, {})) return w;
+  }
+  applyWindows(items, numSlots, numSlots);
+  return numSlots;
+}
+
+/* ---------- merit-greedy assignment with feasibility guard ------------ */
+
+function assignRanksWithinWindows(items, numSlots) {
+  let remaining = items.slice();
+  const used = {};
+
+  for (let r = 1; r <= numSlots; r++) {
+    const eligible = remaining
+      .filter(function (p) { return p.minAllowed <= r && r <= p.maxAllowed; })
+      .sort(function (a, b) { return a.sortVal - b.sortVal; });
+
+    let chosen = null;
+
+    for (let i = 0; i < eligible.length; i++) {
+      const cand = eligible[i];
+      const rest = remaining.filter(function (p) { return p !== cand; });
+
+      /* Ranks 1..r are no longer available to anyone else. */
+      const trialUsed = {};
+      for (const k in used) trialUsed[k] = true;
+      for (let s = 1; s <= r; s++) trialUsed[s] = true;
+
+      if (rankingIsFeasible(rest, trialUsed)) { chosen = cand; break; }
+    }
+
+    if (!chosen) {
+      throw new Error(
+        "Rank assignment failed at slot " + r +
+        ". Eligible candidates: " + eligible.length +
+        ", remaining players: " + remaining.length + "."
+      );
+    }
+
+    chosen.finalRank = r;
+    used[r] = true;
+    remaining = remaining.filter(function (p) { return p !== chosen; });
+  }
+
+  return items;
+}
+
+/* ---------- one complete ranking pass --------------------------------- */
+
+function computeBoundedRanks(sourcePlayers, numActive, baseMove, isScaledMode) {
+  const items = sourcePlayers.map(function (p) {
+    const item = {
+      uid: p.rowIndex,
+      name: p.name,
+      sortVal: p.sortVal,
+      cumPct: p.cumPct,
+      hasPrior: p.hasPrior,
+      priorRank: p.priorRank,
+      priorNumPeople: p.priorNumPeople,
+      priorPercent: p.priorPercent,
+      unconstrained: false
+    };
+
+    if (!item.hasPrior && TREAT_UNRANKED_AS_UNCONSTRAINED) {
+      /* No prior standing, so there is nothing to move away from. */
+      item.unconstrained = true;
+      item.effectivePrevRank = item.sortVal;
+      return item;
+    }
+
+    let eff;
+    if (isScaledMode) {
+      /* Percentile baseline: prefer a stored percentile, else derive one. */
+      let pct = item.priorPercent;
+      if (pct === null || pct === undefined) {
+        pct = (item.priorNumPeople > 0)
+          ? (item.priorRank / item.priorNumPeople) * 100
+          : null;
+      }
+      eff = (pct === null)
+        ? item.priorRank
+        : Math.round((pct / 100) * numActive);
+    } else {
+      eff = item.priorRank;
+    }
+
+    /* Clamp into the current field. This is the fix for empty windows. */
+    eff = Math.max(1, Math.min(numActive, Math.round(eff)));
+    item.effectivePrevRank = eff;
+    return item;
+  });
+
+  const windowUsed = findSmallestFeasibleWindow(items, baseMove, numActive);
+  applyWindows(items, windowUsed, numActive);
+  assignRanksWithinWindows(items, numActive);
+
+  /* Validation: permutation plus window compliance. */
+  const seen = {};
+  items.forEach(function (p) {
+    if (seen[p.finalRank]) {
+      throw new Error("Duplicate final rank " + p.finalRank +
+        " for " + p.name + ".");
+    }
+    seen[p.finalRank] = true;
+
+    if (p.finalRank < p.minAllowed || p.finalRank > p.maxAllowed) {
+      throw new Error("Illegal rank " + p.finalRank + " for " + p.name +
+        " (window " + p.minAllowed + "-" + p.maxAllowed + ").");
+    }
+  });
+
+  /* Direction of restriction and output string. */
+  items.forEach(function (p) {
+    let suffix = "";
+    if (!p.unconstrained) {
+      if (p.sortVal < p.minAllowed) {
+        suffix = "-R";          /* earned a better rank, held back */
+      } else if (p.sortVal > p.maxAllowed) {
+        suffix = "-r";          /* earned a worse rank, protected */
+      }
+    }
+    p.restrictionSuffix = suffix;
+    p.isRestricted = (suffix !== "");
+
+    p.percentile = (p.finalRank / numActive) * 100;
+
+    p.outStr = isScaledMode
+      ? (p.percentile.toFixed(1) + "%" + suffix)
+      : (p.finalRank + "/" + numActive + suffix);
+  });
+
+  return { items: items, windowUsed: windowUsed };
+}
+
+/* =========================================================================
+ *  MAIN
+ * ========================================================================= */
+
+function processWeeklyScoresForSheet(sheet, forcedWeek,
+                                     invertPrimaryToAbsolute) {
+  invertPrimaryToAbsolute = (invertPrimaryToAbsolute === true);
+
+  return executeWithLock(function () {
+    const ss = (typeof getDb === "function")
+      ? getDb()
+      : SpreadsheetApp.getActiveSpreadsheet();
+
     if (!sheet) sheet = ss.getActiveSheet();
     if (typeof checkAndRunWeeklyBackup === "function") checkAndRunWeeklyBackup();
 
-    let cleanGroupName = sheet.getName().replace(/^Score\s+/i, "").trim();
-    const schedSheet = ss.getSheetByName("Sched " + cleanGroupName) || 
-                       ss.getSheetByName("Sched") || 
-                       ss.getSheetByName("Schedule");
+    const cleanGroupName = sheet.getName().replace(/^Score\s+/i, "").trim();
+    const schedSheet =
+      ss.getSheetByName("Sched " + cleanGroupName) ||
+      ss.getSheetByName("Sched") ||
+      ss.getSheetByName("Schedule");
 
-    // Create temporary backups
     let backupScore, backupSched;
-    let ts = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "HHmmss");
-    
+    const ts = Utilities.formatDate(
+      new Date(), ss.getSpreadsheetTimeZone(), "HHmmss");
+
     if (sheet) {
-      let bName = "TmpBkup_Score_" + ts;
-      let existing = ss.getSheetByName(bName);
-      if (existing) ss.deleteSheet(existing);
+      const bName = "TmpBkup_Score_" + ts;
+      const ex = ss.getSheetByName(bName);
+      if (ex) ss.deleteSheet(ex);
       backupScore = sheet.copyTo(ss);
       backupScore.setName(bName);
       backupScore.hideSheet();
     }
-    
     if (schedSheet) {
-      let bName = "TmpBkup_Sched_" + ts;
-      let existing = ss.getSheetByName(bName);
-      if (existing) ss.deleteSheet(existing);
+      const bName = "TmpBkup_Sched_" + ts;
+      const ex = ss.getSheetByName(bName);
+      if (ex) ss.deleteSheet(ex);
       backupSched = schedSheet.copyTo(ss);
       backupSched.setName(bName);
       backupSched.hideSheet();
@@ -1895,343 +2219,300 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, invertPrimaryToAbsolute 
 
     try {
       const data = sheet.getDataRange().getValues();
-      if (data.length <= 1) throw new Error("No player data found on tab: " + sheet.getName());
+      if (data.length <= 1) {
+        throw new Error("No player data on tab: " + sheet.getName());
+      }
 
       const headerRow = data[0];
-      const col = typeof buildColMap === "function" ? buildColMap(headerRow) : {};
+      const col = (typeof buildColMap === "function")
+        ? buildColMap(headerRow) : {};
 
-      let totColIdx     = col.tot !== undefined ? col.tot : col.total;
-      let posColIdx     = col.pos !== undefined ? col.pos : col.possible;
-      let pctColIdx     = col.pct !== undefined ? col.pct : col.winPct;
-      let ptsColIdx     = col.pts !== undefined ? col.pts : col.points;
-      let rawRankColIdx = col.rawRankCol !== undefined ? col.rawRankCol : col.rawRank;
-      let rNumIdx       = col.rNum !== undefined ? col.rNum : col.rnum;
-      
-      // Target output columns
-      let lastRColIdx   = col.lastr;    // Reallocated to store Method 2 results
-      let sortValColIdx = col.sortval;  // Stores raw unconstrained performance rank
-      let newLeftColIdx = col.newleft;  // Stores primary target before collision resolution
+      if (col.first === undefined) {
+        col.first = headerRow.findIndex(h => /first/i.test(h));
+      }
+      if (col.last === undefined) {
+        col.last = headerRow.findIndex(h => /last/i.test(h));
+      }
+
+      const totColIdx     = resolveCol(col, headerRow, ["tot", "total"]);
+      const posColIdx     = resolveCol(col, headerRow, ["pos", "possible"]);
+      const pctColIdx     = resolveCol(col, headerRow, ["pct", "winPct"]);
+      const ptsColIdx     = resolveCol(col, headerRow, ["pts", "points"]);
+      const rawRankColIdx = resolveCol(col, headerRow,
+                              ["rawRankCol", "rawRank", "Raw Rank"]);
+      const rNumIdx       = resolveCol(col, headerRow, ["rNum", "rnum"]);
+
+      /* LASTR now carries Method 2 output; SortVal and NewLeft stay numeric. */
+      const lastRColIdx   = resolveCol(col, headerRow, ["lastr", "LASTR"]);
+      const sortValColIdx = resolveCol(col, headerRow, ["sortval", "SortVal"]);
+      const newLeftColIdx = resolveCol(col, headerRow, ["newleft", "NewLeft"]);
 
       let weekNum;
       if (forcedWeek !== null && forcedWeek !== undefined && forcedWeek !== "") {
-        let match = forcedWeek.toString().match(/\d+/);
-        weekNum = match ? parseInt(match[0], 10) : (typeof calculateCurrentWeekNumber === "function" ? calculateCurrentWeekNumber() : 1);
+        const m = forcedWeek.toString().match(/\d+/);
+        weekNum = m ? parseInt(m[0], 10)
+          : ((typeof calculateCurrentWeekNumber === "function")
+              ? calculateCurrentWeekNumber() : 1);
       } else {
-        weekNum = typeof calculateCurrentWeekNumber === "function" ? calculateCurrentWeekNumber() : 1;
+        weekNum = (typeof calculateCurrentWeekNumber === "function")
+          ? calculateCurrentWeekNumber() : 1;
       }
 
-      let targetWeekIdx = col["w" + weekNum];
-      let currRColIdx   = col["r" + weekNum];
-      let prevWeekNum   = weekNum - 1;
-      let prevRColIdx   = col["r" + prevWeekNum];
+      const targetWeekIdx = resolveCol(col, headerRow,
+                              ["w" + weekNum, "W" + weekNum, "Week " + weekNum]);
+      const currRColIdx   = resolveCol(col, headerRow,
+                              ["r" + weekNum, "R" + weekNum]);
+      const prevRColIdx   = resolveCol(col, headerRow,
+                              ["r" + (weekNum - 1), "R" + (weekNum - 1)]);
 
-      // Sync Schedule Scores
       if (typeof harvestScoresFromSchedules === "function") {
-        const warnings = harvestScoresFromSchedules(ss, data, col, targetWeekIdx, schedSheet, weekNum);
+        const warnings = harvestScoresFromSchedules(
+          ss, data, col, targetWeekIdx, schedSheet, weekNum);
         if (warnings && warnings.length > 0) {
           try {
-            SpreadsheetApp.getUi().alert("⚠️ Schedule Total Mismatch Detected:\n\n" + warnings.join("\n"));
+            SpreadsheetApp.getUi().alert(
+              "Schedule total mismatch:\n\n" + warnings.join("\n"));
           } catch (e) {
-            Logger.log("Schedule Total Mismatches: " + warnings.join("; "));
+            Logger.log("Schedule mismatches: " + warnings.join("; "));
           }
         }
       }
 
-      // Sync Points to Week Column
       if (ptsColIdx !== undefined && targetWeekIdx !== undefined) {
         for (let i = 1; i < data.length; i++) {
-          let ptsVal = data[i][ptsColIdx];
-          if (ptsVal !== "" && ptsVal !== null && ptsVal !== undefined && !isNaN(parseFloat(ptsVal))) {
-            data[i][targetWeekIdx] = parseFloat(ptsVal);
-          } else {
-            data[i][targetWeekIdx] = "";
-          }
+          const v = data[i][ptsColIdx];
+          data[i][targetWeekIdx] =
+            (v !== "" && v !== null && v !== undefined && !isNaN(parseFloat(v)))
+              ? parseFloat(v) : "";
         }
       }
 
-      // Count active players
+      /* ---- count active players ---- */
       let numActive = 0;
       for (let i = 1; i < data.length; i++) {
-        let pName = (col.name !== undefined && data[i][col.name]) 
-          ? data[i][col.name].toString().trim() 
-          : (((data[i][col.first] || "") + " " + (data[i][col.last] || ""))).trim();
-        if (!pName) continue;
-        let rawScoreVal = targetWeekIdx !== undefined ? data[i][targetWeekIdx] : "";
-        if (rawScoreVal !== "" && rawScoreVal !== null && rawScoreVal !== undefined && !isNaN(parseFloat(rawScoreVal))) {
+        const nm = (col.name !== undefined && data[i][col.name])
+          ? data[i][col.name].toString().trim()
+          : ((data[i][col.first] || "") + " " +
+             (data[i][col.last] || "")).trim();
+        if (!nm) continue;
+        const v = (targetWeekIdx !== undefined) ? data[i][targetWeekIdx] : "";
+        if (v !== "" && v !== null && v !== undefined && !isNaN(parseFloat(v))) {
           numActive++;
         }
       }
+      if (numActive === 0) throw new Error("No active players this week.");
 
-      let defaultPrevRank = numActive + 1;
-      let activePlayers = [];
-      let inactivePlayers = [];
+      const defaultPrevRank = numActive;   /* only used as a last resort */
+      const activePlayers = [];
+      const inactivePlayers = [];
+      const suspectHistory = [];
 
-      // Extract Player Records
       for (let i = 1; i < data.length; i++) {
-        let row = data[i];
-        let firstName = col.first !== undefined ? String(row[col.first] || "").trim() : "";
-        let lastName = col.last !== undefined ? String(row[col.last] || "").trim() : "";
-        let pName = (col.name !== undefined && row[col.name]) 
-          ? row[col.name].toString().trim() 
+        const row = data[i];
+        const firstName = (col.first !== undefined)
+          ? String(row[col.first] || "").trim() : "";
+        const lastName = (col.last !== undefined)
+          ? String(row[col.last] || "").trim() : "";
+        const pName = (col.name !== undefined && row[col.name])
+          ? row[col.name].toString().trim()
           : (firstName + " " + lastName).trim();
-
         if (!pName) continue;
 
-        let rawScoreVal = targetWeekIdx !== undefined ? row[targetWeekIdx] : "";
-        let hasScore = (rawScoreVal !== "" && rawScoreVal !== null && rawScoreVal !== undefined && !isNaN(parseFloat(rawScoreVal)));
+        const v = (targetWeekIdx !== undefined) ? row[targetWeekIdx] : "";
+        const hasScore =
+          (v !== "" && v !== null && v !== undefined && !isNaN(parseFloat(v)));
 
         let cumScore = 0;
-        let numWeekNonZero = 0;
-
+        let weeksPlayed = 0;
         for (let w = 1; w <= 10; w++) {
-          let wCol = col["w" + w];
+          const wCol = resolveCol(col, headerRow, ["w" + w, "W" + w]);
           if (wCol !== undefined && row[wCol] !== "" && row[wCol] !== null) {
-            let val = parseFloat(row[wCol]);
-            if (!isNaN(val)) {
-              cumScore += val;
-              if (val > 0) numWeekNonZero++;
-            }
+            const val = parseFloat(row[wCol]);
+            if (!isNaN(val)) { cumScore += val; if (val > 0) weeksPlayed++; }
           }
         }
 
-        let maxPtsForPlayedWeeks = 45 * numWeekNonZero;
-        let cumPct = maxPtsForPlayedWeeks > 0 ? (cumScore / maxPtsForPlayedWeeks) : 0;
-        
-          let prevRankCellVal =   prevRColIdx !== undefined     ? row[prevRColIdx]     : "";
-          let prevRankInfo = safeParseRankVal(  prevRankCellVal,   defaultPrevRank,  numActive );
+        const maxPts = MAX_POINTS_PER_WEEK * weeksPlayed;
+        const cumPct = (maxPts > 0) ? (cumScore / maxPts) : 0;
 
-        let playerObj = {
+        const prevCell = (prevRColIdx !== undefined) ? row[prevRColIdx] : "";
+        const prev = safeParseRankVal(prevCell, defaultPrevRank, numActive);
+
+        if (prev.isSuspect && prev.rawStr) {
+          suspectHistory.push(pName + ": " + prev.rawStr);
+        }
+
+        const obj = {
           rowIndex: i,
-          rowRaw: [...row],
+          rowRaw: row.slice(),
           name: pName,
           isActive: hasScore,
           cumScore: cumScore,
-          maxPtsForPlayedWeeks: maxPtsForPlayedWeeks,
+          maxPtsForPlayedWeeks: maxPts,
           cumPct: cumPct,
-          lastRank: prevRankInfo.rank,
-          prevNumPeople: prevRankInfo.numPeople,
-          prevRawStr: prevRankInfo.rawStr
+          hasPrior: prev.hasPrior,
+          priorRank: prev.rank,
+          priorNumPeople: prev.numPeople,
+          priorPercent: prev.percent,
+          priorRawStr: prev.rawStr
         };
 
-        if (hasScore) activePlayers.push(playerObj);
-        else inactivePlayers.push(playerObj);
+        if (hasScore) activePlayers.push(obj);
+        else inactivePlayers.push(obj);
       }
 
-      const maxMove = typeof MAX_MOVEMENT !== "undefined" ? Number(MAX_MOVEMENT) : 4;
+      const maxMove = (typeof MAX_MOVEMENT !== "undefined")
+        ? Number(MAX_MOVEMENT) : 4;
 
-      // 1. Establish unconstrained SortVal (Pure performance rank based on cumulative win %)
-      activePlayers.sort((a, b) => {
+      /* ---- unconstrained performance rank (SortVal) ---- */
+      activePlayers.sort(function (a, b) {
         if (Math.abs(b.cumPct - a.cumPct) > 0.0001) return b.cumPct - a.cumPct;
-        let prevA = (a.lastRank > 0) ? a.lastRank : defaultPrevRank;
-        let prevB = (b.lastRank > 0) ? b.lastRank : defaultPrevRank;
-        if (prevA !== prevB) return prevA - prevB;
-        return b.prevNumPeople - a.prevNumPeople;
+        const pa = a.hasPrior ? a.priorRank : defaultPrevRank;
+        const pb = b.hasPrior ? b.priorRank : defaultPrevRank;
+        if (pa !== pb) return pa - pb;
+        return b.priorNumPeople - a.priorNumPeople;
+      });
+      activePlayers.forEach(function (p, i) {
+        p.sortVal = i + 1;
+        p.rawRank = i + 1;
       });
 
-      activePlayers.forEach((p, index) => {
-        p.sortVal = index + 1;
-        p.rawRank = index + 1;
-      });
+      /* ---- both methods, matched by rowIndex ---- */
+      const scaled   = computeBoundedRanks(activePlayers, numActive, maxMove, true);
+      const absolute = computeBoundedRanks(activePlayers, numActive, maxMove, false);
 
-      // Pipeline helper to resolve bounded placement
-      function computeBoundedRanks(isScaledMode) {
-        let players = activePlayers.map(p => ({ ...p }));
+      const scaledByRow = {};
+      scaled.items.forEach(function (r) { scaledByRow[r.uid] = r; });
+      const absByRow = {};
+      absolute.items.forEach(function (r) { absByRow[r.uid] = r; });
 
-        players.forEach(p => {
-          let rawPrev = (p.lastRank > 0) ? p.lastRank : defaultPrevRank;
-          let effectivePrev = rawPrev;
+      activePlayers.forEach(function (p) {
+        const s = scaledByRow[p.rowIndex];
+        const a = absByRow[p.rowIndex];
+        if (!s || !a) {
+          throw new Error("Missing method result for row " + p.rowIndex);
+        }
 
-          // Scaled Mode: converts prior rank to equivalent percentile in current field
-          if (isScaledMode && p.prevNumPeople > 0 && numActive > 0) {
-            let pct = rawPrev / p.prevNumPeople;
-            effectivePrev = Math.round(pct * numActive);
-            effectivePrev = Math.max(1, Math.min(numActive, effectivePrev));
-          }
-
-          p.effectivePrevRank = effectivePrev;
-          p.minAllowed = Math.max(1, effectivePrev - maxMove); // Ceiling (best allowed rank number)
-          p.maxAllowed = Math.min(numActive, effectivePrev + maxMove); // Floor (worst allowed rank number)
-          p.clampedTarget = Math.max(p.minAllowed, Math.min(p.sortVal, p.maxAllowed));
-        });
-
-        // Pre-sort by clampedTarget, tie-breaking by SortVal
-        players.sort((a, b) => {
-          if (a.clampedTarget !== b.clampedTarget) return a.clampedTarget - b.clampedTarget;
-          if (Math.abs(b.cumPct - a.cumPct) > 0.0001) return b.cumPct - a.cumPct;
-          if (a.sortVal !== b.sortVal) return a.sortVal - b.sortVal;
-          return a.effectivePrevRank - b.effectivePrevRank;
-        });
-
-        // Resolve dense slots 1..N
-        let slots = new Array(numActive).fill(null);
-        players.forEach(p => {
-          let chosen = -1;
-          let targetIdx = p.clampedTarget - 1;
-
-          // Attempt ideal slot downward within permitted range
-          for (let s = targetIdx; s <= p.maxAllowed - 1; s++) {
-            if (slots[s] === null) { chosen = s; break; }
-          }
-          // If occupied, search upward within permitted range
-          if (chosen === -1) {
-            for (let s = targetIdx - 1; s >= p.minAllowed - 1; s--) {
-              if (slots[s] === null) { chosen = s; break; }
-            }
-          }
-          // Fallback to nearest open slot
-          if (chosen === -1) {
-            let minD = 999;
-            for (let s = 0; s < numActive; s++) {
-              if (slots[s] === null && Math.abs(s - targetIdx) < minD) {
-                minD = Math.abs(s - targetIdx);
-                chosen = s;
-              }
-            }
-          }
-
-          slots[chosen] = p;
-          p.finalRank = chosen + 1;
-
-          // Directional restriction evaluation
-          // Upward move capped: raw performance was higher (smaller number) than allowed ceiling
-          let cappedUpward = (p.sortVal < p.minAllowed) || (p.effectivePrevRank - p.finalRank >= maxMove && p.sortVal < p.finalRank);
-          // Downward move capped: raw performance was lower (larger number) than allowed floor
-          let cappedDownward = (p.sortVal > p.maxAllowed) || (p.finalRank - p.effectivePrevRank >= maxMove && p.sortVal > p.finalRank);
-
-          let suffix = "";
-          if (cappedUpward) {
-            suffix = "-R"; // Upward restricted
-          } else if (cappedDownward) {
-            suffix = "-r"; // Downward restricted
-          }
-
-          p.restrictionSuffix = suffix;
-          p.isRestricted = (suffix !== "");
-
-          if (isScaledMode) {
-            // Percent output: e.g. "17.9%-R"
-            let rankPct = ((p.finalRank / numActive) * 100).toFixed(1);
-            p.outStr = rankPct + "%" + suffix;
-          } else {
-            // Absolute fraction output: e.g. "5/28-R"
-            p.outStr = p.finalRank + "/" + numActive + suffix;
-          }
-        });
-
-        return players;
-      }
-
-      // Compute both methods
-      let scaledResults = computeBoundedRanks(true);
-      let absoluteResults = computeBoundedRanks(false);
-
-      // Map outputs to active players
-      activePlayers.forEach(p => {
-        let scaledMatch = scaledResults.find(r => r.name === p.name);
-        let absoluteMatch = absoluteResults.find(r => r.name === p.name);
-
-        let scaledStr = scaledMatch ? scaledMatch.outStr : "";
-        let scaledFinalRank = scaledMatch ? scaledMatch.finalRank : defaultPrevRank;
-        let scaledTarget = scaledMatch ? scaledMatch.clampedTarget : p.sortVal;
-        let scaledRestricted = scaledMatch ? scaledMatch.isRestricted : false;
-
-        let absStr = absoluteMatch ? absoluteMatch.outStr : "";
-        let absFinalRank = absoluteMatch ? absoluteMatch.finalRank : defaultPrevRank;
-        let absTarget = absoluteMatch ? absoluteMatch.clampedTarget : p.sortVal;
-        let absRestricted = absoluteMatch ? absoluteMatch.isRestricted : false;
-
-        if (!invertPrimaryToAbsolute) {
-          p.primaryStr       = scaledStr;        // Primary to Week N (e.g., R1)
-          p.primaryFinalRank = scaledFinalRank;
-          p.primaryIsRestr   = scaledRestricted;
-          p.method2Str       = absStr;           // Method 2 to LASTR
-          p.targetForDebug   = scaledTarget;
+        if (invertPrimaryToAbsolute) {
+          p.primaryStr = a.outStr;
+          p.primaryFinalRank = a.finalRank;
+          p.primaryIsRestr = a.isRestricted;
+          p.method2Str = s.outStr;
         } else {
-          p.primaryStr       = absStr;
-          p.primaryFinalRank = absFinalRank;
-          p.primaryIsRestr   = absRestricted;
-          p.method2Str       = scaledStr;
-          p.targetForDebug   = absTarget;
+          p.primaryStr = s.outStr;
+          p.primaryFinalRank = s.finalRank;
+          p.primaryIsRestr = s.isRestricted;
+          p.method2Str = a.outStr;
+        }
+
+        p.diagSortVal = p.sortVal;
+        p.diagNewLeft = p.primaryFinalRank;
+
+        if (RANK_DEBUG_LOG) {
+          Logger.log([
+            p.name,
+            "prior=" + (p.priorRawStr || "(none)"),
+            "sortVal=" + p.sortVal,
+            "scaled=" + s.effectivePrevRank +
+              " [" + s.minAllowed + "-" + s.maxAllowed + "] -> " + s.finalRank,
+            "abs=" + a.effectivePrevRank +
+              " [" + a.minAllowed + "-" + a.maxAllowed + "] -> " + a.finalRank
+          ].join(" | "));
         }
       });
 
-      // Format inactive players
-      inactivePlayers.forEach(p => {
-        p.sortVal = "";
-        p.targetForDebug = "";
-        p.primaryFinalRank = p.lastRank !== defaultPrevRank ? p.lastRank : "";
-        if (p.lastRank > 0 && p.lastRank !== defaultPrevRank) {
-          let numP = p.prevNumPeople > 0 ? p.prevNumPeople : numActive;
-          p.primaryStr = p.lastRank + "/" + numP + "-I";
-          p.method2Str = p.primaryStr;
-        } else if (p.prevRawStr) {
-          let cleanStr = p.prevRawStr.replace(/-(R|r|I)$/i, "").trim();
-          p.primaryStr = cleanStr ? (cleanStr + "-I") : "";
-          p.method2Str = p.primaryStr;
-        } else {
-          p.primaryStr = "";
-          p.method2Str = "";
-        }
+      /* ---- inactive players keep prior value, marked -I ---- */
+      inactivePlayers.forEach(function (p) {
+        p.primaryFinalRank = numActive + 1;
+        const base = (p.priorRawStr || "").replace(/-\s*[RrIi]\s*$/, "").trim();
+        p.primaryStr = base ? (base + "-I") : "";
+        p.method2Str = p.primaryStr;
       });
 
-      // Populate sheet rows
-      activePlayers.forEach(p => {
+      /* ---- write back ---- */
+      activePlayers.forEach(function (p) {
         if (col.group !== undefined) p.rowRaw[col.group] = cleanGroupName;
         if (totColIdx !== undefined) p.rowRaw[totColIdx] = p.cumScore;
         if (posColIdx !== undefined) p.rowRaw[posColIdx] = p.maxPtsForPlayedWeeks;
         if (pctColIdx !== undefined) p.rowRaw[pctColIdx] = p.cumPct;
         if (col.status !== undefined) p.rowRaw[col.status] = "ACTIVE";
-        if (rawRankColIdx !== undefined) p.rowRaw[rawRankColIdx] = p.sortVal;
-        
-        // Output Mappings
-        if (lastRColIdx !== undefined) p.rowRaw[lastRColIdx] = p.method2Str;       // Method 2 (Absolute)
-        if (sortValColIdx !== undefined) p.rowRaw[sortValColIdx] = p.sortVal;     // Raw performance rank
-        if (newLeftColIdx !== undefined) p.rowRaw[newLeftColIdx] = p.targetForDebug; // Clamped target
 
-        if (currRColIdx !== undefined) p.rowRaw[currRColIdx] = p.primaryStr.replace(/^'/, "");
-        
+        if (rawRankColIdx !== undefined) p.rowRaw[rawRankColIdx] = p.sortVal;
+        if (sortValColIdx !== undefined) p.rowRaw[sortValColIdx] = p.diagSortVal;
+        if (newLeftColIdx !== undefined) p.rowRaw[newLeftColIdx] = p.diagNewLeft;
+        if (lastRColIdx !== undefined) p.rowRaw[lastRColIdx] = p.method2Str;
+
+        if (currRColIdx !== undefined) {
+          p.rowRaw[currRColIdx] = String(p.primaryStr || "").replace(/^'/, "");
+        }
         if (rNumIdx !== undefined) {
-          let rNumPct = (p.cumPct * 100).toFixed(2);
-          p.rowRaw[rNumIdx] = p.primaryIsRestr ? (rNumPct + "R") : rNumPct;
+          const n = (p.cumPct * 100).toFixed(2);
+          p.rowRaw[rNumIdx] = p.primaryIsRestr ? (n + "R") : n;
         }
       });
 
-      inactivePlayers.forEach(p => {
+      inactivePlayers.forEach(function (p) {
         if (col.group !== undefined) p.rowRaw[col.group] = cleanGroupName;
         if (totColIdx !== undefined) p.rowRaw[totColIdx] = p.cumScore;
         if (posColIdx !== undefined) p.rowRaw[posColIdx] = p.maxPtsForPlayedWeeks;
         if (pctColIdx !== undefined) p.rowRaw[pctColIdx] = p.cumPct;
+        if (col.status !== undefined) p.rowRaw[col.status] = "INACTIVE";
         if (rawRankColIdx !== undefined) p.rowRaw[rawRankColIdx] = "";
-        if (lastRColIdx !== undefined) p.rowRaw[lastRColIdx] = p.method2Str;
         if (sortValColIdx !== undefined) p.rowRaw[sortValColIdx] = "";
         if (newLeftColIdx !== undefined) p.rowRaw[newLeftColIdx] = "";
-        if (currRColIdx !== undefined) p.rowRaw[currRColIdx] = p.primaryStr.replace(/^'/, "");
+        if (lastRColIdx !== undefined) p.rowRaw[lastRColIdx] = p.method2Str;
+        if (currRColIdx !== undefined) {
+          p.rowRaw[currRColIdx] = String(p.primaryStr || "").replace(/^'/, "");
+        }
         if (rNumIdx !== undefined) p.rowRaw[rNumIdx] = "";
       });
 
-      // Sort rows physically by Primary Final Rank
-      activePlayers.sort((a, b) => a.primaryFinalRank - b.primaryFinalRank);
+      activePlayers.sort(function (a, b) {
+        return a.primaryFinalRank - b.primaryFinalRank;
+      });
 
-      let finalRows = [headerRow];
-      activePlayers.forEach(p => finalRows.push(p.rowRaw));
-      inactivePlayers.forEach(p => finalRows.push(p.rowRaw));
+      const finalRows = [headerRow];
+      activePlayers.forEach(function (p) { finalRows.push(p.rowRaw); });
+      inactivePlayers.forEach(function (p) { finalRows.push(p.rowRaw); });
 
       if (currRColIdx !== undefined) {
-        sheet.getRange(1, currRColIdx + 1, finalRows.length, 1).setNumberFormat('@');
+        sheet.getRange(1, currRColIdx + 1, finalRows.length, 1)
+             .setNumberFormat('@');
       }
       if (lastRColIdx !== undefined) {
-        sheet.getRange(1, lastRColIdx + 1, finalRows.length, 1).setNumberFormat('@');
+        sheet.getRange(1, lastRColIdx + 1, finalRows.length, 1)
+             .setNumberFormat('@');
       }
 
       sheet.clearContents();
-      sheet.getRange(1, 1, finalRows.length, finalRows[0].length).setValues(finalRows);
+      sheet.getRange(1, 1, finalRows.length, finalRows[0].length)
+           .setValues(finalRows);
 
       if (backupScore) ss.deleteSheet(backupScore);
       if (backupSched) ss.deleteSheet(backupSched);
 
-      let primaryName = invertPrimaryToAbsolute ? "Absolute" : "Percentage-Scaled";
-      let secondaryName = invertPrimaryToAbsolute ? "Percentage-Scaled" : "Absolute";
-      return `Processed '${sheet.getName()}'. Primary (Week ${weekNum}): ${primaryName} | Method 2 (LASTR column): ${secondaryName}.`;
+      const primaryName = invertPrimaryToAbsolute
+        ? "Absolute" : "Percentile-scaled";
+      const secondName = invertPrimaryToAbsolute
+        ? "Percentile-scaled" : "Absolute";
+
+      let msg = "Processed '" + sheet.getName() + "'. " +
+        numActive + " active, " + inactivePlayers.length + " inactive. " +
+        "Week " + weekNum + " = " + primaryName +
+        "; LASTR = " + secondName + ". " +
+        "Movement cap used: scaled ±" + scaled.windowUsed +
+        ", absolute ±" + absolute.windowUsed +
+        " (requested ±" + maxMove + ").";
+
+      if (scaled.windowUsed > maxMove || absolute.windowUsed > maxMove) {
+        msg += " The requested cap was mathematically impossible for this " +
+               "field; the smallest feasible cap was used.";
+      }
+      if (suspectHistory.length > 0) {
+        msg += " Suspect prior-rank values (rank exceeds field size): " +
+               suspectHistory.join("; ") + ".";
+      }
+      return msg;
 
     } catch (error) {
       if (backupScore && sheet) {
