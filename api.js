@@ -1077,7 +1077,7 @@ function startCheckInAutoRefresh() {
     if (document.visibilityState === 'visible' && document.getElementById('checkinTab').classList.contains('active')) {
       loadCheckInPlayers();
     }
-  }, 30000);
+  }, 600000);
 }
 
 function stopCheckInAutoRefresh() {
