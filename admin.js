@@ -499,18 +499,26 @@ async function toggleAdminPlayerActive(btnEl, playerName, phone, currentActiveSt
 
 let adminPollingInterval;
 
-// Call this when the Admin UI view is opened
 function initAdminView() {
   loadAdminPlayerData();
   
   // Clear any existing intervals
-  if (adminPollingInterval) clearInterval(adminPollingInterval);
+  if (typeof adminPollingInterval !== 'undefined' && adminPollingInterval) {
+    clearInterval(adminPollingInterval);
+  }
   
-  // Set polling for every 15 seconds
+  // Poll every 2 minutes (120,000 ms), strictly between 10:00 AM and 10:55 AM
   adminPollingInterval = setInterval(() => {
-      loadAdminPlayerData( null , true); 
-  }, 15000);
+    const now = new Date();
+    const hrs = now.getHours();
+    const mins = now.getMinutes();
+
+    if (hrs === 10 && mins <= 55) {
+      loadAdminPlayerData(null, true); 
+    }
+  }, 120000);
 }
+
 
 // Call this when the Admin UI is closed or hidden
 function teardownAdminView() {

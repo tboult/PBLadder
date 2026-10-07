@@ -1066,7 +1066,7 @@ function cancelRegistration() {
 
 
 
-
+/*
 let checkInRefreshTimer = null;
 let checkincnt=0                                      
 
@@ -1086,6 +1086,7 @@ function stopCheckInAutoRefresh() {
     checkInRefreshTimer = null;
   }
 }
+*/
 
 function setSelectedGroup(groupName) {
   const cleanGroup = String(groupName).replace(/^(Sched|Score)\s*/i, '').trim();
