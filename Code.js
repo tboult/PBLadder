@@ -2275,6 +2275,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
   /* true (and omitted) -> percentile in Week N, absolute in LASTR.
    * false              -> absolute in Week N, percentile in LASTR.
    * This restores the original meaning of the third argument. */
+    const doUpdateScores  = (updateScores === false) ? false : true;
     const primaryIsScaled = (useScaledRankAsPrimary === false) ? false : true;
     
 
