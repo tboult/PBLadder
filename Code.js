@@ -2582,6 +2582,11 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRankAsPrimary) 
         sheet.getRange(1, lastRColIdx + 1, finalRows.length, 1)
              .setNumberFormat('@');
       }
+        if (typeof updateRankingsSheetForGroup === "function") {
+            updateRankingsSheetForGroup(
+                ss, cleanGroupName, activePlayers, inactivePlayers, weekNum);
+        }
+
 
       sheet.clearContents();
       sheet.getRange(1, 1, finalRows.length, finalRows[0].length)
@@ -2604,10 +2609,6 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRankAsPrimary) 
         " (requested \u00B1" + maxMove + "). " +
           "Newcomer band starts at rank " + scaled.bandStart + ".";
 
-        if (typeof updateRankingsSheetForGroup === "function") {
-            updateRankingsSheetForGroup(
-                ss, cleanGroupName, activePlayers, inactivePlayers, weekNum);
-        }
 
         
       if (scaled.windowUsed > maxMove || absolute.windowUsed > maxMove) {
