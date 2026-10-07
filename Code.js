@@ -432,7 +432,7 @@ function getRankingsAndSchedData(groupName) {
 
     let isWeekFinalized = Boolean(sheetWeekNum) && Boolean(activeWeekNum) && (sheetWeekNum === activeWeekNum);
 
-    //TB hack for now
+    // TB hack for now
     isWeekFinalized = true;
     if (!isWeekFinalized) {
       html += `
@@ -471,7 +471,6 @@ function getRankingsAndSchedData(groupName) {
           }
           html += `</tbody></table>`;
         } else {
-          // If no courts are assigned, show notice instead of table
           html += `
             <div style="background:#e3f2fd; color:#0c5460; border:1px solid #bee5eb; padding:12px; margin-bottom:15px; border-radius:6px; font-weight:bold; text-align:center;">
               📅 No Schedule Yet, check back closer to start time
@@ -512,19 +511,27 @@ function getRankingsAndSchedData(groupName) {
         return undefined;
       };
 
-      let nameIdx  = findColIdx(["Player Name", "Name", "Player", "First"]);
-      let rankIdx  = findColIdx(["Rank", "rnum", "#", "R", "Position"]);
-      let winIdx   = findColIdx(["Win %", "WinPct", "Win", "Pct", "Win Rate"]);
-      let totalIdx = findColIdx(["Total Points", "TotalPoints", "Total", "Points", "Pts", "Tot", "Score"]);
+      // Mapped to capture the new specific 5 columns
+      let rankIdx  = findColIdx(["Rank", "R1", "Position"]);
+      let numIdx   = findColIdx(["%#", "rnum", "#", "Num"]);
+      let nameIdx  = findColIdx(["Name", "Player Name", "Player", "First"]);
+      let ptPctIdx = findColIdx(["Point %", "Win %", "Win%", "WinPct", "Win", "Pct", "Win Rate"]);
+      let totalIdx = findColIdx(["Total Points", "Total Score", "TotalPoints", "Total", "Points", "Pts", "Tot", "Score"]);
 
-        html += `<h3 style="margin-top:1rem; background:#FFFFAA; margin-bottom:1.5rem;"> Ranking CODE under REVISION-- this is based on end of last spring and is probably close but will check again with PK later in week.  Note -I suffix mean last known ranking but currently inactive.</h1>`;
-
-
+      html += `<div style="font-size: 0.9em; margin-top:1rem; padding: 8px; background:#f8f9fa; border-left: 4px solid #17a2b8; margin-bottom:1.5rem;">
+                 <em>Note: An <strong>-I</strong> suffix indicates the player's last known rank, but they are currently inactive.</em>
+               </div>`;
         
-      html += `<h4 style="margin-top:1.5rem;">Ladder Rankings</h4>
+      html += `<h4>Ladder Rankings</h4>
                <table class="data-table">
                  <thead>
-                   <tr><th>Player</th><th>Rank</th><th>Win %</th><th>Total</th></tr>
+                   <tr>
+                     <th>Name</th>
+                     <th>Active Rank</th>
+                     <th>%#</th>
+                     <th>Point %</th>
+                     <th>Total Points</th>
+                   </tr>
                  </thead>
                  <tbody>`;
 
@@ -538,19 +545,24 @@ function getRankingsAndSchedData(groupName) {
         if (!name || name === "Player Name" || name.startsWith("---")) continue;
 
         let rankVal = (rankIdx !== undefined && row[rankIdx]) ? row[rankIdx] : `${rankorder}/${totalPlayers}`;
+        let numVal  = (numIdx !== undefined && row[numIdx]) ? row[numIdx] : "";
 
-        let winVal = "0.0%";
-        if (winIdx !== undefined && row[winIdx] !== "" && row[winIdx] !== null) {
-          let rawWinStr = String(row[winIdx]).replace('%', '').trim();
+        let ptPctVal = "0.0%";
+        if (ptPctIdx !== undefined && row[ptPctIdx] !== "" && row[ptPctIdx] !== null) {
+          let rawWinStr = String(row[ptPctIdx]).replace('%', '').trim();
           let winNum = parseFloat(rawWinStr) || 0;
-          if (winNum <= 1.0 && winNum > 0) winNum = winNum * 100;
-          winVal = winNum.toFixed(1) + "%";
+          // Scale decimals (0.85 -> 85.0%) if applicable
+          if (winNum <= 1.0 && winNum > 0 && !String(row[ptPctIdx]).includes('%')) {
+            winNum = winNum * 100;
+          }
+          ptPctVal = winNum.toFixed(1) + "%";
         }          
 
         let totalVal = "";
         if (totalIdx !== undefined && row[totalIdx] !== "" && row[totalIdx] !== null) {
           totalVal = row[totalIdx];
         } else {
+          // Fallback if missing explicit total column: aggregate game columns
           let gameSum = 0;
           let foundGames = false;
           for (let c = 0; c < row.length; c++) {
@@ -568,8 +580,9 @@ function getRankingsAndSchedData(groupName) {
 
         html += `<tr>
           <td>${name}</td>
+          <td>${numVal}</td>
           <td>${rankVal}</td>
-          <td>${winVal}</td>
+          <td>${ptPctVal}</td>
           <td>${totalVal}</td>
         </tr>`;
         hasData = true;
@@ -579,13 +592,13 @@ function getRankingsAndSchedData(groupName) {
     }
   }
 
-
   if (!hasData) {
     return { html: `<i>No published schedule or rankings found for '${cleanGroup}'.</i>` };
   }
 
   return { html: html };
 }
+
 
 function getAdminPlayersByGroup(groupName) {
   if (!groupName) return { players: [] };
