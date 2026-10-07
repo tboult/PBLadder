@@ -1192,7 +1192,7 @@ function renderRankingsAndSchedule(data) {
   }
 
   const rankingsList = data.rankings || data.ranks || data.standings || data.players;
-    html += `<h3 style="margin-top:1rem; margin-bottom:0.5rem;">🏆 Ranking CODE Undet REVISION-- this may be wrong check back</h3>`;      
+    html += `<h4 style="margin-top:1rem; margin-bottom:0.5rem;"> Ranking CODE/Model changed. Moved to rank as percent of active instead of absolute number since changing actives sizes often made +-4 limit impossible. Now its +- relative to % rank but even that may be ocassionally violated if you are new or if active sizes changes a lot.</h4>`;      
 
   if (rankingsList && Array.isArray(rankingsList) && rankingsList.length > 0) {
 //      html += `<h3 style="margin-top:1rem; margin-bottom:0.5rem;">🏆 Current Rankings / Standings</h3>`;
