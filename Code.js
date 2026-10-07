@@ -2603,7 +2603,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
       const primaryName = primaryIsScaled ? "Percentile-scaled" : "Absolute";
       const secondName  = primaryIsScaled ? "Absolute" : "Percentile-scaled";
 
-      let msg = "Processed '" + sheet.getName() + "'. " +
+        let msg = "Alert: Processed '" + sheet.getName() + "'. " +
         numActive + " active, " + inactivePlayers.length + " inactive. " +
         "Week " + weekNum + " = " + primaryName +
         "; LASTR = " + secondName + ". " +

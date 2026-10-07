@@ -279,7 +279,7 @@ async function runAdmin(actionName, extraPayload = {}) {
     const res = await apiCall(actionName, payload);
 
     if (res && (res.success !== false && !res.error)) {
-      if (statusEl) statusEl.innerText = `✅ Command ${actionName} completed successfully!`;
+        if (statusEl) statusEl.innerText = `✅ Command ${actionName} completed successfully with message: ${res.message}`;
       return res;
     } else {
       const errMsg = (res && (res.message || res.error)) ? (res.message || res.error) : 'Error';
