@@ -4,7 +4,7 @@
 
 //  window.API_URL = "https://script.google.com/macros/s/AKfycbweTOjVcY0R1sxXrYfbN2S9jqMz4yr5b1alVoz0gjVy3P3ty42rtHlfgfpdjtFnF4nFaQ/exec";
 window.API_URL =CONFIG.apiUrl;
-const CURRENT_APP_VERSION = "0.9.8.2";
+const CURRENT_APP_VERSION = "0.9.9";
 const MAX_TOTAL_SCORE=45;
 const MAX_GAME_SCORE=15;
 
