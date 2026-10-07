@@ -519,7 +519,7 @@ function getRankingsAndSchedData(groupName) {
       let totalIdx = findColIdx(["Total Points", "Total Score", "TotalPoints", "Total", "Points", "Pts", "Tot", "Score"]);
 
       html += `<div style="font-size: 0.9em; margin-top:1rem; padding: 8px; background:#f8f9fa; border-left: 4px solid #17a2b8; margin-bottom:1.5rem;">
-                 <em>Note:  Ranking CODE/Model changed. Moved to rank as percent of active instead of absolute number since changing actives sizes often made +-4 limit impossible. Now its +- relative to % rank but even that may be ocassionally violated if you are new or if active sizes changes a lot.</em>`;      
+                 <em>Note:  Ranking CODE/Model changed. Moved to rank as percent of active instead of absolute number since changing actives sizes often made +-4 limit impossible. Now its +- relative to % rank but even that may be ocassionally violated if you are new or if active sizes changes a lot.</em>     
                </div>`;
         
       html += `<h4>Ladder Rankings</h4>
