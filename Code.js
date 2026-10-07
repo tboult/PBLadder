@@ -2655,7 +2655,7 @@ function updateRankingsSheetForGroup(ss, groupName, activePlayers,
 
   /* Set false to drop the Method 2 comparison column once the
    * percentile method is accepted by the players. */
-  const SHOW_METHOD2 = False;
+  const SHOW_METHOD2 = false;
 
   const rankSheetName = "Rankings " + groupName;
   const rankSheet = ss.getSheetByName(rankSheetName)
