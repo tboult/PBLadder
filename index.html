@@ -459,9 +459,9 @@
       <summary style="font-weight:bold; font-size:1.05rem; outline:none;">🛠️ Additional Admin Actions & Standings</summary>
       <div style="margin-top:0.75rem; display:flex; flex-direction:column; gap:0.5rem;">
         <button onclick="runAdmin('sortActivePlayersForSheet')">Sort Active Players</button>
-        <button onclick="runAdmin('processWeeklyScoresForSheet', { weekCol: 'W10', shift: true })">Process Weekly Standings (Shift)</button>
-        <button onclick="runAdmin('processWeeklyScoresForSheet', { weekCol: 'W10', shift: false })">Correct Scores (No Shift)</button>
-        <button onclick="runAdmin('webExportSchedulePdf')">Export Schedule PDF</button>
+        <button onclick="runAdmin('processWeeklyScoresForSheet', {  shift: true })">Process Weekly Standings (Shift)</button>
+        <button onclick="runAdmin('processWeeklyScoresForSheet', {  shift: false })">Just Correct Scores/Rank (No Shift)</button>
+<!--        <button onclick="runAdmin('webExportSchedulePdf')">Export Schedule PDF</button>-->
       </div>
     </details>
 

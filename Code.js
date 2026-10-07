@@ -2271,7 +2271,7 @@ function assignRanksWithinWindows(items, numSlots) {
  *  MAIN
  * ========================================================================= */
 
-function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRankAsPrimary) {
+function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, useScaledRankAsPrimary = true) {
   /* true (and omitted) -> percentile in Week N, absolute in LASTR.
    * false              -> absolute in Week N, percentile in LASTR.
    * This restores the original meaning of the third argument. */
@@ -2361,25 +2361,28 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, useScaledRankAsPrimary) 
       const prevRColIdx   = resolveCol(col, headerRow,
                               ["r" + (weekNum - 1), "R" + (weekNum - 1)]);
 
-      if (typeof harvestScoresFromSchedules === "function") {
-        const warnings = harvestScoresFromSchedules(
-          ss, data, col, targetWeekIdx, schedSheet, weekNum);
-        if (warnings && warnings.length > 0) {
-          try {
-            SpreadsheetApp.getUi().alert(
-              "Schedule total mismatch:\n\n" + warnings.join("\n"));
-          } catch (e) {
-            Logger.log("Schedule mismatches: " + warnings.join("; "));
+// Step 1: Harvest and sync scores only if updateScores is true
+      if (updateScores) {
+        if (typeof harvestScoresFromSchedules === "function") {
+          const warnings = harvestScoresFromSchedules(
+            ss, data, col, targetWeekIdx, schedSheet, weekNum);
+          if (warnings && warnings.length > 0) {
+            try {
+              SpreadsheetApp.getUi().alert(
+                "Schedule total mismatch:\n\n" + warnings.join("\n"));
+            } catch (e) {
+              Logger.log("Schedule mismatches: " + warnings.join("; "));
+            }
           }
         }
-      }
 
-      if (ptsColIdx !== undefined && targetWeekIdx !== undefined) {
-        for (let i = 1; i < data.length; i++) {
-          const v = data[i][ptsColIdx];
-          data[i][targetWeekIdx] =
-            (v !== "" && v !== null && v !== undefined && !isNaN(parseFloat(v)))
-              ? parseFloat(v) : "";
+        if (ptsColIdx !== undefined && targetWeekIdx !== undefined) {
+          for (let i = 1; i < data.length; i++) {
+            const v = data[i][ptsColIdx];
+            data[i][targetWeekIdx] =
+              (v !== "" && v !== null && v !== undefined && !isNaN(parseFloat(v)))
+                ? parseFloat(v) : "";
+          }
         }
       }
 
