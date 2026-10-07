@@ -2711,7 +2711,7 @@ function updateRankingsSheetForGroup(ss, groupName, activePlayers,
       ? p.primaryFinalRank : "");
   });
 
-  /* Inactive rows keep their carried-forward standing, already "-i". */
+  /* Inactive rows keep their carried-forward standing, already "-I". */
   const inactives = (inactivePlayers || []).slice().sort(function (a, b) {
     return (b.cumPct || 0) - (a.cumPct || 0);
   });
@@ -2739,7 +2739,7 @@ function updateRankingsSheetForGroup(ss, groupName, activePlayers,
     rankSheet.getRange(1, 1).setNote(
       "Week " + weekNum + " standings. " +
       "Rank column uses the primary method. " +
-      "-R upward movement capped, -r drop limited, -i inactive.");
+      "-R upward movement capped, -r drop limited, -I inactive.");
   }
 }
 
