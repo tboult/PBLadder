@@ -1,15 +1,22 @@
 {
-  "timeZone": "America/Phoenix",
-  "dependencies": {},
-  "webapp": {
-    "executeAs": "USER_DEPLOYING",
-    "access": "ANYONE_ANONYMOUS"
-  },
-  "runtimeVersion": "V8",
-  "oauthScopes": [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive",
-    "https://www.googleapis.com/auth/script.external_request",
-    "https://www.googleapis.com/auth/script.container.ui"
+  "name": "SCPickleball Ladder",
+  "short_name": "PBLadder",
+    "start_url": "https://tboult.github.io/PBLadder/index.html",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0d6efd",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
   ]
 }
