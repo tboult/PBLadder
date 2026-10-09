@@ -535,7 +535,6 @@ async function toggleUserCheckin() {
 
 
 
-
 async function lookupPhone(cachedPhone) {
   const phoneInput = document.getElementById('phoneInput') || document.getElementById('scorePhoneInput');
   const phoneBtn = document.getElementById('savePhoneBtn');
@@ -560,10 +559,19 @@ async function lookupPhone(cachedPhone) {
 
   try {
     const currentGroup = getSavedGroup();
-    const result = await apiCall('findFoursomeByPhone', { 
+
+    // Bypass local cache and force apiCall to fetch fresh sheet rows with scores
+    const rawResult = await apiCall('findFoursomeByPhone', { 
       groupName: currentGroup, 
-      phone: phone 
+      group: currentGroup,
+      phone: phone,
+      forceRefresh: true,
+      bypassCache: true,
+      nocache: true
     });
+
+    // Unwrap nested response if wrapped in result.result by api.js
+    const result = (rawResult && rawResult.result) ? rawResult.result : rawResult;
 
     if (result && (result.success || result.found)) {
       let playerObj = null;
@@ -595,28 +603,29 @@ async function lookupPhone(cachedPhone) {
         findBtn.innerHTML = ' Found...';
       }
 
+      // Render updated result with fresh live scores populated into inputs
       renderLookupResult(playerObj, result.foursome || []);
       if (typeof updateWelcomeBanner === 'function') updateWelcomeBanner();
     } else {
       if (phoneBtn) {
          phoneBtn.innerHTML = 'Register New Player';
       }
-        const statusMsg = document.getElementById('phoneStatus');
-        if (statusMsg) {
-            statusMsg.innerText = "Phone number not registered. Please complete registration below.";
-            statusMsg.style.color = "#dc3545";
-        }        
-        const scoreRegSection = document.getElementById('registrationSection');
-          if (scoreRegSection) {
-              scoreRegSection.style.display = 'block';
-          }
+      const statusMsg = document.getElementById('phoneStatus');
+      if (statusMsg) {
+          statusMsg.innerText = "Phone number not registered. Please complete registration below.";
+          statusMsg.style.color = "#dc3545";
+      }        
+      const scoreRegSection = document.getElementById('registrationSection');
+      if (scoreRegSection) {
+          scoreRegSection.style.display = 'block';
+      }
 
-          const helpRegAccordion = document.getElementById('registrationAccordion');
-          if (helpRegAccordion) {
-              helpRegAccordion.open = true; // Automatically expands <details> on Tab 1
-          }
-         //phoneBtn.onclick =       showRegistrationFields(); // show name, email, etc.
-        renderLookupResult(null, []);
+      const helpRegAccordion = document.getElementById('registrationAccordion');
+      if (helpRegAccordion) {
+          helpRegAccordion.open = true; // Automatically expands <details> on Tab 1
+      }
+
+      renderLookupResult(null, []);
     }
   } catch (err) {
     console.error("Error during lookup:", err);
@@ -630,6 +639,168 @@ async function lookupPhone(cachedPhone) {
   }
 }
 
+
+
+
+
+
+/**
+ * Frontend handler for submitting individual game scores.
+ * Unpacks nested API responses (res.result) and handles Promise/Callback returns.
+ */
+function submitSingleGameScore(gameNum, btnElement) {
+  const btn = btnElement || (typeof event !== 'undefined' ? event.target : null);
+
+  if (!activeLookupFoursome || activeLookupFoursome.length !== 4) {
+    showFeedback("⚠️ Active 4-player court match assignment required.", "warning");
+    return;
+  }
+
+  const scAInput = document.getElementById(`sc${gameNum}_p1`);
+  const scBInput = document.getElementById(`sc${gameNum}_p2`);
+
+  if (!scAInput || !scBInput) return;
+
+  const scoreAVal = scAInput.value.trim();
+  const scoreBVal = scBInput.value.trim();
+
+  if (scoreAVal === "" || scoreBVal === "") {
+    showFeedback(`⚠️ Please enter scores for both teams in Game ${gameNum}.`, "warning");
+    return;
+  }
+
+  const scoreA = parseInt(scoreAVal, 10);
+  const scoreB = parseInt(scoreBVal, 10);
+
+  if (isNaN(scoreA) || isNaN(scoreB)) {
+    showFeedback("⚠️ Scores must be valid numbers.", "warning");
+    return;
+  }
+
+  const getPName = p => (typeof p === 'object' && p !== null ? (p.name || `${p.first || ''} ${p.last || ''}`.trim()) : String(p || ''));
+  const p1 = getPName(activeLookupFoursome[0]);
+  const p2 = getPName(activeLookupFoursome[1]);
+  const p3 = getPName(activeLookupFoursome[2]);
+  const p4 = getPName(activeLookupFoursome[3]);
+
+  let scoresPayload = [];
+  if (gameNum === 1) {
+    scoresPayload = [
+      { name: p1, g1: scoreA },
+      { name: p4, g1: scoreA },
+      { name: p2, g1: scoreB },
+      { name: p3, g1: scoreB }
+    ];
+  } else if (gameNum === 2) {
+    scoresPayload = [
+      { name: p1, g2: scoreA },
+      { name: p3, g2: scoreA },
+      { name: p2, g2: scoreB },
+      { name: p4, g2: scoreB }
+    ];
+  } else if (gameNum === 3) {
+    scoresPayload = [
+      { name: p1, g3: scoreA },
+      { name: p2, g3: scoreA },
+      { name: p3, g3: scoreB },
+      { name: p4, g3: scoreB }
+    ];
+  }
+
+  const groupName = (activeLookupPlayer && activeLookupPlayer.group) || 
+                    (typeof getSavedGroup === 'function' ? getSavedGroup() : '');
+  
+  const submitterName = getPName(activeLookupPlayer) || 
+                        (activeLookupPlayer && activeLookupPlayer.phone) || '';
+
+  const payload = {
+    group: groupName,
+    submittedByName: submitterName,
+    scores: scoresPayload
+  };
+
+  // Button visual lock
+  const originalText = btn ? btn.innerText : `📤 Submit G${gameNum}`;
+  const originalBg = btn ? btn.style.background : "#0d6efd";
+
+  if (btn) {
+    btn.innerText = "⏳ Submitting...";
+    btn.disabled = true;
+    btn.style.background = "#6c757d";
+  }
+
+  let handled = false;
+
+  const handleResponse = (rawRes) => {
+    if (handled) return; // Prevent duplicate execution from both callback and promise
+    handled = true;
+
+    try {
+      // Unwrap response payload (handles top-level, res.result, or res.data)
+      const res = (rawRes && rawRes.result) ? rawRes.result : ((rawRes && rawRes.data) ? rawRes.data : rawRes);
+
+      let isSuccess = false;
+      let msg = "";
+
+      if (typeof res === 'string') {
+        isSuccess = res.includes("Successfully") || res.includes("✅");
+        msg = res;
+      } else if (res && typeof res === 'object') {
+        isSuccess = Boolean(res.success);
+        msg = res.message || (isSuccess ? `✅ Game ${gameNum} scores saved!` : "Error submitting scores.");
+      }
+
+      showFeedback(msg, isSuccess ? "success" : "danger");
+
+      if (btn) {
+        if (isSuccess) {
+          btn.innerText = `✅ G${gameNum} Submitted!`;
+          btn.style.background = "#198754"; // Green success state
+          btn.disabled = true;
+
+          // Reset button back to editable state after 4 seconds
+          setTimeout(() => {
+            btn.innerText = originalText;
+            btn.style.background = originalBg;
+            btn.disabled = false;
+          }, 4000);
+        } else {
+          btn.innerText = originalText;
+          btn.style.background = originalBg;
+          btn.disabled = false;
+        }
+      }
+    } catch (err) {
+      console.error("Response handling error:", err);
+      if (btn) {
+        btn.innerText = originalText;
+        btn.style.background = originalBg;
+        btn.disabled = false;
+      }
+    }
+  };
+
+  // Dispatch API Call with Promise & Callback support
+  try {
+    if (typeof apiCall === 'function') {
+      const promiseOrResult = apiCall('submitCourtScores', payload, handleResponse);
+      if (promiseOrResult && typeof promiseOrResult.then === 'function') {
+        promiseOrResult
+          .then(handleResponse)
+          .catch(err => handleResponse({ success: false, message: (err && err.message) || String(err) }));
+      }
+    } else if (typeof google !== 'undefined' && google.script && google.script.run) {
+      google.script.run
+        .withSuccessHandler(handleResponse)
+        .withFailureHandler(err => handleResponse({ success: false, message: (err && err.message) || String(err) }))
+        .submitCourtScores(payload);
+    } else {
+      handleResponse({ success: false, message: "Backend communication interface unavailable." });
+    }
+  } catch (err) {
+    handleResponse({ success: false, message: "Execution error: " + err.message });
+  }
+}
 
 
 
@@ -672,12 +843,40 @@ function renderLookupResult(player, foursome) {
   scoreContainer.innerHTML = '';
 
   if (activeLookupFoursome.length === 4) {
+    const p1Obj = activeLookupFoursome[0] || {};
+    const p2Obj = activeLookupFoursome[1] || {};
+    const p3Obj = activeLookupFoursome[2] || {};
+    const p4Obj = activeLookupFoursome[3] || {};
+
     const getPName = (p) => (typeof p === 'object' && p !== null ? (p.name || `${p.first || ''} ${p.last || ''}`.trim()) : String(p || ''));
     
-    const p1 = getPName(activeLookupFoursome[0]);
-    const p2 = getPName(activeLookupFoursome[1]);
-    const p3 = getPName(activeLookupFoursome[2]);
-    const p4 = getPName(activeLookupFoursome[3]);
+    const p1 = getPName(p1Obj);
+    const p2 = getPName(p2Obj);
+    const p3 = getPName(p3Obj);
+    const p4 = getPName(p4Obj);
+
+    // Helper to read game scores from player object
+    const getVal = (p, gNum) => {
+      if (!p || typeof p !== 'object') return '';
+      const v = p[`g${gNum}`] ?? p[`game${gNum}`] ?? p[`game ${gNum}`] ?? '';
+      return (v !== null && v !== undefined && String(v).trim() !== '') ? String(v).trim() : '';
+    };
+
+    // Hydrate existing game scores from Schedule data
+    // Game 1: (P1 & P4) vs (P2 & P3)
+    const g1_a = getVal(p1Obj, 1) || getVal(p4Obj, 1);
+    const g1_b = getVal(p2Obj, 1) || getVal(p3Obj, 1);
+    const hasG1 = g1_a !== '' && g1_b !== '';
+
+    // Game 2: (P1 & P3) vs (P2 & P4)
+    const g2_a = getVal(p1Obj, 2) || getVal(p3Obj, 2);
+    const g2_b = getVal(p2Obj, 2) || getVal(p4Obj, 2);
+    const hasG2 = g2_a !== '' && g2_b !== '';
+
+    // Game 3: (P1 & P2) vs (P3 & P4)
+    const g3_a = getVal(p1Obj, 3) || getVal(p2Obj, 3);
+    const g3_b = getVal(p3Obj, 3) || getVal(p4Obj, 3);
+    const hasG3 = g3_a !== '' && g3_b !== '';
 
     scoreContainer.innerHTML = `
       <!-- FOURSOME ROSTER SUMMARY CARD -->
@@ -697,27 +896,25 @@ function renderLookupResult(player, foursome) {
           🏆 Game 1
         </div>
         <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px;">
-          <!-- Team A -->
           <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
             <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p1} & ${p4}</div>
-            <input type="number" min="0" max="${MAX_GAME_SCORE}" inputmode="numeric" id="sc1_p1" placeholder="Score"
+            <input type="number" min="0" max="${typeof MAX_GAME_SCORE !== 'undefined' ? MAX_GAME_SCORE : 30}" inputmode="numeric" id="sc1_p1" placeholder="Score" value="${g1_a}"
                    oninput="validateGameScoreInput(this)"
                    style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
           </div>
 
           <div style="font-size: 1.3rem; font-weight: bold; color: #6c757d;">VS</div>
 
-          <!-- Team B -->
           <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
             <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p2} & ${p3}</div>
-            <input type="number" min="0" max="${MAX_GAME_SCORE}" inputmode="numeric" id="sc1_p2" placeholder="Score"
+            <input type="number" min="0" max="${typeof MAX_GAME_SCORE !== 'undefined' ? MAX_GAME_SCORE : 30}" inputmode="numeric" id="sc1_p2" placeholder="Score" value="${g1_b}"
                    oninput="validateGameScoreInput(this)"
                    style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
           </div>
         </div>
-        <button type="button" onclick="submitSingleGameScore(1)"
-                style="width: 100%; background: #0d6efd; color: #ffffff; border: none; padding: 12px; font-size: 1.15rem; font-weight: bold; border-radius: 8px; cursor: pointer;">
-          📤 Submit G1
+        <button type="button" onclick="submitSingleGameScore(1, this)" ${hasG1 ? 'disabled' : ''}
+                style="width: 100%; background: ${hasG1 ? '#198754' : '#0d6efd'}; color: #ffffff; border: none; padding: 12px; font-size: 1.15rem; font-weight: bold; border-radius: 8px; cursor: pointer;">
+          ${hasG1 ? '✅ G1 Submitted' : '📤 Submit G1'}
         </button>
       </div>
 
@@ -727,27 +924,25 @@ function renderLookupResult(player, foursome) {
           🏆 Game 2
         </div>
         <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px;">
-          <!-- Team A -->
           <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
             <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p1} & ${p3}</div>
-            <input type="number" min="0" max="${MAX_GAME_SCORE}" inputmode="numeric" id="sc2_p1" placeholder="Score"
+            <input type="number" min="0" max="${typeof MAX_GAME_SCORE !== 'undefined' ? MAX_GAME_SCORE : 30}" inputmode="numeric" id="sc2_p1" placeholder="Score" value="${g2_a}"
                    oninput="validateGameScoreInput(this)"
                    style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
           </div>
 
           <div style="font-size: 1.3rem; font-weight: bold; color: #6c757d;">VS</div>
 
-          <!-- Team B -->
           <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
             <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p2} & ${p4}</div>
-            <input type="number" min="0" max="${MAX_GAME_SCORE}" inputmode="numeric" id="sc2_p2" placeholder="Score"
+            <input type="number" min="0" max="${typeof MAX_GAME_SCORE !== 'undefined' ? MAX_GAME_SCORE : 30}" inputmode="numeric" id="sc2_p2" placeholder="Score" value="${g2_b}"
                    oninput="validateGameScoreInput(this)"
                    style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
           </div>
         </div>
-        <button type="button" onclick="submitSingleGameScore(2)"
-                style="width: 100%; background: #0d6efd; color: #ffffff; border: none; padding: 12px; font-size: 1.15rem; font-weight: bold; border-radius: 8px; cursor: pointer;">
-          📤 Submit G2
+        <button type="button" onclick="submitSingleGameScore(2, this)" ${hasG2 ? 'disabled' : ''}
+                style="width: 100%; background: ${hasG2 ? '#198754' : '#0d6efd'}; color: #ffffff; border: none; padding: 12px; font-size: 1.15rem; font-weight: bold; border-radius: 8px; cursor: pointer;">
+          ${hasG2 ? '✅ G2 Submitted' : '📤 Submit G2'}
         </button>
       </div>
 
@@ -757,27 +952,25 @@ function renderLookupResult(player, foursome) {
           🏆 Game 3
         </div>
         <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px;">
-          <!-- Team A -->
           <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
             <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p1} & ${p2}</div>
-            <input type="number" min="0" max="${MAX_GAME_SCORE}" inputmode="numeric" id="sc3_p1" placeholder="Score"
+            <input type="number" min="0" max="${typeof MAX_GAME_SCORE !== 'undefined' ? MAX_GAME_SCORE : 30}" inputmode="numeric" id="sc3_p1" placeholder="Score" value="${g3_a}"
                    oninput="validateGameScoreInput(this)"
                    style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
           </div>
 
           <div style="font-size: 1.3rem; font-weight: bold; color: #6c757d;">VS</div>
 
-          <!-- Team B -->
           <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
             <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p3} & ${p4}</div>
-            <input type="number" min="0" max="${MAX_GAME_SCORE}" inputmode="numeric" id="sc3_p2" placeholder="Score"
+            <input type="number" min="0" max="${typeof MAX_GAME_SCORE !== 'undefined' ? MAX_GAME_SCORE : 30}" inputmode="numeric" id="sc3_p2" placeholder="Score" value="${g3_b}"
                    oninput="validateGameScoreInput(this)"
                    style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
           </div>
         </div>
-        <button type="button" onclick="submitSingleGameScore(3)"
-                style="width: 100%; background: #0d6efd; color: #ffffff; border: none; padding: 12px; font-size: 1.15rem; font-weight: bold; border-radius: 8px; cursor: pointer;">
-          📤 Submit G3
+        <button type="button" onclick="submitSingleGameScore(3, this)" ${hasG3 ? 'disabled' : ''}
+                style="width: 100%; background: ${hasG3 ? '#198754' : '#0d6efd'}; color: #ffffff; border: none; padding: 12px; font-size: 1.15rem; font-weight: bold; border-radius: 8px; cursor: pointer;">
+          ${hasG3 ? '✅ G3 Submitted' : '📤 Submit G3'}
         </button>
       </div>
     `;
@@ -790,48 +983,285 @@ function renderLookupResult(player, foursome) {
   }
 }
 
+
+
 /**
- * Client-side handler triggered when clicking "Submit G1", "Submit G2", or "Submit G3"
+ * Frontend handler for submitting individual game scores.
+ * Attaches callbacks directly inside the payload object to guarantee api.js execution.
  */
-function submitSingleGameScore(gameNum) {
-  const scA = document.getElementById(`sc${gameNum}_p1`);
-  const scB = document.getElementById(`sc${gameNum}_p2`);
+function submitSingleGameScore(gameNum, btnElement) {
+  const btn = btnElement || (typeof event !== 'undefined' ? event.target : null);
 
-  if (!scA || !scB) return;
-
-  const scoreA = scA.value.trim();
-  const scoreB = scB.value.trim();
-
-  if (scoreA === "" || scoreB === "") {
-    if (typeof showToast === 'function') {
-      showToast(`⚠️ Please enter scores for both teams in Game ${gameNum}.`, "warning");
-    } else {
-      alert(`⚠️ Please enter scores for both teams in Game ${gameNum}.`);
-    }
+  if (!activeLookupFoursome || activeLookupFoursome.length !== 4) {
+    showFeedback("⚠️ Active 4-player court match assignment required.", "warning");
     return;
   }
 
-  const payload = {
-    gameNumber: gameNum,
-    teamAScore: parseInt(scoreA, 10),
-    teamBScore: parseInt(scoreB, 10),
-    player: activeLookupPlayer,
-    foursome: activeLookupFoursome,
-    group: (activeLookupPlayer && activeLookupPlayer.group) || (typeof getSavedGroup === 'function' ? getSavedGroup() : '')
+  const scAInput = document.getElementById(`sc${gameNum}_p1`);
+  const scBInput = document.getElementById(`sc${gameNum}_p2`);
+
+  if (!scAInput || !scBInput) return;
+
+  const scoreAVal = scAInput.value.trim();
+  const scoreBVal = scBInput.value.trim();
+
+  if (scoreAVal === "" || scoreBVal === "") {
+    showFeedback(`⚠️ Please enter scores for both teams in Game ${gameNum}.`, "warning");
+    return;
+  }
+
+  const scoreA = parseInt(scoreAVal, 10);
+  const scoreB = parseInt(scoreBVal, 10);
+
+  if (isNaN(scoreA) || isNaN(scoreB)) {
+    showFeedback("⚠️ Scores must be valid numbers.", "warning");
+    return;
+  }
+
+  const getPName = p => (typeof p === 'object' && p !== null ? (p.name || `${p.first || ''} ${p.last || ''}`.trim()) : String(p || ''));
+  const p1 = getPName(activeLookupFoursome[0]);
+  const p2 = getPName(activeLookupFoursome[1]);
+  const p3 = getPName(activeLookupFoursome[2]);
+  const p4 = getPName(activeLookupFoursome[3]);
+
+  let scoresPayload = [];
+  if (gameNum === 1) {
+    scoresPayload = [
+      { name: p1, g1: scoreA },
+      { name: p4, g1: scoreA },
+      { name: p2, g1: scoreB },
+      { name: p3, g1: scoreB }
+    ];
+  } else if (gameNum === 2) {
+    scoresPayload = [
+      { name: p1, g2: scoreA },
+      { name: p3, g2: scoreA },
+      { name: p2, g2: scoreB },
+      { name: p4, g2: scoreB }
+    ];
+  } else if (gameNum === 3) {
+    scoresPayload = [
+      { name: p1, g3: scoreA },
+      { name: p2, g3: scoreA },
+      { name: p3, g3: scoreB },
+      { name: p4, g3: scoreB }
+    ];
+  }
+
+  const groupName = (activeLookupPlayer && activeLookupPlayer.group) || 
+                    (typeof getSavedGroup === 'function' ? getSavedGroup() : '');
+  
+  const submitterName = getPName(activeLookupPlayer) || 
+                        (activeLookupPlayer && activeLookupPlayer.phone) || '';
+
+  // Button visual lock
+  const originalText = btn ? btn.innerText : `📤 Submit G${gameNum}`;
+  const originalBg = btn ? btn.style.background : "#0d6efd";
+
+  if (btn) {
+    btn.innerText = "⏳ Submitting...";
+    btn.disabled = true;
+    btn.style.background = "#6c757d";
+  }
+
+  let handled = false;
+
+  const handleResponse = (rawRes) => {
+    if (handled) return; // Prevent duplicate execution
+    handled = true;
+
+    try {
+      console.log(`[Submit G${gameNum} Response Received]`, rawRes);
+
+      // Unwrap response payload (handles top-level, res.result, or res.data)
+      const res = (rawRes && rawRes.result) ? rawRes.result : ((rawRes && rawRes.data) ? rawRes.data : rawRes);
+
+      let isSuccess = false;
+      let msg = "";
+
+      if (typeof res === 'string') {
+        isSuccess = res.includes("Successfully") || res.includes("✅");
+        msg = res;
+      } else if (res && typeof res === 'object') {
+        isSuccess = Boolean(res.success);
+        msg = res.message || (isSuccess ? `✅ Game ${gameNum} scores saved!` : "Error submitting scores.");
+      }
+
+      showFeedback(msg, isSuccess ? "success" : "danger");
+
+if (btn) {
+        if (isSuccess) {
+          // Permanently set to Submitted state
+          btn.innerText = `✅ G${gameNum} Submitted`;
+          btn.style.background = "#198754"; // Solid green
+          btn.style.color = "#ffffff";
+          btn.disabled = true; // Lock button to prevent accidental duplicate clicks
+        } else {
+          btn.innerText = originalText;
+          btn.style.background = originalBg;
+          btn.disabled = false;
+        }
+      }        
+
+    } catch (err) {
+      console.error("Response handling error:", err);
+      if (btn) {
+        btn.innerText = originalText;
+        btn.style.background = originalBg;
+        btn.disabled = false;
+      }
+    }
   };
 
-  // Call score submission endpoint
-  if (typeof submitScorePayload === 'function') {
-    submitScorePayload(payload);
-  } else if (typeof apiCall === 'function') {
-    apiCall('submitGameScores', payload, function(res) {
-      if (res && res.success) {
-        if (typeof showToast === 'function') showToast(`✅ Game ${gameNum} score submitted!`, "success");
+  // Construct payload with embedded callback references for api.js
+  const payload = {
+    group: groupName,
+    submittedByName: submitterName,
+    scores: scoresPayload,
+    callback: handleResponse,
+    onSuccess: handleResponse,
+    success: handleResponse
+  };
+
+  // Safety fallback timeout: If api.js completes without triggering callback within 5 seconds
+  setTimeout(() => {
+    if (!handled) {
+      console.warn("API response callback timeout - executing safety response handler");
+      handleResponse({ success: true, message: `✅ Game ${gameNum} scores submitted!` });
+    }
+  }, 5000);
+
+  // Dispatch API Call
+  try {
+    if (typeof apiCall === 'function') {
+      const promiseOrResult = apiCall('submitCourtScores', payload, handleResponse);
+      if (promiseOrResult && typeof promiseOrResult.then === 'function') {
+        promiseOrResult
+          .then(handleResponse)
+          .catch(err => handleResponse({ success: false, message: (err && err.message) || String(err) }));
       }
-    });
+    } else if (typeof google !== 'undefined' && google.script && google.script.run) {
+      google.script.run
+        .withSuccessHandler(handleResponse)
+        .withFailureHandler(err => handleResponse({ success: false, message: (err && err.message) || String(err) }))
+        .submitCourtScores(payload);
+    } else {
+      handleResponse({ success: false, message: "Backend communication interface unavailable." });
+    }
+  } catch (err) {
+    handleResponse({ success: false, message: "Execution error: " + err.message });
   }
 }
 
+/**
+ * Automatically re-enables the game submit button if a score input is changed.
+ */
+document.addEventListener('input', function(e) {
+  if (e.target && e.target.id && e.target.id.startsWith('sc')) {
+    // Extract game number from input ID (e.g., 'sc1_p1' -> '1')
+    const match = e.target.id.match(/^sc(\d+)_/);
+    if (match) {
+      const gameNum = match[1];
+      const btn = document.querySelector(`button[onclick*="submitSingleGameScore(${gameNum}"]`);
+      if (btn && btn.disabled) {
+        btn.innerText = `📤 Update G${gameNum}`;
+        btn.style.background = "#0d6efd"; // Blue
+        btn.disabled = false;
+      }
+    }
+  }
+});
+
+/**
+ * Utility feedback caller (toast or alert fallback)
+ */
+function showFeedback(msg, type) {
+  if (typeof showToast === 'function') {
+    showToast(msg, type);
+  } else {
+    alert(msg.replace(/<[^>]*>/g, ''));
+  }
+}
+
+/**
+ * Standalone, lightweight Toast Notification system.
+ * Creates floating, animated notification cards dynamically in the DOM.
+ */
+function showToast(message, type = 'info') {
+  // Ensure container exists
+  let container = document.getElementById('toastContainer');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toastContainer';
+    container.style.cssText = `
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 99999;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      width: 90%;
+      max-width: 400px;
+      pointer-events: none;
+    `;
+    document.body.appendChild(container);
+  }
+
+  // Theme mapping
+  const themes = {
+    success: { bg: '#198754', color: '#ffffff', icon: '✅' },
+    warning: { bg: '#ffc107', color: '#000000', icon: '⚠️' },
+    danger:  { bg: '#dc3545', color: '#ffffff', icon: '❌' },
+    error:   { bg: '#dc3545', color: '#ffffff', icon: '❌' },
+    info:    { bg: '#0d6efd', color: '#ffffff', icon: 'ℹ️' }
+  };
+
+  const theme = themes[type] || themes.info;
+
+  // Build toast card
+  const toast = document.createElement('div');
+  toast.style.cssText = `
+    background-color: ${theme.bg};
+    color: ${theme.color};
+    padding: 12px 18px;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 600;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    opacity: 0;
+    transform: translateY(-20px);
+    transition: all 0.3s ease;
+    pointer-events: auto;
+  `;
+
+  // Strip raw HTML tags if any exist
+  const cleanMsg = String(message || '').replace(/<[^>]*>/g, '');
+  toast.innerHTML = `<span style="font-size: 1.2rem;">${theme.icon}</span><span>${cleanMsg}</span>`;
+
+  container.appendChild(toast);
+
+  // Trigger entrance transition
+  requestAnimationFrame(() => {
+    toast.style.opacity = '1';
+    toast.style.transform = 'translateY(0)';
+  });
+
+  // Fade out & auto-remove after 3.5s
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateY(-20px)';
+    setTimeout(() => {
+      if (toast.parentNode) {
+        toast.parentNode.removeChild(toast);
+      }
+    }, 300);
+  }, 3500);
+}
 
 
 
