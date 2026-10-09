@@ -3956,31 +3956,46 @@ function batchUpdatePlayerScores(payload) {
 }
 
 /**
- * Timer-triggered function to clear all check-ins and wipe schedule scores/data
- * across all active Schedule tabs ("Sched Womens", "Sched Mens", "Sched Mixed", etc.).
+ * Main scheduled/manual reset function.
+ * Syncs missing players from Score sheet to Sched sheet, clears scores/check-ins,
+ * and optionally clears court assignments if `clearCourts` is true.
  *
- * Designed to be run automatically on a Google Apps Script Time-Driven Trigger.
+ * @param {boolean} [clearCourts=false] - Pass true to clear court assignments as well.
  */
-function resetCheckInsAndSchedData() {
+function resetCheckInsAndSchedData(clearCourts = false) {
+  // Support boolean when invoked manually from GAS editor or API payload object
+  const shouldClearCourts = Boolean(
+    clearCourts === true || (typeof clearCourts === 'object' && clearCourts !== null && clearCourts.clearCourts === true)
+  );
+
   return executeWithLock(function() {
     const ss = getDb();
     const schedTabs = typeof getActiveScheduleTabs === 'function' 
       ? getActiveScheduleTabs() 
-      : SCHEDULE_TABS;
+      : (typeof SCHEDULE_TABS !== 'undefined' ? SCHEDULE_TABS : []);
 
     let processedTabs = [];
 
     schedTabs.forEach(tabName => {
-      const sheet = ss.getSheetByName(tabName);
-      if (!sheet) return;
+      const schedSheet = ss.getSheetByName(tabName);
+      if (!schedSheet) return;
 
-      const dataRange = sheet.getDataRange();
+      const cleanGroup = String(tabName).replace(/^Sched\s*/i, "").trim();
+
+      // --- 1. SYNC ALL PLAYERS (ACTIVE + INACTIVE) FROM SCORE SHEET TO SCHED SHEET ---
+      syncScoreSheetPlayersToSched(ss, cleanGroup, schedSheet);
+
+      // --- 2. CLEAR SCORES, CHECK-INS, AND OPTIONALLY COURTS ---
+      const dataRange = schedSheet.getDataRange();
       const data = dataRange.getValues();
       if (data.length <= 1) return; // Header row only or empty
 
       const headers = data[0].map(h => String(h || '').trim().toLowerCase());
 
-      // Locate target column indices dynamically
+      // Locate column indices dynamically
+      let courtIdx = headers.findIndex(h => /court/i.test(h));
+      if (courtIdx === -1 && headers.length >= 2) courtIdx = 1; // Default Col B (index 1)
+
       let checkInIdx = headers.findIndex(h => /check|x/i.test(h));
       if (checkInIdx === -1 && headers.length >= 3) checkInIdx = 2; // Default Col C (index 2)
 
@@ -3990,8 +4005,9 @@ function resetCheckInsAndSchedData() {
       let totIdx = headers.findIndex(h => /total|tot/i.test(h));
       let enteredIdx = headers.findIndex(h => /entered|submitted|by/i.test(h));
 
-      // Clear data for every row (skip header)
+      // Reset data rows (skip header)
       for (let r = 1; r < data.length; r++) {
+        if (shouldClearCourts && courtIdx !== -1) data[r][courtIdx] = "";
         if (checkInIdx !== -1) data[r][checkInIdx] = "";
         if (g1Idx !== -1) data[r][g1Idx] = "";
         if (g2Idx !== -1) data[r][g2Idx] = "";
@@ -4000,14 +4016,13 @@ function resetCheckInsAndSchedData() {
         if (enteredIdx !== -1) data[r][enteredIdx] = "";
       }
 
-      // Write updated grid back to sheet in a single batch call
+      // Write updated grid back in a single batch call
       dataRange.setValues(data);
 
-      // Invalidate relevant cache entries
+      // --- 3. INVALIDATE CACHES ---
       if (typeof CacheService !== 'undefined') {
         try {
           const cache = CacheService.getScriptCache();
-          const cleanGroup = tabName.replace(/^Sched\s*/i, "").trim();
           cache.removeAll([
             `checkin_cache_${tabName}`,
             `checkin_cache_Sched_${cleanGroup}`,
@@ -4023,8 +4038,72 @@ function resetCheckInsAndSchedData() {
       processedTabs.push(tabName);
     });
 
-    const msg = `Cleared check-ins and schedule sheet data for: ${processedTabs.join(", ")}.`;
+    const actionText = shouldClearCourts ? "Cleared courts, check-ins, and scores" : "Cleared check-ins and scores";
+    const msg = `${actionText} & synced all players for: ${processedTabs.join(", ")}.`;
     logDebug("resetCheckInsAndSchedData", msg);
     return { success: true, message: msg };
   });
 }
+
+/**
+ * Helper to ensure all players listed on the group's Score sheet
+ * (both active and inactive) exist on the Sched sheet.
+ */
+function syncScoreSheetPlayersToSched(ss, groupName, schedSheet) {
+  try {
+    const scoreSheet = typeof getScoreSheetByGroup === 'function' 
+      ? getScoreSheetByGroup(groupName) 
+      : (ss.getSheetByName("Score " + groupName) || ss.getSheetByName(groupName));
+
+    if (!scoreSheet) return;
+
+    const scoreData = scoreSheet.getDataRange().getValues();
+    if (scoreData.length <= 1) return;
+
+    const headers = scoreData[0];
+    const col = typeof buildColMap === 'function' ? buildColMap(headers) : { first: 0, last: 1 };
+
+    // Get existing players on Sched sheet
+    const schedData = schedSheet.getDataRange().getValues();
+    const cleanStr = s => String(s || '').replace(/[\u00A0\s]+/g, " ").trim().toLowerCase();
+    
+    const existingSchedNames = new Set();
+    for (let r = 1; r < schedData.length; r++) {
+      const pName = cleanStr(schedData[r][0]);
+      if (pName) existingSchedNames.add(pName);
+    }
+
+    // Identify players on Score sheet who aren't on Sched sheet yet
+    const schedHeadersCount = schedData[0] ? schedData[0].length : 8;
+
+    for (let i = 1; i < scoreData.length; i++) {
+      const row = scoreData[i];
+      const first = col.first !== undefined ? String(row[col.first] || '').trim() : '';
+      const last = col.last !== undefined ? String(row[col.last] || '').trim() : '';
+      
+      if (!first && !last) continue;
+
+      const fullName = `${first} ${last}`.trim();
+      if (!existingSchedNames.has(cleanStr(fullName))) {
+        // Player missing on Sched sheet -> Append at bottom with empty court assignment
+        let newRow = new Array(schedHeadersCount).fill("");
+        newRow[0] = fullName; // Column A: Player Name
+        schedSheet.appendRow(newRow);
+        existingSchedNames.add(cleanStr(fullName));
+      }
+    }
+  } catch (err) {
+    if (typeof logDebug === 'function') {
+      logDebug("syncScoreSheetPlayersToSched", "Error syncing players", { group: groupName, error: String(err) });
+    }
+  }
+}
+
+/**
+ * MANUAL RUNNER: Call this function manually from the GAS Editor or assign it
+ * to a spreadsheet button to clear Courts, Check-Ins, AND Scores at any time.
+ */
+function manuallyResetCourtsAndCheckIns() {
+  return resetCheckInsAndSchedData(true);
+}
+
