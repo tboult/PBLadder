@@ -114,65 +114,6 @@ async function loadUnifiedRosterData(groupName, forceRefresh = false) {
 }
 
 
-async function clearAllAdminScores() {
-  const groupRadio = document.querySelector('input[name="adminGroupRadio"]:checked')
-                    || document.querySelector('input[name="helpGroupRadio"]:checked');
-  const groupName = groupRadio ? groupRadio.value : (typeof getSavedGroup === 'function' ? getSavedGroup() : localStorage.getItem('scpb_selected_group'));
-
-  if (!groupName) return alert('Please select a target group first.');
-
-  const confirmClear = confirm(`Are you sure you want to CLEAR ALL game scores and totals for group "${groupName}"?`);
-  if (!confirmClear) return;
-
-  const currentAdminPhone = localStorage.getItem('scpb_admin_phone') || localStorage.getItem('user_phone') || '';
-
-  const clearBtn = document.getElementById('btnClearAllScores');
-  if (clearBtn) {
-    clearBtn.disabled = true;
-    clearBtn.innerText = '⏳ Clearing...';
-  }
-
-  try {
-    const res = await apiCall('batchUpdatePlayerScores', {
-      group: groupName,
-      groupName: groupName,
-      adminPhone: currentAdminPhone, // 👈 Passes admin phone for 'Entered' audit column
-      option: 'clear_all'
-    });
-
-    if (res && (res.success || !res.error)) {
-      if (Array.isArray(adminPlayersCache)) {
-        adminPlayersCache.forEach(player => {
-          player.score = '';
-          player.points = '';
-          player.total = '';
-
-          const rawPhone = player.phone || player.cell || player.mobile || player.phoneNumber || '';
-          const cleanPhone = String(rawPhone).replace(/\D/g, '');
-          const scoreInput = document.getElementById(`admin_score_${cleanPhone}`);
-
-          if (scoreInput) {
-            scoreInput.value = '';
-            scoreInput.classList.remove('is-invalid', 'is-valid');
-          }
-        });
-      }
-
-      alert(`Successfully cleared all game scores and totals for group "${groupName}".`);
-    } else {
-      alert('Failed to clear scores: ' + (res?.message || res?.error || 'Server Error'));
-    }
-
-  } catch (err) {
-    console.error("Error clearing scores:", err);
-    alert('Network error attempting to clear scores.');
-  } finally {
-    if (clearBtn) {
-      clearBtn.disabled = false;
-      clearBtn.innerText = '🧹 Clear All Scores';
-    }
-  }
-}
 
 
 async function onGroupRadioChange(selectedGroup) {
