@@ -633,7 +633,6 @@ async function lookupPhone(cachedPhone) {
 
 
 
-
 function renderLookupResult(player, foursome) { 
   activeLookupPlayer = player || {};
   activeLookupFoursome = foursome || [];
@@ -691,83 +690,97 @@ function renderLookupResult(player, foursome) {
           <div>P4: ${p4}</div>
         </div>
       </div>
-<!-- GAME 1 CARD -->
-<div style="background: #ffffff; border: 2px solid #0d6efd; border-radius: 10px; padding: 16px; margin-bottom: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.08);">
-  <div style="font-size: 1.3rem; font-weight: bold; color: #0d6efd; border-bottom: 1px solid #dee2e6; padding-bottom: 8px; margin-bottom: 12px;">
-    🏆 Game 1
-  </div>
-  <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;">
-    <!-- Team A -->
-    <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
-      <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p1} & ${p4}</div>
-      <input type="number" min="0" max="${MAX_GAME_SCORE}" inputmode="numeric" id="sc1_p1" placeholder="Score"
-             oninput="validateGameScoreInput(this)"
-             style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
-    </div>
 
-    <div style="font-size: 1.3rem; font-weight: bold; color: #6c757d;">VS</div>
+      <!-- GAME 1 CARD -->
+      <div style="background: #ffffff; border: 2px solid #0d6efd; border-radius: 10px; padding: 16px; margin-bottom: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.08);">
+        <div style="font-size: 1.3rem; font-weight: bold; color: #0d6efd; border-bottom: 1px solid #dee2e6; padding-bottom: 8px; margin-bottom: 12px;">
+          🏆 Game 1
+        </div>
+        <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px;">
+          <!-- Team A -->
+          <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
+            <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p1} & ${p4}</div>
+            <input type="number" min="0" max="${MAX_GAME_SCORE}" inputmode="numeric" id="sc1_p1" placeholder="Score"
+                   oninput="validateGameScoreInput(this)"
+                   style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
+          </div>
 
-    <!-- Team B -->
-    <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
-      <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p2} & ${p3}</div>
-      <input type="number" min="0" max="${MAX_GAME_SCORE}" inputmode="numeric" id="sc1_p2" placeholder="Score"
-             oninput="validateGameScoreInput(this)"
-             style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
-    </div>
-  </div>
-</div>
+          <div style="font-size: 1.3rem; font-weight: bold; color: #6c757d;">VS</div>
 
-<!-- GAME 2 CARD -->
-<div style="background: #ffffff; border: 2px solid #0d6efd; border-radius: 10px; padding: 16px; margin-bottom: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.08);">
-  <div style="font-size: 1.3rem; font-weight: bold; color: #0d6efd; border-bottom: 1px solid #dee2e6; padding-bottom: 8px; margin-bottom: 12px;">
-    🏆 Game 2
-  </div>
-  <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;">
-    <!-- Team A -->
-    <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
-      <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p1} & ${p3}</div>
-      <input type="number" min="0" max="${MAX_GAME_SCORE}" inputmode="numeric" id="sc2_p1" placeholder="Score"
-             oninput="validateGameScoreInput(this)"
-             style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
-    </div>
+          <!-- Team B -->
+          <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
+            <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p2} & ${p3}</div>
+            <input type="number" min="0" max="${MAX_GAME_SCORE}" inputmode="numeric" id="sc1_p2" placeholder="Score"
+                   oninput="validateGameScoreInput(this)"
+                   style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
+          </div>
+        </div>
+        <button type="button" onclick="submitSingleGameScore(1)"
+                style="width: 100%; background: #0d6efd; color: #ffffff; border: none; padding: 12px; font-size: 1.15rem; font-weight: bold; border-radius: 8px; cursor: pointer;">
+          📤 Submit G1
+        </button>
+      </div>
 
-    <div style="font-size: 1.3rem; font-weight: bold; color: #6c757d;">VS</div>
+      <!-- GAME 2 CARD -->
+      <div style="background: #ffffff; border: 2px solid #0d6efd; border-radius: 10px; padding: 16px; margin-bottom: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.08);">
+        <div style="font-size: 1.3rem; font-weight: bold; color: #0d6efd; border-bottom: 1px solid #dee2e6; padding-bottom: 8px; margin-bottom: 12px;">
+          🏆 Game 2
+        </div>
+        <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px;">
+          <!-- Team A -->
+          <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
+            <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p1} & ${p3}</div>
+            <input type="number" min="0" max="${MAX_GAME_SCORE}" inputmode="numeric" id="sc2_p1" placeholder="Score"
+                   oninput="validateGameScoreInput(this)"
+                   style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
+          </div>
 
-    <!-- Team B -->
-    <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
-      <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p2} & ${p4}</div>
-      <input type="number" min="0" max="${MAX_GAME_SCORE}" inputmode="numeric" id="sc2_p2" placeholder="Score"
-             oninput="validateGameScoreInput(this)"
-             style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
-    </div>
-  </div>
-</div>
+          <div style="font-size: 1.3rem; font-weight: bold; color: #6c757d;">VS</div>
 
-<!-- GAME 3 CARD -->
-<div style="background: #ffffff; border: 2px solid #0d6efd; border-radius: 10px; padding: 16px; margin-bottom: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.08);">
-  <div style="font-size: 1.3rem; font-weight: bold; color: #0d6efd; border-bottom: 1px solid #dee2e6; padding-bottom: 8px; margin-bottom: 12px;">
-    🏆 Game 3
-  </div>
-  <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;">
-    <!-- Team A -->
-    <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
-      <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p1} & ${p2}</div>
-      <input type="number" min="0" max="${MAX_GAME_SCORE}" inputmode="numeric" id="sc3_p1" placeholder="Score"
-             oninput="validateGameScoreInput(this)"
-             style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
-    </div>
+          <!-- Team B -->
+          <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
+            <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p2} & ${p4}</div>
+            <input type="number" min="0" max="${MAX_GAME_SCORE}" inputmode="numeric" id="sc2_p2" placeholder="Score"
+                   oninput="validateGameScoreInput(this)"
+                   style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
+          </div>
+        </div>
+        <button type="button" onclick="submitSingleGameScore(2)"
+                style="width: 100%; background: #0d6efd; color: #ffffff; border: none; padding: 12px; font-size: 1.15rem; font-weight: bold; border-radius: 8px; cursor: pointer;">
+          📤 Submit G2
+        </button>
+      </div>
 
-    <div style="font-size: 1.3rem; font-weight: bold; color: #6c757d;">VS</div>
+      <!-- GAME 3 CARD -->
+      <div style="background: #ffffff; border: 2px solid #0d6efd; border-radius: 10px; padding: 16px; margin-bottom: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.08);">
+        <div style="font-size: 1.3rem; font-weight: bold; color: #0d6efd; border-bottom: 1px solid #dee2e6; padding-bottom: 8px; margin-bottom: 12px;">
+          🏆 Game 3
+        </div>
+        <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px;">
+          <!-- Team A -->
+          <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
+            <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p1} & ${p2}</div>
+            <input type="number" min="0" max="${MAX_GAME_SCORE}" inputmode="numeric" id="sc3_p1" placeholder="Score"
+                   oninput="validateGameScoreInput(this)"
+                   style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
+          </div>
 
-    <!-- Team B -->
-    <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
-      <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p3} & ${p4}</div>
-      <input type="number" min="0" max="${MAX_GAME_SCORE}" inputmode="numeric" id="sc3_p2" placeholder="Score"
-             oninput="validateGameScoreInput(this)"
-             style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
-    </div>
-  </div>
-</div>    `;
+          <div style="font-size: 1.3rem; font-weight: bold; color: #6c757d;">VS</div>
+
+          <!-- Team B -->
+          <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
+            <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p3} & ${p4}</div>
+            <input type="number" min="0" max="${MAX_GAME_SCORE}" inputmode="numeric" id="sc3_p2" placeholder="Score"
+                   oninput="validateGameScoreInput(this)"
+                   style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
+          </div>
+        </div>
+        <button type="button" onclick="submitSingleGameScore(3)"
+                style="width: 100%; background: #0d6efd; color: #ffffff; border: none; padding: 12px; font-size: 1.15rem; font-weight: bold; border-radius: 8px; cursor: pointer;">
+          📤 Submit G3
+        </button>
+      </div>
+    `;
   } else {
     scoreContainer.innerHTML = `
       <div style="background-color: #fff3cd; color: #664d03; border: 1px solid #ffe69c; font-size: 1.15rem; padding: 15px; border-radius: 8px; margin-top: 1rem;">
@@ -776,6 +789,49 @@ function renderLookupResult(player, foursome) {
     `;
   }
 }
+
+/**
+ * Client-side handler triggered when clicking "Submit G1", "Submit G2", or "Submit G3"
+ */
+function submitSingleGameScore(gameNum) {
+  const scA = document.getElementById(`sc${gameNum}_p1`);
+  const scB = document.getElementById(`sc${gameNum}_p2`);
+
+  if (!scA || !scB) return;
+
+  const scoreA = scA.value.trim();
+  const scoreB = scB.value.trim();
+
+  if (scoreA === "" || scoreB === "") {
+    if (typeof showToast === 'function') {
+      showToast(`⚠️ Please enter scores for both teams in Game ${gameNum}.`, "warning");
+    } else {
+      alert(`⚠️ Please enter scores for both teams in Game ${gameNum}.`);
+    }
+    return;
+  }
+
+  const payload = {
+    gameNumber: gameNum,
+    teamAScore: parseInt(scoreA, 10),
+    teamBScore: parseInt(scoreB, 10),
+    player: activeLookupPlayer,
+    foursome: activeLookupFoursome,
+    group: (activeLookupPlayer && activeLookupPlayer.group) || (typeof getSavedGroup === 'function' ? getSavedGroup() : '')
+  };
+
+  // Call score submission endpoint
+  if (typeof submitScorePayload === 'function') {
+    submitScorePayload(payload);
+  } else if (typeof apiCall === 'function') {
+    apiCall('submitGameScores', payload, function(res) {
+      if (res && res.success) {
+        if (typeof showToast === 'function') showToast(`✅ Game ${gameNum} score submitted!`, "success");
+      }
+    });
+  }
+}
+
 
 
 
