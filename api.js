@@ -532,9 +532,6 @@ async function toggleUserCheckin() {
 
 
 
-
-
-
 async function lookupPhone(cachedPhone) {
   const phoneInput = document.getElementById('phoneInput') || document.getElementById('scorePhoneInput');
   const phoneBtn = document.getElementById('savePhoneBtn');
@@ -559,19 +556,10 @@ async function lookupPhone(cachedPhone) {
 
   try {
     const currentGroup = getSavedGroup();
-
-    // Bypass local cache and force apiCall to fetch fresh sheet rows with scores
-    const rawResult = await apiCall('findFoursomeByPhone', { 
+    const result = await apiCall('findFoursomeByPhone', { 
       groupName: currentGroup, 
-      group: currentGroup,
-      phone: phone,
-      forceRefresh: true,
-      bypassCache: true,
-      nocache: true
+      phone: phone 
     });
-
-    // Unwrap nested response if wrapped in result.result by api.js
-    const result = (rawResult && rawResult.result) ? rawResult.result : rawResult;
 
     if (result && (result.success || result.found)) {
       let playerObj = null;
@@ -603,29 +591,28 @@ async function lookupPhone(cachedPhone) {
         findBtn.innerHTML = ' Found...';
       }
 
-      // Render updated result with fresh live scores populated into inputs
       renderLookupResult(playerObj, result.foursome || []);
       if (typeof updateWelcomeBanner === 'function') updateWelcomeBanner();
     } else {
       if (phoneBtn) {
          phoneBtn.innerHTML = 'Register New Player';
       }
-      const statusMsg = document.getElementById('phoneStatus');
-      if (statusMsg) {
-          statusMsg.innerText = "Phone number not registered. Please complete registration below.";
-          statusMsg.style.color = "#dc3545";
-      }        
-      const scoreRegSection = document.getElementById('registrationSection');
-      if (scoreRegSection) {
-          scoreRegSection.style.display = 'block';
-      }
+        const statusMsg = document.getElementById('phoneStatus');
+        if (statusMsg) {
+            statusMsg.innerText = "Phone number not registered. Please complete registration below.";
+            statusMsg.style.color = "#dc3545";
+        }        
+        const scoreRegSection = document.getElementById('registrationSection');
+          if (scoreRegSection) {
+              scoreRegSection.style.display = 'block';
+          }
 
-      const helpRegAccordion = document.getElementById('registrationAccordion');
-      if (helpRegAccordion) {
-          helpRegAccordion.open = true; // Automatically expands <details> on Tab 1
-      }
-
-      renderLookupResult(null, []);
+          const helpRegAccordion = document.getElementById('registrationAccordion');
+          if (helpRegAccordion) {
+              helpRegAccordion.open = true; // Automatically expands <details> on Tab 1
+          }
+         //phoneBtn.onclick =       showRegistrationFields(); // show name, email, etc.
+        renderLookupResult(null, []);
     }
   } catch (err) {
     console.error("Error during lookup:", err);
@@ -638,6 +625,8 @@ async function lookupPhone(cachedPhone) {
     }
   }
 }
+
+
 
 
 
