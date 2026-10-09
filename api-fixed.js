@@ -593,14 +593,6 @@ function forceRefresh() {
   }
   
 
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js')
-        .then(reg => console.log('PWA Service Worker registered:', reg.scope))
-        .catch(err => console.warn('Service Worker registration failed:', err));
-    });
-  }
-
 
 function updateGlobalLoaderStatus() {
   const loader = document.getElementById('globalLoader');
@@ -618,4 +610,14 @@ function updateGlobalLoaderStatus() {
   } else {
     loader.style.display = "none";
   }
+}
+
+
+
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js')
+        .then(reg => console.log('PWA Service Worker registered:', reg.scope))
+        .catch(err => console.warn('Service Worker registration failed:', err));
+    });
 }
