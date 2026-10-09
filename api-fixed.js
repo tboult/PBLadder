@@ -570,34 +570,6 @@ function hideGlobalLoader() {
 }
 
 
-function validateGameScoreInput(inputEl) {
-  const val = inputEl.value.trim();
-  const container = inputEl.parentElement;
-  let errorEl = container.querySelector('.score-error-msg');
-
-  if (val !== '' && (Number(val) > MAX_GAME_SCORE || Number(val) < 0)) {
-    // Highlight invalid input
-    inputEl.style.borderColor = '#dc3545';
-    inputEl.style.backgroundColor = '#f8d7da';
-    inputEl.style.color = '#842029';
-
-    // Show error message if not already present
-    if (!errorEl) {
-      errorEl = document.createElement('div');
-      errorEl.className = 'score-error-msg';
-      errorEl.style.cssText = 'color: #dc3545; font-size: 0.8rem; font-weight: bold; margin-top: 4px;';
-      errorEl.innerText = `Max score is ${MAX_GAME_SCORE}`;
-      container.appendChild(errorEl);
-    }
-  } else {
-    // Reset to normal styles
-    inputEl.style.borderColor = '#0d6efd';
-    inputEl.style.backgroundColor = '#ffffff';
-    inputEl.style.color = '#000000';
-    
-    if (errorEl) errorEl.remove();
-  }
-}
 
 
 function forceRefresh() {
