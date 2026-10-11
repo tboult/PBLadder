@@ -3430,7 +3430,6 @@ function resetCheckInsAndSchedData(payload) {
 
       // 1. Always sync missing active/inactive players from Score sheet to Sched sheet
       syncScoreSheetPlayersToSched(ss, cleanGroup, schedSheet);
-
       // 2. Clear fields based on determined flags
       const dataRange = schedSheet.getDataRange();
       const data = dataRange.getValues();
@@ -4424,115 +4423,80 @@ function ensurePlayerOnSchedSheet(group, fullName) {
 }
 
 /**
- * Clears courts, check-ins, game scores, and points for the target group.
- * Unpacks payload using standard group property fallbacks.
+ * Syncs player names from the 'Score [Group]' sheet into the 'Sched [Group]' sheet.
+ * Any player present on the Score roster but missing from the Sched sheet is appended to the bottom.
  * 
- * @param {Object|string} payload - Target group string or payload object from runAdmin
+ * @param {Spreadsheet} ss - Active Spreadsheet object from getDb()
+ * @param {string} cleanGroup - Clean group name (e.g., "Mens", "Womens", "Mixed")
+ * @param {Sheet} schedSheet - Target 'Sched [Group]' sheet object
+ * @returns {number} Count of new players synced
  */
-function clearScheduleForGroup(payload) {
+function syncScoreSheetPlayersToSched(ss, cleanGroup, schedSheet) {
   try {
-    // 1. Robust Payload Resolution
-    let rawPayload = payload;
-    if (typeof rawPayload === 'string') {
-      try {
-        if (rawPayload.trim().startsWith('{')) {
-          rawPayload = JSON.parse(rawPayload);
-        }
-      } catch (e) {
-        // Not JSON, leave as plain string
+    if (!ss || !cleanGroup || !schedSheet) return 0;
+
+    const scoreSheetName = "Score " + cleanGroup;
+    const scoreSheet = ss.getSheetByName(scoreSheetName);
+    if (!scoreSheet) {
+      Logger.log(`⚠️ Sync skipped: Sheet '${scoreSheetName}' not found.`);
+      return 0;
+    }
+
+    // 1. Read Score sheet data
+    const scoreData = scoreSheet.getDataRange().getValues();
+    if (scoreData.length <= 1) return 0;
+
+    const scoreHeaders = scoreData[0].map(h => String(h || '').trim().toLowerCase());
+    let scorePlayerIdx = scoreHeaders.findIndex(h => /player|name/i.test(h));
+    if (scorePlayerIdx === -1) scorePlayerIdx = 0; // Default Column A
+
+    // 2. Read Sched sheet data and collect existing players
+    const schedData = schedSheet.getDataRange().getValues();
+    const schedHeaders = schedData.length > 0 ? schedData[0].map(h => String(h || '').trim().toLowerCase()) : [];
+    let schedPlayerIdx = schedHeaders.findIndex(h => /player|name/i.test(h));
+    if (schedPlayerIdx === -1) schedPlayerIdx = 0; // Default Column A
+
+    const existingPlayers = new Set();
+    for (let r = 1; r < schedData.length; r++) {
+      const name = String(schedData[r][schedPlayerIdx] || '').trim();
+      if (name) {
+        existingPlayers.add(name.toLowerCase());
       }
     }
 
-    let groupName = "";
-    if (typeof rawPayload === 'object' && rawPayload !== null) {
-      groupName = rawPayload.group || rawPayload.sheet || rawPayload.schedSheetName || rawPayload.genTarget || rawPayload.target || "";
-    } else if (typeof rawPayload === 'string') {
-      groupName = rawPayload;
+    // 3. Find players on Score sheet missing from Sched sheet
+    const missingPlayers = [];
+    for (let r = 1; r < scoreData.length; r++) {
+      const rawName = String(scoreData[r][scorePlayerIdx] || '').trim();
+      if (!rawName) continue;
+
+      // Skip summary / header rows if present
+      if (/^total|^summary|^average/i.test(rawName)) continue;
+
+      if (!existingPlayers.has(rawName.toLowerCase())) {
+        existingPlayers.add(rawName.toLowerCase()); // Avoid duplicate additions
+        missingPlayers.push(rawName);
+      }
     }
 
-    if (!groupName && typeof getTargetGroup === 'function') {
-      groupName = getTargetGroup();
-    }
+    if (missingPlayers.length === 0) return 0;
 
-    const cleanGroup = String(groupName || "").replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
-    if (!cleanGroup) {
-      return "⚠️ Error: No target group specified for schedule clear.";
-    }
-
-    logDebug("clearScheduleForGroup", "Clearing schedule & check-ins", { cleanGroup });
-
-    return executeWithLock(function() {
-      const ss = getDb();
-      const schedSheetName = "Sched " + cleanGroup;
-      const scoreSheetName = "Score " + cleanGroup;
-
-      const schedSheet = ss.getSheetByName(schedSheetName);
-      if (!schedSheet) {
-        return `⚠️ Error: Schedule tab '${schedSheetName}' not found.`;
-      }
-
-      // -------------------------------------------------------------
-      // 2. SCHED SHEET: Clear Courts (B), Check-Ins (C), Scores (D-H)
-      // -------------------------------------------------------------
-      const schedData = schedSheet.getDataRange().getValues();
-      if (schedData.length > 1) {
-        const numRows = schedData.length - 1;
-        
-        // Col B (2) = Court, Col C (3) = Check-In, Cols D-H (4-8) = Game 1-3, Total, Entered
-        schedSheet.getRange(2, 2, numRows, 7).clearContent();
-      }
-
-      // -------------------------------------------------------------
-      // 3. SCORE SHEET: Clear Courts & Points (Pts)
-      // -------------------------------------------------------------
-      const scoreSheet = ss.getSheetByName(scoreSheetName);
-      if (scoreSheet) {
-        const scoreData = scoreSheet.getDataRange().getValues();
-        if (scoreData.length > 1) {
-          const col = typeof buildColMap === 'function' ? buildColMap(scoreData[0]) : {};
-          const headers = scoreData[0].map(h => String(h || '').trim().toLowerCase());
-
-          let courtIdx = col.court !== undefined ? col.court : headers.findIndex(h => /court|crt/i.test(h));
-          if (courtIdx === -1) courtIdx = 3; // Default Col D
-
-          let ptsIdx = col.pts !== undefined ? col.pts : headers.findIndex(h => /^pts$|^points$\vert{}^total$/i.test(h));
-          if (ptsIdx === -1) ptsIdx = 4; // Default Col E
-
-          const numScoreRows = scoreData.length - 1;
-
-          // Clear Column D (Courts) by setting to empty strings
-          const emptyCourts = new Array(numScoreRows).fill([""]);
-          scoreSheet.getRange(2, courtIdx + 1, numScoreRows, 1).setValues(emptyCourts);
-
-          // Clear Column E (Pts) content
-          scoreSheet.getRange(2, ptsIdx + 1, numScoreRows, 1).clearContent();
-        }
-      }
-
-      // -------------------------------------------------------------
-      // 4. FLUSH ALL CHECK-IN & ROSTER CACHES
-      // -------------------------------------------------------------
-      if (typeof CacheService !== 'undefined') {
-        const scriptCache = CacheService.getScriptCache();
-
-        const cacheKey = typeof getCheckInCacheKey === 'function' ? getCheckInCacheKey(schedSheetName) : null;
-        if (cacheKey) scriptCache.remove(cacheKey);
-
-        const unifiedCacheKey = "UNIFIED_ROSTER_CACHE_" + cleanGroup.toUpperCase();
-        scriptCache.remove(unifiedCacheKey);
-
-        scriptCache.remove("ROSTER_CACHE_" + cleanGroup.toUpperCase());
-      }
-
-      if (typeof clearUnifiedCache === 'function') {
-        clearUnifiedCache(schedSheetName);
-      }
-
-      return `✅ Schedule & check-ins cleared for '${cleanGroup}'. All courts, check-ins, and scores reset.`;
+    // 4. Append missing players to Sched sheet
+    const numCols = Math.max(schedSheet.getLastColumn(), 7); // Ensure columns for Court, Check-In, Games
+    const newRows = missingPlayers.map(pName => {
+      const row = new Array(numCols).fill("");
+      row[schedPlayerIdx] = pName;
+      return row;
     });
 
+    const startRow = schedSheet.getLastRow() + 1;
+    schedSheet.getRange(startRow, 1, newRows.length, numCols).setValues(newRows);
+
+    Logger.log(`✅ Synced ${missingPlayers.length} missing player(s) from '${scoreSheetName}' to '${schedSheet.getName()}'.`);
+    return missingPlayers.length;
+
   } catch (err) {
-    Logger.log(`❌ clearScheduleForGroup failed: ${err.message}\n${err.stack}`);
-    return `⚠️ Error clearing schedule: ${err.message}`;
+    Logger.log(`❌ Error in syncScoreSheetPlayersToSched: ${err.message}`);
+    return 0;
   }
 }
