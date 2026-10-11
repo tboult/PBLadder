@@ -2974,6 +2974,35 @@ document.addEventListener('change', (e) => {
 
 
 
+
+function runClearSchedule() {
+  // Retrieve current active group from app state or dropdown
+  const currentGroup = typeof getSelectedGroup === 'function' 
+    ? getSelectedGroup() 
+    : (window.selectedGroup || document.getElementById('groupSelect')?.value || "");
+
+  if (!currentGroup) {
+    alert("⚠️ Please select a group first.");
+    return;
+  }
+
+  const confirmMsg = `Are you sure you want to clear the schedule for '${currentGroup}'?\n\nThis will reset ALL check-ins, courts, and scores for this group.`;
+  if (!confirm(confirmMsg)) return;
+
+  // Call via app's runAdmin framework or fallback to google.script.run
+  if (typeof runAdmin === 'function') {
+    runAdmin('clearScheduleForGroup', { group: currentGroup });
+  } else if (typeof google !== 'undefined' && google.script && google.script.run) {
+    google.script.run
+      .withSuccessHandler(res => alert(res || "Schedule cleared successfully."))
+      .withFailureHandler(err => alert("Error: " + (err.message || err)))
+      .clearScheduleForGroup({ group: currentGroup });
+  } else {
+    alert("⚠️ Error: Admin bridge function (runAdmin) is not available.");
+  }
+}
+
+
 function runClearSchedule() {
   // Retrieve currently selected group from your UI dropdown/state
   const currentGroup = (typeof getSavedGroup === 'function' ? getSavedGroup() : '') ||

@@ -4423,59 +4423,104 @@ function ensurePlayerOnSchedSheet(group, fullName) {
   }
 }
 
-
 /**
- * Core function to wipe court assignments, check-ins, and game scores for a group.
- * 
- * @param {string} groupName - Group name (e.g., "Mens", "Womens")
+ * Wipes courts, check-ins, and game scores for the selected group.
+ * Safely handles payload objects from PWA/runAdmin and clears all caches.
  */
-function clearScheduleForGroup(groupName) {
-  return executeWithLock(function() {
-    const cleanGroup = String(groupName).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
-    const ss = getDb();
-    const schedSheetName = "Sched " + cleanGroup;
-    const scoreSheetName = "Score " + cleanGroup;
+function clearScheduleForGroup(targetGroup) {
+  try {
+    let groupName = targetGroup;
 
-    const schedSheet = ss.getSheetByName(schedSheetName);
-    if (!schedSheet) return `⚠️ Error: Schedule sheet '${schedSheetName}' not found.`;
-
-    // 1. Clear contents on Sched sheet below headers (Row 2 down)
-    const schedData = schedSheet.getDataRange().getValues();
-    if (schedData.length > 1) {
-      schedSheet.getRange(2, 1, schedData.length - 1, schedSheet.getLastColumn()).clearContent();
+    // Unpack payload if passed as an object from runAdmin or POST
+    if (typeof targetGroup === 'object' && targetGroup !== null) {
+      groupName = targetGroup.group || targetGroup.sheet || targetGroup.target || targetGroup.groupName || targetGroup.genTarget || "";
     }
 
-    // 2. Clear Courts & Pts on Score sheet
-    const scoreSheet = ss.getSheetByName(scoreSheetName);
-    if (scoreSheet) {
-      const scoreData = scoreSheet.getDataRange().getValues();
-      if (scoreData.length > 1) {
-        const headers = scoreData[0].map(h => String(h || '').trim().toLowerCase());
-        
-        let courtIdx = headers.findIndex(h => /court|crt/i.test(h));
-        if (courtIdx === -1) courtIdx = 3; // Column D
+    if (!groupName && typeof getTargetGroup === 'function') {
+      groupName = getTargetGroup();
+    }
 
-        let ptsIdx = headers.findIndex(h => /^pts$|^points$\vert{}^total$/i.test(h));
-        if (ptsIdx === -1) ptsIdx = 4; // Column E
+    const cleanGroup = String(groupName || "").replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
+    if (!cleanGroup) {
+      return "⚠️ Error: No target group specified for schedule clear.";
+    }
 
-        // Reset Court column values to empty string ""
-        const emptyCourts = new Array(scoreData.length - 1).fill([""]);
-        scoreSheet.getRange(2, courtIdx + 1, scoreData.length - 1, 1).setValues(emptyCourts);
+    return executeWithLock(function() {
+      const ss = getDb();
+      const schedSheetName = "Sched " + cleanGroup;
+      const scoreSheetName = "Score " + cleanGroup;
 
-        // Wipe Pts column content
-        scoreSheet.getRange(2, ptsIdx + 1, scoreData.length - 1, 1).clearContent();
+      const schedSheet = ss.getSheetByName(schedSheetName);
+      if (!schedSheet) {
+        return `⚠️ Error: Schedule tab '${schedSheetName}' not found.`;
       }
-    }
 
-    // 3. Flush Cache
-    if (typeof CacheService !== 'undefined') {
-      const cacheKey = typeof getCheckInCacheKey === 'function' ? getCheckInCacheKey(schedSheetName) : null;
-      if (cacheKey) CacheService.getScriptCache().remove(cacheKey);
+      // -------------------------------------------------------------
+      // 1. SCHED SHEET: Clear Courts, Check-Ins, Game Scores & Totals
+      // -------------------------------------------------------------
+      const schedData = schedSheet.getDataRange().getValues();
+      if (schedData.length > 1) {
+        const numRows = schedData.length - 1;
+        
+        // Col B (2) = Court, Col C (3) = Check-In, Cols D-H (4-8) = Game 1-3, Total, Entered
+        // Clear contents from Column B through Column H for all player rows
+        schedSheet.getRange(2, 2, numRows, 7).clearContent();
+      }
 
-      const unifiedCacheKey = "UNIFIED_ROSTER_CACHE_" + cleanGroup.toUpperCase();
-      CacheService.getScriptCache().remove(unifiedCacheKey);
-    }
+      // -------------------------------------------------------------
+      // 2. SCORE SHEET: Clear Courts and Points (Pts)
+      // -------------------------------------------------------------
+      const scoreSheet = ss.getSheetByName(scoreSheetName);
+      if (scoreSheet) {
+        const scoreData = scoreSheet.getDataRange().getValues();
+        if (scoreData.length > 1) {
+          const headers = scoreData[0].map(h => String(h || '').trim().toLowerCase());
+          
+          let courtIdx = headers.findIndex(h => /court|crt/i.test(h));
+          if (courtIdx === -1) courtIdx = 3; // Default Column D
 
-    return `✅ Schedule cleared for '${cleanGroup}'. All court assignments, check-ins, and scores have been reset.`;
-  });
+          let ptsIdx = headers.findIndex(h => /^pts$|^points$\vert{}^total$/i.test(h));
+          if (ptsIdx === -1) ptsIdx = 4; // Default Column E
+
+          const numScoreRows = scoreData.length - 1;
+
+          // Reset Court column values to empty string ""
+          const emptyCourts = new Array(numScoreRows).fill([""]);
+          scoreSheet.getRange(2, courtIdx + 1, numScoreRows, 1).setValues(emptyCourts);
+
+          // Wipe Pts column content
+          scoreSheet.getRange(2, ptsIdx + 1, numScoreRows, 1).clearContent();
+        }
+      }
+
+      // -------------------------------------------------------------
+      // 3. FLUSH ALL CHECK-IN & ROSTER CACHES
+      // -------------------------------------------------------------
+      if (typeof CacheService !== 'undefined') {
+        const scriptCache = CacheService.getScriptCache();
+        
+        const cacheKey = typeof getCheckInCacheKey === 'function' ? getCheckInCacheKey(schedSheetName) : null;
+        if (cacheKey) scriptCache.remove(cacheKey);
+
+        const unifiedCacheKey = "UNIFIED_ROSTER_CACHE_" + cleanGroup.toUpperCase();
+        scriptCache.remove(unifiedCacheKey);
+        
+        // Clear group roster cache if exists
+        scriptCache.remove("ROSTER_CACHE_" + cleanGroup.toUpperCase());
+      }
+
+      if (typeof clearUnifiedCache === 'function') {
+        clearUnifiedCache(schedSheetName);
+      }
+
+      Logger.log(`✅ Schedule and check-ins successfully cleared for group '${cleanGroup}'.`);
+      return `✅ Schedule & check-ins cleared for '${cleanGroup}'. Courts, check-ins, and scores have been reset.`;
+    });
+
+  } catch (err) {
+    Logger.log(`❌ clearScheduleForGroup failed: ${err.message}\n${err.stack}`);
+    return `⚠️ Error clearing schedule: ${err.message}`;
+  }
 }
+
+
