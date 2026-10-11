@@ -884,12 +884,10 @@ function formatPhoneNumber(phone) {
 
 
 
-/**
- * Adds or updates a user in the group's Score sheet, and ensures they are listed
- * on the corresponding Sched sheet (at the bottom without an assigned court) so they can check in.
- */
 function addNewUser(info) {
-  // 1. Validation
+  Logger.log("=== DEBUG addNewUser START ===");
+  Logger.log("Received info: " + JSON.stringify(info));
+
   if (!info.first || !info.last || !info.phone || !info.group) {
     return "Error: First, Last, Phone, and Group are required.";
   }
@@ -897,50 +895,87 @@ function addNewUser(info) {
   const targetSheet = getScoreSheetByGroup(info.group);
   if (!targetSheet) return `Error: Target score tab for group '${info.group}' not found.`;
   
-  const data = targetSheet.getDataRange().getValues();
-  const headers = data[0];
-  const col = buildColMap(headers);
+  // Use getDisplayValues() to get exact formatted string values from sheet cells
+  const data = targetSheet.getDataRange().getDisplayValues();
+  if (data.length <= 1) return "Error: Target score sheet has no header row or data.";
 
-  // Clean and normalize inputs
+  const headers = data[0];
+  let col = typeof buildColMap === 'function' ? buildColMap(headers) : {};
+
+  // Fallback if buildColMap misses phone column index
+  if (col.phone === undefined) {
+    col.phone = headers.findIndex(h => /phone|cell|mobile|contact|tel/i.test(String(h || "").trim()));
+  }
+  if (col.first === undefined) col.first = headers.findIndex(h => /first/i.test(String(h || "").trim()));
+  if (col.last === undefined) col.last = headers.findIndex(h => /last/i.test(String(h || "").trim()));
+  if (col.name === undefined) col.name = headers.findIndex(h => /name|player/i.test(String(h || "").trim()));
+  if (col.email === undefined) col.email = headers.findIndex(h => /email/i.test(String(h || "").trim()));
+
+  Logger.log("Column Mapping -> phone col index: " + col.phone + ", first: " + col.first + ", last: " + col.last);
+
   const inputFirst = String(info.first).trim();
   const inputLast = String(info.last).trim();
   const inputFirstLower = inputFirst.toLowerCase();
   const inputLastLower = inputLast.toLowerCase();
   const fullName = `${inputFirst} ${inputLast}`;
   
-  // NORMALIZE PHONE NUMBER WITH DASHES
   const inputPhone = formatPhoneNumber(info.phone);
-  const inputPhoneDigits = inputPhone.replace(/\D/g, "");
+  const inputPhoneDigits = String(info.phone).replace(/\D/g, "");
   
   const inputEmail = String(info.email || "").trim();
   const inputGroup = String(info.group).trim();
   const inputComment = String(info.comment || "").trim();
 
+  Logger.log("Clean input digits: '" + inputPhoneDigits + "'");
+
+  // --- 2. PHONE MATCH CHECK (LAST 7 DIGITS MATCH) ---
+  if (inputPhoneDigits.length >= 7 && col.phone !== -1 && col.phone !== undefined) {
+    const inputTail = inputPhoneDigits.slice(-7);
+
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      const rawCellVal = String(row[col.phone] || "");
+      const existingPhoneDigits = rawCellVal.replace(/\D/g, "");
+
+      if (existingPhoneDigits.length >= 7) {
+        const existingTail = existingPhoneDigits.slice(-7);
+        
+        // Log individual row check if needed
+        if (inputTail === existingTail) {
+          Logger.log(`MATCH FOUND at Row ${i + 1}: Sheet phone='${rawCellVal}' (${existingPhoneDigits}) matches Input='${inputPhoneDigits}'`);
+
+          const existingFirst = col.first !== -1 && col.first !== undefined ? String(row[col.first] || "").trim() : "";
+          const existingLast = col.last !== -1 && col.last !== undefined ? String(row[col.last] || "").trim() : "";
+          let registeredName = `${existingFirst} ${existingLast}`.trim();
+          
+          if (!registeredName && col.name !== -1 && col.name !== undefined) {
+            registeredName = String(row[col.name] || "").trim();
+          }
+          if (!registeredName) registeredName = "an existing player";
+
+          return `⚠️ Notice: Phone number ${inputPhone} is already registered to '${registeredName}' in group '${inputGroup}'. If you need to update your name or information, please contact your group captain.`;
+        }
+      }
+    }
+  } else {
+    Logger.log("WARNING: Phone check skipped! inputPhoneDigits length: " + inputPhoneDigits.length + ", col.phone: " + col.phone);
+  }
+
+  // --- 3. CHECK FOR EXACT OR POTENTIAL NAME MATCHES ---
   let exactMatchRow = -1;
   let potentialMatchRow = -1;
   let missingFields = [];
 
-  // --- 2. CHECK FOR EXACT OR POTENTIAL MATCHES ---
   for (let i = 1; i < data.length; i++) {
     const row = data[i];
+    const existingFirst = col.first !== -1 && col.first !== undefined ? String(row[col.first] || "").trim() : "";
+    const existingLast = col.last !== -1 && col.last !== undefined ? String(row[col.last] || "").trim() : "";
 
-    const existingFirst = col.first !== undefined ? String(row[col.first] || "").trim() : "";
-    const existingLast = col.last !== undefined ? String(row[col.last] || "").trim() : "";
-    const existingPhoneDigits = col.phone !== undefined ? String(row[col.phone] || "").replace(/\D/g, "") : "";
-
-    const existingFirstLower = existingFirst.toLowerCase();
-    const existingLastLower = existingLast.toLowerCase();
-
-    const isNameMatch = existingFirstLower === inputFirstLower && existingLastLower === inputLastLower;
-    const isPhoneMatch = inputPhoneDigits !== "" && existingPhoneDigits !== "" && existingPhoneDigits === inputPhoneDigits;
-    const isLastNameMatch = existingLastLower !== "" && existingLastLower === inputLastLower;
-
-    if (isNameMatch || (isPhoneMatch && isLastNameMatch)) {
+    if (existingFirst.toLowerCase() === inputFirstLower && existingLast.toLowerCase() === inputLastLower) {
       let missing = [];
-      if (!existingFirst && col.first !== undefined) missing.push("First Name");
-      if (!existingLast && col.last !== undefined) missing.push("Last Name");
-      if (!existingPhoneDigits && col.phone !== undefined) missing.push("Phone");
-      if (!String(row[col.email] || "").trim() && inputEmail && col.email !== undefined) missing.push("Email");
+      if (!existingFirst) missing.push("First Name");
+      if (!existingLast) missing.push("Last Name");
+      if (col.phone !== -1 && col.phone !== undefined && !String(row[col.phone] || "").trim()) missing.push("Phone");
 
       if (missing.length > 0) {
         potentialMatchRow = i + 1;
@@ -953,94 +988,49 @@ function addNewUser(info) {
     }
   }
 
-  // --- 3. EXACT MATCH FOUND ---
   if (exactMatchRow > -1) {
     ensurePlayerOnSchedSheet(inputGroup, fullName);
-    return `⚠️ Notice: User '${inputFirst} ${inputLast}' is already registered in '${targetSheet.getName()}' (Row ${exactMatchRow}).`;
+    return `⚠️ Notice: User '${fullName}' is already registered in '${targetSheet.getName()}' (Row ${exactMatchRow}).`;
   }
 
-  // --- 4. POTENTIAL MATCH FOUND (UPDATE MISSING INFO + COMMENT) ---
-  if (potentialMatchRow > -1) {
-    let updateNotes = [];
-
-    if (col.first !== undefined && !String(data[potentialMatchRow - 1][col.first]).trim()) {
-      targetSheet.getRange(potentialMatchRow, col.first + 1).setValue(inputFirst);
-      updateNotes.push(`Added First: ${inputFirst}`);
-    }
-    if (col.last !== undefined && !String(data[potentialMatchRow - 1][col.last]).trim()) {
-      targetSheet.getRange(potentialMatchRow, col.last + 1).setValue(inputLast);
-      updateNotes.push(`Added Last: ${inputLast}`);
-    }
-    if (col.phone !== undefined && !String(data[potentialMatchRow - 1][col.phone]).trim()) {
-      targetSheet.getRange(potentialMatchRow, col.phone + 1).setValue(inputPhone); // Writes formatted phone
-      updateNotes.push(`Added Phone: ${inputPhone}`);
-    }
-    if (col.email !== undefined && inputEmail && !String(data[potentialMatchRow - 1][col.email]).trim()) {
-      targetSheet.getRange(potentialMatchRow, col.email + 1).setValue(inputEmail);
-      updateNotes.push(`Added Email: ${inputEmail}`);
-    }
-
-    const timestamp = new Date().toLocaleDateString();
-    const noteMsg = `[Updated ${timestamp}]: ${updateNotes.join(", ")}.${inputComment ? " Comment: " + inputComment : ""}`;
-
-    if (col.comment !== undefined) {
-      const existingComment = String(data[potentialMatchRow - 1][col.comment] || "").trim();
-      const updatedComment = existingComment ? `${existingComment} | ${noteMsg}` : noteMsg;
-      targetSheet.getRange(potentialMatchRow, col.comment + 1).setValue(updatedComment);
-    }
-
-    const nameColIdx = (col.first !== undefined ? col.first : 0) + 1;
-    targetSheet.getRange(potentialMatchRow, nameColIdx).setNote(noteMsg);
-    targetSheet.getRange(potentialMatchRow, 1, 1, headers.length).setBackground("#ffff00");
-
-    ensurePlayerOnSchedSheet(inputGroup, fullName);
-
-    return `⚠️ Notice: Found potential match for '${inputFirst} ${inputLast}' at Row ${potentialMatchRow}. Updated missing field(s): [${missingFields.join(", ")}] and added comment.`;
-  }
-
-  // --- 5. INSERT NEW PLAYER (NO MATCH FOUND) ---
+  // --- 4. INSERT NEW PLAYER ---
+  Logger.log("No phone or name match found. Inserting new user: " + fullName);
+  
   let targetRowNumber = -1;
-
   for (let i = 1; i < data.length; i++) {
     const row = data[i];
-    const firstVal = col.first !== undefined ? String(row[col.first] || "").trim() : "";
-    const lastVal = col.last !== undefined ? String(row[col.last] || "").trim() : "";
-    const statusVal = col.status !== undefined ? String(row[col.status] || "").trim() : "";
-
-    if (firstVal === "" && lastVal === "" && statusVal === "") {
+    const firstVal = col.first !== -1 && col.first !== undefined ? String(row[col.first] || "").trim() : "";
+    const lastVal = col.last !== -1 && col.last !== undefined ? String(row[col.last] || "").trim() : "";
+    if (firstVal === "" && lastVal === "") {
       targetRowNumber = i + 1;
       break;
     }
   }
 
   if (targetRowNumber > -1) {
-    if (col.first !== undefined) targetSheet.getRange(targetRowNumber, col.first + 1).setValue(inputFirst);
-    if (col.last !== undefined) targetSheet.getRange(targetRowNumber, col.last + 1).setValue(inputLast);
-    if (col.phone !== undefined) targetSheet.getRange(targetRowNumber, col.phone + 1).setValue(inputPhone); // Writes formatted phone
-    if (col.email !== undefined) targetSheet.getRange(targetRowNumber, col.email + 1).setValue(inputEmail);
-    if (col.status !== undefined) targetSheet.getRange(targetRowNumber, col.status + 1).setValue("Inactive");
-    if (col.comment !== undefined && inputComment) targetSheet.getRange(targetRowNumber, col.comment + 1).setValue(inputComment);
-
+    if (col.first !== -1) targetSheet.getRange(targetRowNumber, col.first + 1).setValue(inputFirst);
+    if (col.last !== -1) targetSheet.getRange(targetRowNumber, col.last + 1).setValue(inputLast);
+    if (col.phone !== -1) targetSheet.getRange(targetRowNumber, col.phone + 1).setValue(inputPhone);
+    if (col.email !== -1 && inputEmail) targetSheet.getRange(targetRowNumber, col.email + 1).setValue(inputEmail);
+    if (col.status !== -1) targetSheet.getRange(targetRowNumber, col.status + 1).setValue("Inactive");
     targetSheet.getRange(targetRowNumber, 1, 1, headers.length).setBackground("#ffff00");
   } else {
     let newRow = new Array(headers.length).fill("");
-    if (col.first !== undefined) newRow[col.first] = inputFirst;
-    if (col.last !== undefined) newRow[col.last] = inputLast;
-    if (col.phone !== undefined) newRow[col.phone] = inputPhone; // Writes formatted phone
-    if (col.email !== undefined) newRow[col.email] = inputEmail;
-    if (col.status !== undefined) newRow[col.status] = "Inactive";
-    if (col.comment !== undefined) newRow[col.comment] = inputComment;
+    if (col.first !== -1) newRow[col.first] = inputFirst;
+    if (col.last !== -1) newRow[col.last] = inputLast;
+    if (col.phone !== -1) newRow[col.phone] = inputPhone;
+    if (col.email !== -1) newRow[col.email] = inputEmail;
+    if (col.status !== -1) newRow[col.status] = "Inactive";
 
     targetSheet.appendRow(newRow);
     const lastRow = targetSheet.getLastRow();
     targetSheet.getRange(lastRow, 1, 1, headers.length).setBackground("#ffff00");
   }
 
-  // Ensure new player is added to the Sched sheet so they can check in
   ensurePlayerOnSchedSheet(inputGroup, fullName);
-
-  return `✅ Success: Added ${inputFirst} ${inputLast} (Inactive) to tab '${targetSheet.getName()}'.`;
+  return `✅ Success: Added ${fullName} (Inactive) to tab '${targetSheet.getName()}'.`;
 }
+
 
 
 
