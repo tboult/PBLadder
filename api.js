@@ -2974,40 +2974,11 @@ document.addEventListener('change', (e) => {
 
 
 
-
-function runClearSchedule() {
-  // Retrieve current active group from app state or dropdown
-  const currentGroup = typeof getSelectedGroup === 'function' 
-    ? getSelectedGroup() 
-    : (window.selectedGroup || document.getElementById('groupSelect')?.value || "");
-
-  if (!currentGroup) {
-    alert("⚠️ Please select a group first.");
-    return;
-  }
-
-  const confirmMsg = `Are you sure you want to clear the schedule for '${currentGroup}'?\n\nThis will reset ALL check-ins, courts, and scores for this group.`;
-  if (!confirm(confirmMsg)) return;
-
-  // Call via app's runAdmin framework or fallback to google.script.run
-  if (typeof runAdmin === 'function') {
-    runAdmin('clearScheduleForGroup', { group: currentGroup });
-  } else if (typeof google !== 'undefined' && google.script && google.script.run) {
-    google.script.run
-      .withSuccessHandler(res => alert(res || "Schedule cleared successfully."))
-      .withFailureHandler(err => alert("Error: " + (err.message || err)))
-      .clearScheduleForGroup({ group: currentGroup });
-  } else {
-    alert("⚠️ Error: Admin bridge function (runAdmin) is not available.");
-  }
-}
-
-
-function runClearSchedule() {
-  // Retrieve currently selected group from your UI dropdown/state
+async function runClearSchedule() {
+  // Retrieve currently selected group from saved state or localStorage
   const currentGroup = (typeof getSavedGroup === 'function' ? getSavedGroup() : '') ||
-                      localStorage.getItem("scpb_saved_group") || 
-                      localStorage.getItem("scpb_selected_group");
+                       localStorage.getItem("scpb_saved_group") || 
+                       localStorage.getItem("scpb_selected_group");
 
   if (!currentGroup) {
     alert("⚠️ Please select a group first.");
@@ -3017,13 +2988,55 @@ function runClearSchedule() {
   const confirmMsg = `Are you sure you want to clear the schedule for '${currentGroup}'?\n\nThis will reset all court assignments, check-ins, and game scores for this group.`;
   if (!confirm(confirmMsg)) return;
 
-  // Triggers admin wrapper using the active group
-  if (typeof runAdmin === 'function') {
-    runAdmin('clearScheduleForGroup', { group: currentGroup });
-  } else {
-    google.script.run
-      .withSuccessHandler(res => alert(res))
-      .withFailureHandler(err => alert("Error: " + err.message))
-      .clearScheduleForGroup({ group: currentGroup });
+  // UI button loading feedback
+  const btn = document.getElementById('clearSchedBtn');
+  const originalText = btn ? btn.innerText : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerText = '⌛ Clearing Schedule...';
+  }
+
+  try {
+    console.log(`🗑️ [Clear Schedule] Calling API for group: "${currentGroup}"`);
+
+    // Build payload and invoke apiCall directly
+    const payload = { 
+      group: currentGroup, 
+      sheet: currentGroup, 
+      schedSheetName: `Sched ${currentGroup}` 
+    };
+
+    const res = await apiCall('clearScheduleForGroup', payload);
+
+    // Extract message from response
+    let resultMsg = '';
+    if (typeof res === 'string') {
+      resultMsg = res;
+    } else if (res && typeof res.result === 'string') {
+      resultMsg = res.result;
+    } else if (res && typeof res.message === 'string') {
+      resultMsg = res.message;
+    } else if (res && res.data && typeof res.data === 'string') {
+      resultMsg = res.data;
+    } else {
+      resultMsg = `✅ Schedule cleared for group "${currentGroup}".`;
+    }
+
+    alert(resultMsg);
+
+    // Refresh viewer DOM if active
+    if (typeof loadRankingsAndSched === 'function') {
+      loadRankingsAndSched(currentGroup);
+    }
+
+  } catch (e) {
+    console.error("💥 [Clear Schedule Error]:", e);
+    alert("⚠️ Failed to clear schedule: " + (e.message || "Network request failed."));
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerText = originalText;
+    }
   }
 }
+
