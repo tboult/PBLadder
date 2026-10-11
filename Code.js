@@ -895,70 +895,93 @@ function addNewUser(info) {
   const targetSheet = getScoreSheetByGroup(info.group);
   if (!targetSheet) return `Error: Target score tab for group '${info.group}' not found.`;
   
-  // Use getDisplayValues() to get exact formatted string values from sheet cells
+  // getDisplayValues ensures formatted text (strings) rather than raw numbers/dates
   const data = targetSheet.getDataRange().getDisplayValues();
-  if (data.length <= 1) return "Error: Target score sheet has no header row or data.";
+  if (!data || data.length === 0) return "Error: Target score sheet is empty.";
 
-  const headers = data[0];
-  let col = typeof buildColMap === 'function' ? buildColMap(headers) : {};
+  // 1. DYNAMIC HEADER SEARCH (Scans first 5 rows for column headers)
+  let headerRowIdx = -1;
+  let phoneColIdx = -1;
+  let firstColIdx = -1;
+  let lastColIdx = -1;
+  let nameColIdx = -1;
+  let emailColIdx = -1;
+  let commentColIdx = -1;
+  let statusColIdx = -1;
 
-  // Fallback if buildColMap misses phone column index
-  if (col.phone === undefined) {
-    col.phone = headers.findIndex(h => /phone|cell|mobile|contact|tel/i.test(String(h || "").trim()));
+  for (let r = 0; r < Math.min(data.length, 5); r++) {
+    const row = data[r].map(c => String(c || "").toLowerCase().trim());
+    
+    const pIdx = row.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
+    const fIdx = row.findIndex(h => /first/i.test(h));
+    const lIdx = row.findIndex(h => /last/i.test(h));
+    const nIdx = row.findIndex(h => /name|player/i.test(h));
+
+    if (pIdx !== -1 || fIdx !== -1 || nIdx !== -1) {
+      headerRowIdx = r;
+      phoneColIdx = pIdx;
+      firstColIdx = fIdx;
+      lastColIdx = lIdx;
+      nameColIdx = nIdx;
+      emailColIdx = row.findIndex(h => /email/i.test(h));
+      commentColIdx = row.findIndex(h => /comment|notes/i.test(h));
+      statusColIdx = row.findIndex(h => /status/i.test(h));
+      break;
+    }
   }
-  if (col.first === undefined) col.first = headers.findIndex(h => /first/i.test(String(h || "").trim()));
-  if (col.last === undefined) col.last = headers.findIndex(h => /last/i.test(String(h || "").trim()));
-  if (col.name === undefined) col.name = headers.findIndex(h => /name|player/i.test(String(h || "").trim()));
-  if (col.email === undefined) col.email = headers.findIndex(h => /email/i.test(String(h || "").trim()));
 
-  Logger.log("Column Mapping -> phone col index: " + col.phone + ", first: " + col.first + ", last: " + col.last);
+  // Fallback to row 0 if no explicit header matches found
+  if (headerRowIdx === -1) headerRowIdx = 0;
 
+  Logger.log(`Header Row Index: ${headerRowIdx}`);
+  Logger.log(`Column Mapping -> Phone: ${phoneColIdx}, First: ${firstColIdx}, Last: ${lastColIdx}, Name: ${nameColIdx}`);
+
+  // Clean and normalize inputs
   const inputFirst = String(info.first).trim();
   const inputLast = String(info.last).trim();
   const inputFirstLower = inputFirst.toLowerCase();
   const inputLastLower = inputLast.toLowerCase();
   const fullName = `${inputFirst} ${inputLast}`;
   
-  const inputPhone = formatPhoneNumber(info.phone);
+  const inputPhone = typeof formatPhoneNumber === 'function' ? formatPhoneNumber(info.phone) : String(info.phone);
   const inputPhoneDigits = String(info.phone).replace(/\D/g, "");
   
   const inputEmail = String(info.email || "").trim();
   const inputGroup = String(info.group).trim();
   const inputComment = String(info.comment || "").trim();
 
-  Logger.log("Clean input digits: '" + inputPhoneDigits + "'");
+  Logger.log(`Clean Input Phone Digits: '${inputPhoneDigits}'`);
 
-  // --- 2. PHONE MATCH CHECK (LAST 7 DIGITS MATCH) ---
-  if (inputPhoneDigits.length >= 7 && col.phone !== -1 && col.phone !== undefined) {
+  // --- 2. ENFORCE UNIQUE PHONE NUMBER (MATCH LAST 7 DIGITS) ---
+  if (phoneColIdx !== -1 && inputPhoneDigits.length >= 7) {
     const inputTail = inputPhoneDigits.slice(-7);
 
-    for (let i = 1; i < data.length; i++) {
-      const row = data[i];
-      const rawCellVal = String(row[col.phone] || "");
+    for (let r = headerRowIdx + 1; r < data.length; r++) {
+      const rawCellVal = String(data[r][phoneColIdx] || "");
       const existingPhoneDigits = rawCellVal.replace(/\D/g, "");
 
       if (existingPhoneDigits.length >= 7) {
         const existingTail = existingPhoneDigits.slice(-7);
         
-        // Log individual row check if needed
         if (inputTail === existingTail) {
-          Logger.log(`MATCH FOUND at Row ${i + 1}: Sheet phone='${rawCellVal}' (${existingPhoneDigits}) matches Input='${inputPhoneDigits}'`);
-
-          const existingFirst = col.first !== -1 && col.first !== undefined ? String(row[col.first] || "").trim() : "";
-          const existingLast = col.last !== -1 && col.last !== undefined ? String(row[col.last] || "").trim() : "";
+          // Extract existing registered player name
+          const existingFirst = firstColIdx !== -1 ? String(data[r][firstColIdx] || "").trim() : "";
+          const existingLast = lastColIdx !== -1 ? String(data[r][lastColIdx] || "").trim() : "";
           let registeredName = `${existingFirst} ${existingLast}`.trim();
           
-          if (!registeredName && col.name !== -1 && col.name !== undefined) {
-            registeredName = String(row[col.name] || "").trim();
+          if (!registeredName && nameColIdx !== -1) {
+            registeredName = String(data[r][nameColIdx] || "").trim();
           }
           if (!registeredName) registeredName = "an existing player";
+
+          Logger.log(`🛑 BLOCKED: Phone ${inputPhone} matched row ${r + 1} (${registeredName})`);
 
           return `⚠️ Notice: Phone number ${inputPhone} is already registered to '${registeredName}' in group '${inputGroup}'. If you need to update your name or information, please contact your group captain.`;
         }
       }
     }
   } else {
-    Logger.log("WARNING: Phone check skipped! inputPhoneDigits length: " + inputPhoneDigits.length + ", col.phone: " + col.phone);
+    Logger.log(`⚠️ WARNING: Phone check skipped! phoneColIdx = ${phoneColIdx}, inputPhoneDigits = ${inputPhoneDigits}`);
   }
 
   // --- 3. CHECK FOR EXACT OR POTENTIAL NAME MATCHES ---
@@ -966,23 +989,22 @@ function addNewUser(info) {
   let potentialMatchRow = -1;
   let missingFields = [];
 
-  for (let i = 1; i < data.length; i++) {
-    const row = data[i];
-    const existingFirst = col.first !== -1 && col.first !== undefined ? String(row[col.first] || "").trim() : "";
-    const existingLast = col.last !== -1 && col.last !== undefined ? String(row[col.last] || "").trim() : "";
+  for (let r = headerRowIdx + 1; r < data.length; r++) {
+    const existingFirst = firstColIdx !== -1 ? String(data[r][firstColIdx] || "").trim() : "";
+    const existingLast = lastColIdx !== -1 ? String(data[r][lastColIdx] || "").trim() : "";
 
     if (existingFirst.toLowerCase() === inputFirstLower && existingLast.toLowerCase() === inputLastLower) {
       let missing = [];
       if (!existingFirst) missing.push("First Name");
       if (!existingLast) missing.push("Last Name");
-      if (col.phone !== -1 && col.phone !== undefined && !String(row[col.phone] || "").trim()) missing.push("Phone");
+      if (phoneColIdx !== -1 && !String(data[r][phoneColIdx] || "").trim()) missing.push("Phone");
 
       if (missing.length > 0) {
-        potentialMatchRow = i + 1;
+        potentialMatchRow = r + 1;
         missingFields = missing;
         break;
       } else {
-        exactMatchRow = i + 1;
+        exactMatchRow = r + 1;
         break;
       }
     }
@@ -993,44 +1015,47 @@ function addNewUser(info) {
     return `⚠️ Notice: User '${fullName}' is already registered in '${targetSheet.getName()}' (Row ${exactMatchRow}).`;
   }
 
-  // --- 4. INSERT NEW PLAYER ---
+  // --- 4. INSERT NEW PLAYER (NO PHONE OR NAME MATCH FOUND) ---
   Logger.log("No phone or name match found. Inserting new user: " + fullName);
   
   let targetRowNumber = -1;
-  for (let i = 1; i < data.length; i++) {
-    const row = data[i];
-    const firstVal = col.first !== -1 && col.first !== undefined ? String(row[col.first] || "").trim() : "";
-    const lastVal = col.last !== -1 && col.last !== undefined ? String(row[col.last] || "").trim() : "";
+  for (let r = headerRowIdx + 1; r < data.length; r++) {
+    const firstVal = firstColIdx !== -1 ? String(data[r][firstColIdx] || "").trim() : "";
+    const lastVal = lastColIdx !== -1 ? String(data[r][lastColIdx] || "").trim() : "";
     if (firstVal === "" && lastVal === "") {
-      targetRowNumber = i + 1;
+      targetRowNumber = r + 1;
       break;
     }
   }
 
+  const numCols = data[headerRowIdx].length;
+
   if (targetRowNumber > -1) {
-    if (col.first !== -1) targetSheet.getRange(targetRowNumber, col.first + 1).setValue(inputFirst);
-    if (col.last !== -1) targetSheet.getRange(targetRowNumber, col.last + 1).setValue(inputLast);
-    if (col.phone !== -1) targetSheet.getRange(targetRowNumber, col.phone + 1).setValue(inputPhone);
-    if (col.email !== -1 && inputEmail) targetSheet.getRange(targetRowNumber, col.email + 1).setValue(inputEmail);
-    if (col.status !== -1) targetSheet.getRange(targetRowNumber, col.status + 1).setValue("Inactive");
-    targetSheet.getRange(targetRowNumber, 1, 1, headers.length).setBackground("#ffff00");
+    if (firstColIdx !== -1) targetSheet.getRange(targetRowNumber, firstColIdx + 1).setValue(inputFirst);
+    if (lastColIdx !== -1) targetSheet.getRange(targetRowNumber, lastColIdx + 1).setValue(inputLast);
+    if (phoneColIdx !== -1) targetSheet.getRange(targetRowNumber, phoneColIdx + 1).setValue(inputPhone);
+    if (emailColIdx !== -1 && inputEmail) targetSheet.getRange(targetRowNumber, emailColIdx + 1).setValue(inputEmail);
+    if (statusColIdx !== -1) targetSheet.getRange(targetRowNumber, statusColIdx + 1).setValue("Inactive");
+    if (commentColIdx !== -1 && inputComment) targetSheet.getRange(targetRowNumber, commentColIdx + 1).setValue(inputComment);
+
+    targetSheet.getRange(targetRowNumber, 1, 1, numCols).setBackground("#ffff00");
   } else {
-    let newRow = new Array(headers.length).fill("");
-    if (col.first !== -1) newRow[col.first] = inputFirst;
-    if (col.last !== -1) newRow[col.last] = inputLast;
-    if (col.phone !== -1) newRow[col.phone] = inputPhone;
-    if (col.email !== -1) newRow[col.email] = inputEmail;
-    if (col.status !== -1) newRow[col.status] = "Inactive";
+    let newRow = new Array(numCols).fill("");
+    if (firstColIdx !== -1) newRow[firstColIdx] = inputFirst;
+    if (lastColIdx !== -1) newRow[lastColIdx] = inputLast;
+    if (phoneColIdx !== -1) newRow[phoneColIdx] = inputPhone;
+    if (emailColIdx !== -1) newRow[emailColIdx] = inputEmail;
+    if (statusColIdx !== -1) newRow[statusColIdx] = "Inactive";
+    if (commentColIdx !== -1) newRow[commentColIdx] = inputComment;
 
     targetSheet.appendRow(newRow);
     const lastRow = targetSheet.getLastRow();
-    targetSheet.getRange(lastRow, 1, 1, headers.length).setBackground("#ffff00");
+    targetSheet.getRange(lastRow, 1, 1, numCols).setBackground("#ffff00");
   }
 
   ensurePlayerOnSchedSheet(inputGroup, fullName);
   return `✅ Success: Added ${fullName} (Inactive) to tab '${targetSheet.getName()}'.`;
 }
-
 
 
 
@@ -1081,7 +1106,7 @@ function getMostRecentRank(row, col, maxWeekNum = 10) {
  * on Sched sheet, clears 'Pts' on Score sheet, and synchronizes court assignments 
  * directly into Column D ('Court') on the corresponding Score sheet.
  * Includes all players (active and inactive) on the Sched sheet; inactive players
- * are placed at the bottom without court assignments so they can still check in.
+ * are placed at the bottom without court assignments ("") so they can still check in.
  *
  * BYE Logic:
  * Uses ALWAYS_BYE_BOTTOM (or payload parameter):
@@ -1236,7 +1261,7 @@ function ScheduleAll(genTarget, courts) {
         rows.push([pName, assignedCourt, "", "", "", "", "", ""]);
       }
 
-      // Add Inactive Players to bottom of Sched rows (no court assigned)
+      // Add Inactive Players to bottom of Sched rows (no court assigned: "")
       for (let i = 0; i < inactivePlayers.length; i++) {
         let pName = inactivePlayers[i];
         let pPhone = inactivePlayerObjects[i] ? inactivePlayerObjects[i].phone : "";
@@ -1285,26 +1310,34 @@ function ScheduleAll(genTarget, courts) {
         let row = data[r];
         let rowPhone = phoneIdx !== -1 ? cleanP(row[phoneIdx]) : "";
         let rowName = nameIdx !== -1 ? cleanStr(row[nameIdx]) : "";
+        let rowStatus = (col.status !== undefined && row[col.status]) ? String(row[col.status]).toUpperCase().trim() : "ACTIVE";
 
         let matchedCourt = "";
+        let foundInLookup = false;
 
         // Primary match: Phone number (last 7 digits)
         if (rowPhone) {
           for (let k in courtLookup) {
             if (k.length >= 7 && rowPhone.endsWith(k.slice(-7))) {
               matchedCourt = courtLookup[k];
+              foundInLookup = true;
               break;
             }
           }
         }
 
         // Secondary match: Player name
-        if (!matchedCourt && rowName && courtLookup[rowName] !== undefined) {
+        if (!foundInLookup && rowName && courtLookup[rowName] !== undefined) {
           matchedCourt = courtLookup[rowName];
+          foundInLookup = true;
         }
 
-        // Non-active or unassigned players default to BYE
-        if (!matchedCourt) matchedCourt = "BYE";
+        // Inactive players show "" (no court); active unassigned/BYE players show "BYE"
+        if (rowStatus !== "ACTIVE") {
+          matchedCourt = "";
+        } else if (!matchedCourt) {
+          matchedCourt = "BYE";
+        }
 
         scoreCourtValues.push([matchedCourt]);
       }
@@ -3565,7 +3598,9 @@ function updatePlayerCheckInInSheet(sheetName, targetPlayer, checkedState, times
 
 /**
  * Reschedules checked-in players into 4-player courts.
- * Preserves timestamps in Column C and preserves Phone numbers in Column J.
+ * Automatically promotes 'Inactive' players to 'Active' status on the Score sheet if they check in.
+ * Unchecked players (and unchecked inactive players) show "" (no court).
+ * Preserves check-in timestamps in Column C and Phone numbers in Column J.
  */
 function rescheduleFromCheckIns(reschedTarget, courts) {
   return executeWithLock(function() {
@@ -3663,7 +3698,7 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
       }
     });
 
-    // 3. Strict 4-Player Court Allocation
+    // 3. Strict 4-Player Court Allocation for ALL Checked-In Players (Active and Inactive)
     let numChecked = checkedInPlayers.length;
     let maxFullCourts = Math.min(Math.floor(numChecked / 4), availableCourts.length);
     let totalPlayingAllowed = maxFullCourts * 4;
@@ -3725,15 +3760,17 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
       }
     });
 
+    // Extra checked-in players receive BYE
     playersToAssign.concat(playersForBye).forEach(p => {
       p.assignedCourt = "BYE";
     });
 
+    // Unchecked players receive "" (no court)
     uncheckedPlayers.forEach(p => {
       p.assignedCourt = "";
     });
 
-    // Safety validation
+    // Safety validation for partial courts
     activeCourts.forEach(c => {
       if (courtAssignments[c].length < 4) {
         courtAssignments[c].forEach(p => { p.assignedCourt = "BYE"; });
@@ -3741,12 +3778,13 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
       }
     });
 
-    // 4. Construct output rows for Sched sheet (Includes Phone in Col J / index 9)
+    // 4. Construct output rows for Sched sheet
     let headers = ["Player Name", "Court", "Check-In", "Game 1", "Game 2", "Game 3", "Total", "Entered", "", "Phone"];
     let rows = [headers];
     let playerCourtLookup = {};
     const now = new Date();
 
+    // Checked-in players row output
     checkedInPlayers.forEach(p => {
       let finalCourt = cleanCourtLabel(p.assignedCourt || "BYE");
       let checkInVal = (p.prev.checkIn && String(p.prev.checkIn).trim() !== "") ? p.prev.checkIn : now;
@@ -3771,6 +3809,7 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
       ]);
     });
 
+    // Unchecked players row output (court is empty string "")
     uncheckedPlayers.forEach(p => {
       let normName = normalizeName(p.name);
       if (normName) playerCourtLookup[normName] = "";
@@ -3806,7 +3845,7 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
     i2Cell.setValue(currentWeek);
     i2Cell.setHorizontalAlignment("center");
 
-    // 6. Synchronize court assignments to Column D on the corresponding Score sheet
+    // 6. Synchronize courts to Score sheet AND activate checked-in inactive players
     let scoreSheetName = "Score " + groupName;
     let scoreSheet = ss.getSheetByName(scoreSheetName);
 
@@ -3818,19 +3857,31 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
         let courtIdx = col.court !== undefined ? col.court : scoreData[0].map(h => String(h || '').trim().toLowerCase()).findIndex(h => /court|crt/i.test(h));
         if (courtIdx === -1) courtIdx = 3;
 
+        let statusIdx = col.status !== undefined ? col.status : scoreData[0].map(h => String(h || '').trim().toLowerCase()).findIndex(h => /status/i.test(h));
+
         let courtValues = [];
         for (let r = 1; r < scoreData.length; r++) {
           let row = scoreData[r];
           let rowName = col.name !== undefined ? row[col.name] : `${row[col.first] || ''} ${row[col.last] || ''}`.trim();
           let normRowName = normalizeName(rowName);
           let rowPhone = col.phone !== undefined ? cleanP(row[col.phone]) : "";
+          let currentStatus = statusIdx !== -1 && row[statusIdx] ? String(row[statusIdx]).toUpperCase().trim() : "ACTIVE";
 
           let assignedCourt = "";
 
+          // Match player from schedule lookup
           if (rowPhone && rowPhone.length >= 7 && playerCourtLookup[rowPhone.slice(-7)] !== undefined) {
             assignedCourt = playerCourtLookup[rowPhone.slice(-7)];
           } else if (normRowName && playerCourtLookup[normRowName] !== undefined) {
             assignedCourt = playerCourtLookup[normRowName];
+          }
+
+          // AUTOMATIC ACTIVATION: If checked in (assigned court or BYE) but listed as INACTIVE on Score sheet
+          if (assignedCourt && assignedCourt !== "" && currentStatus !== "ACTIVE") {
+            if (statusIdx !== -1) {
+              scoreSheet.getRange(r + 1, statusIdx + 1).setValue("Active");
+              logDebug("rescheduleFromCheckIns", `Promoted '${rowName}' to Active on '${scoreSheetName}' because they checked in.`);
+            }
           }
 
           courtValues.push([cleanCourtLabel(assignedCourt)]);
@@ -3857,6 +3908,7 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
     return `✅ Rescheduled '${targetName}' (BYE mode: ${alwaysByeBottom ? 'Bottom Players' : 'Random'}) and synced courts to '${scoreSheetName}' (${numChecked} checked-in, ${activeCourtsCount} full courts assigned, ${totalByes} BYEs).`;
   });
 }
+
 
 /**
  * Ensures a player is checked in on the sheet, writing a timestamp.
