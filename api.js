@@ -2973,7 +2973,6 @@ document.addEventListener('change', (e) => {
 
 
 
-
 async function runClearSchedule() {
   // Retrieve currently selected group from saved state or localStorage
   const currentGroup = (typeof getSavedGroup === 'function' ? getSavedGroup() : '') ||
@@ -3039,4 +3038,3 @@ async function runClearSchedule() {
     }
   }
 }
-
