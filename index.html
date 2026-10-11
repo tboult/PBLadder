@@ -428,17 +428,7 @@
   🧹 Clear All Scores
 </button>
 </div>
-
-        <!-- Search Input -->
-        <input 
-          type="text" 
-          id="adminPlayerSearch" 
-          oninput="filterAdminPlayers()" 
-          placeholder="🔍 Search name or phone..." 
-          style="width: 100%; padding: 0.5rem; margin-bottom: 0.75rem; border-radius: 0.25rem; border: 1px solid #ccc; box-sizing: border-box;"
-        >
-
-        <!-- Player List Container -->
+<!-- Player List Container -->
         <div 
           id="adminPlayerStatusList" 
           style="margin-top:0.25rem; max-height:60vh; overflow-y:auto; border-radius:0.5rem; border:2px solid var(--row-border); padding:0.5rem; background:#fff;"
@@ -457,6 +447,9 @@
       <button id="reschedActiveBtn" class="btn-sub" style="margin-top:0.5rem; margin-bottom:0.5rem; background-color: #2d6a4f; color: white; width:100%;" onclick="runRescheduleActive()">
         ⚡ Schedule All Active
       </button>
+      <button id="clearSchedBtn" class="btn-sub" style="margin-top:0.5rem; margin-bottom:0.5rem; background-color: #d90429; color: white; width:100%;" onclick="runClearSchedule()">
+        🗑️ Clear Schedule
+      </button>
     </div>
 
     <!-- 5. Additional Tools & Scoring -->
@@ -464,8 +457,8 @@
       <summary style="font-weight:bold; font-size:1.05rem; outline:none;">🛠️ Additional Admin Actions & Standings</summary>
       <div style="margin-top:0.75rem; display:flex; flex-direction:column; gap:0.5rem;">
         <button onclick="runAdmin('sortActivePlayersForSheet')">Sort Active Players</button>
-        <button onclick="runAdmin('processWeeklyScoresForSheet', {  shift: true })">Process Weekly Standings (Shift)</button>
-        <button onclick="runAdmin('processWeeklyScoresForSheet', {  shift: false })">Just Correct Scores/Rank (No Shift)</button>
+        <button onclick="runAdmin('processWeeklyScoresForSheet', { shift: true })">Process Weekly Standings (Shift)</button>
+        <button onclick="runAdmin('processWeeklyScoresForSheet', { shift: false })">Just Correct Scores/Rank (No Shift)</button>
 <!--        <button onclick="runAdmin('webExportSchedulePdf')">Export Schedule PDF</button>-->
       </div>
     </details>

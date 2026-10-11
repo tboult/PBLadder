@@ -2973,3 +2973,26 @@ document.addEventListener('change', (e) => {
 
 
 
+
+function runClearSchedule() {
+  // Retrieve currently selected group from your UI dropdown/state
+  const currentGroup = typeof getSelectedGroup === 'function' ? getSelectedGroup() : (window.selectedGroup || "");
+
+  if (!currentGroup) {
+    alert("⚠️ Please select a group first.");
+    return;
+  }
+
+  const confirmMsg = `Are you sure you want to clear the schedule for '${currentGroup}'?\n\nThis will reset all court assignments, check-ins, and game scores for this group.`;
+  if (!confirm(confirmMsg)) return;
+
+  // Triggers admin wrapper using the active group
+  if (typeof runAdmin === 'function') {
+    runAdmin('clearScheduleForGroup', { group: currentGroup });
+  } else {
+    google.script.run
+      .withSuccessHandler(res => alert(res))
+      .withFailureHandler(err => alert("Error: " + err.message))
+      .clearScheduleForGroup({ group: currentGroup });
+  }
+}
