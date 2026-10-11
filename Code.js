@@ -3341,7 +3341,7 @@ function batchUpdatePlayerScores(payload) {
  *
  * Explicit Manual / API Behavior:
  *  - Targets the specified group.
- *  - Scores are ONLY cleared if payload includes { clearScores: true }.
+ *  - Defaults clearCourts, clearCheckIns, and clearScores to TRUE.
  */
 function resetCheckInsAndSchedData(payload) {
   return executeWithLock(function() {
@@ -3365,21 +3365,21 @@ function resetCheckInsAndSchedData(payload) {
       const findMatchingTab = (pattern) => allTabs.find(t => pattern.test(t)) || "";
 
       if (dayOfWeek === 1) {
-        // Monday -> Women's schedule: Clear Courts, Check-Ins, AND Scores
+        // Monday -> Women's schedule
         clearCourts = true;
         clearCheckIns = true;
         clearScores = true;
         const womenTab = findMatchingTab(/women/i) || "Sched Women";
         targetTabs = [womenTab];
       } else if (dayOfWeek === 4) {
-        // Thursday -> Men's schedule: Clear Courts, Check-Ins, AND Scores
+        // Thursday -> Men's schedule
         clearCourts = true;
         clearCheckIns = true;
         clearScores = true;
         const menTab = findMatchingTab(/(?<!wo)men/i) || "Sched Men";
         targetTabs = [menTab];
       } else if (dayOfWeek === 5) {
-        // Friday -> Mixed schedule: Clear Courts, Check-Ins, AND Scores
+        // Friday -> Mixed schedule
         clearCourts = true;
         clearCheckIns = true;
         clearScores = true;
@@ -3393,18 +3393,18 @@ function resetCheckInsAndSchedData(payload) {
         targetTabs = allTabs;
       }
     } else {
-      // --- EXPLICIT GROUP PAYLOAD ---
+      // --- EXPLICIT GROUP PAYLOAD (DEFAULT TO CLEAR ALL FOR TARGET GROUP) ---
       let rawGroup = "";
       if (typeof payload === 'string') {
         rawGroup = payload;
         clearCourts = true;
         clearCheckIns = true;
-        clearScores = false; // Safe default
+        clearScores = true; // ✅ Default to clearing scores
       } else if (typeof payload === 'object') {
         rawGroup = payload.group || payload.groupName || payload.schedSheetName || payload.tab || "";
         clearCourts = payload.clearCourts !== undefined ? Boolean(payload.clearCourts) : true;
         clearCheckIns = payload.clearCheckIns !== undefined ? Boolean(payload.clearCheckIns) : true;
-        clearScores = Boolean(payload.clearScores === true); // Requires explicit true flag
+        clearScores = payload.clearScores !== undefined ? Boolean(payload.clearScores) : true; // ✅ Default to true if unspecified
       }
 
       if (rawGroup) {
@@ -3429,7 +3429,10 @@ function resetCheckInsAndSchedData(payload) {
       const cleanGroup = String(tabName).replace(/^Sched\s*/i, "").trim();
 
       // 1. Always sync missing active/inactive players from Score sheet to Sched sheet
-      syncScoreSheetPlayersToSched(ss, cleanGroup, schedSheet);
+      if (typeof syncScoreSheetPlayersToSched === 'function') {
+        syncScoreSheetPlayersToSched(ss, cleanGroup, schedSheet);
+      }
+
       // 2. Clear fields based on determined flags
       const dataRange = schedSheet.getDataRange();
       const data = dataRange.getValues();
@@ -3437,17 +3440,27 @@ function resetCheckInsAndSchedData(payload) {
 
       const headers = data[0].map(h => String(h || '').trim().toLowerCase());
 
+      // Resolve Column Indices (with robust positional fallbacks)
       let courtIdx = headers.findIndex(h => /court/i.test(h));
-      if (courtIdx === -1 && headers.length >= 2) courtIdx = 1;
+      if (courtIdx === -1 && headers.length >= 2) courtIdx = 1; // Col B
 
       let checkInIdx = headers.findIndex(h => /check|x/i.test(h));
-      if (checkInIdx === -1 && headers.length >= 3) checkInIdx = 2;
+      if (checkInIdx === -1 && headers.length >= 3) checkInIdx = 2; // Col C
 
       let g1Idx = headers.findIndex(h => /game\s*1|g1/i.test(h));
+      if (g1Idx === -1 && headers.length >= 4) g1Idx = 3; // Col D
+
       let g2Idx = headers.findIndex(h => /game\s*2|g2/i.test(h));
+      if (g2Idx === -1 && headers.length >= 5) g2Idx = 4; // Col E
+
       let g3Idx = headers.findIndex(h => /game\s*3|g3/i.test(h));
+      if (g3Idx === -1 && headers.length >= 6) g3Idx = 5; // Col F
+
       let totIdx = headers.findIndex(h => /total|tot/i.test(h));
+      if (totIdx === -1 && headers.length >= 7) totIdx = 6; // Col G
+
       let enteredIdx = headers.findIndex(h => /entered|submitted|by/i.test(h));
+      if (enteredIdx === -1 && headers.length >= 8) enteredIdx = 7; // Col H
 
       for (let r = 1; r < data.length; r++) {
         if (clearCourts && courtIdx !== -1) data[r][courtIdx] = "";
@@ -3463,7 +3476,28 @@ function resetCheckInsAndSchedData(payload) {
 
       dataRange.setValues(data);
 
-      // 3. Invalidate relevant caches
+      // 3. Clear Courts and Points on corresponding 'Score [Group]' sheet if clearScores is true
+      if (clearScores) {
+        const scoreSheet = ss.getSheetByName("Score " + cleanGroup);
+        if (scoreSheet) {
+          const scoreData = scoreSheet.getDataRange().getValues();
+          if (scoreData.length > 1) {
+            const numScoreRows = scoreData.length - 1;
+            const scoreHeaders = scoreData[0].map(h => String(h || '').trim().toLowerCase());
+            
+            let scrtIdx = scoreHeaders.findIndex(h => /court|crt/i.test(h));
+            if (scrtIdx === -1) scrtIdx = 3; // Col D
+
+            let ptsIdx = scoreHeaders.findIndex(h => /^pts$|^points$\vert{}^total$/i.test(h));
+            if (ptsIdx === -1) ptsIdx = 4; // Col E
+
+            scoreSheet.getRange(2, scrtIdx + 1, numScoreRows, 1).setValues(new Array(numScoreRows).fill([""]));
+            scoreSheet.getRange(2, ptsIdx + 1, numScoreRows, 1).clearContent();
+          }
+        }
+      }
+
+      // 4. Invalidate relevant caches
       if (typeof CacheService !== 'undefined') {
         try {
           const cache = CacheService.getScriptCache();
@@ -3485,7 +3519,7 @@ function resetCheckInsAndSchedData(payload) {
     const actions = [];
     if (clearCourts) actions.push("Courts");
     if (clearCheckIns) actions.push("Check-Ins");
-    if (clearScores) actions.push("Scores");
+    if (clearScores) actions.push("Scores & Totals");
 
     const msg = `Cleared [${actions.join(", ")}] & synced players for: ${processedTabs.join(", ") || "None"}.`;
     logDebug("resetCheckInsAndSchedData", msg);
