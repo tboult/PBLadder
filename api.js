@@ -2976,10 +2976,9 @@ document.addEventListener('change', (e) => {
 
 function runClearSchedule() {
   // Retrieve currently selected group from your UI dropdown/state
-  const cachedGroup = (typeof getSavedGroup === 'function' ? getSavedGroup() : '') ||
+  const currentGroup = (typeof getSavedGroup === 'function' ? getSavedGroup() : '') ||
                       localStorage.getItem("scpb_saved_group") || 
                       localStorage.getItem("scpb_selected_group");
-  const currentGroup = group || cachedGroup;
 
   if (!currentGroup) {
     alert("⚠️ Please select a group first.");
