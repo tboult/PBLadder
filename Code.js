@@ -3429,7 +3429,7 @@ function resetCheckInsAndSchedData(payload) {
       const cleanGroup = String(tabName).replace(/^Sched\s*/i, "").trim();
 
       // 1. Always sync missing active/inactive players from Score sheet to Sched sheet
-//      syncScoreSheetPlayersToSched(ss, cleanGroup, schedSheet);
+      syncScoreSheetPlayersToSched(ss, cleanGroup, schedSheet);
       // 2. Clear fields based on determined flags
       const dataRange = schedSheet.getDataRange();
       const data = dataRange.getValues();
