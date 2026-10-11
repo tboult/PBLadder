@@ -4335,3 +4335,48 @@ function manuallyResetCourtsAndCheckIns() {
   return resetCheckInsAndSchedData(true);
 }
 
+
+/**
+ * Ensures a player is listed on the schedule sheet ('Sched [Group]').
+ * Searches Column A for the full name. If not found, appends the player to the last row.
+ * 
+ * @param {string} group - Group name (e.g., "Mens", "Womens", "Mixed")
+ * @param {string} fullName - Full name of the player (e.g., "Terry Boult")
+ */
+function ensurePlayerOnSchedSheet(group, fullName) {
+  try {
+    if (!group || !fullName) return;
+
+    // Normalize group name (removes prefixes if present)
+    const cleanGroup = String(group).replace(/^(Score|Sched)\s*/i, "").trim();
+    const sheetName = "Sched " + cleanGroup;
+
+    const ss = getDb();
+    const sheet = ss.getSheetByName(sheetName);
+    if (!sheet) {
+      Logger.log(`ensurePlayerOnSchedSheet: Sheet '${sheetName}' not found.`);
+      return;
+    }
+
+    const targetName = String(fullName).trim().toLowerCase();
+    if (!targetName) return;
+
+    const data = sheet.getDataRange().getValues();
+
+    // 1. Search Column A (index 0) for an existing name match
+    for (let r = 0; r < data.length; r++) {
+      const cellName = String(data[r][0] || "").trim().toLowerCase();
+      if (cellName === targetName) {
+        // Player already exists on schedule sheet — do nothing
+        return;
+      }
+    }
+
+    // 2. Player not found — append name to the end of Column A
+    sheet.appendRow([String(fullName).trim()]);
+    Logger.log(`Added '${fullName}' to schedule sheet '${sheetName}'.`);
+
+  } catch (err) {
+    Logger.log("Error in ensurePlayerOnSchedSheet: " + err.message);
+  }
+}
