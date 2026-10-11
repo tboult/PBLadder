@@ -4361,7 +4361,7 @@ function resetCheckInsAndSchedData(payload) {
 
       // 1. Always sync missing active/inactive players from Score sheet to Sched sheet
       if (typeof syncScoreSheetPlayersToSched === 'function') {
-        syncScoreSheetPlayersToSched(ss, cleanGroup, schedSheet);
+//        syncScoreSheetPlayersToSched(ss, cleanGroup, schedSheet);
       }
 
       // 2. Clear fields based on determined flags

@@ -3021,12 +3021,12 @@ async function runClearSchedule() {
       resultMsg = `✅ Schedule cleared for group "${currentGroup}".`;
     }
 
-    alert(resultMsg);
 
     // Refresh viewer DOM if active
-    if (typeof loadRankingsAndSched === 'function') {
-      loadRankingsAndSched(currentGroup);
+    if (typeof reloadAdminScores === 'function') {
+      reloadAdminScores();
     }
+    alert(resultMsg);
 
   } catch (e) {
     console.error("💥 [Clear Schedule Error]:", e);
