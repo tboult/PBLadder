@@ -404,6 +404,23 @@
       </div>
     </div>
 
+
+    <!-- 3. Reschedule with Checked-In Players -->
+    <div class="card" style="margin-bottom:1rem; background: var(--bg-color); padding: 1rem; border-radius: 0.5rem;">
+      <label style="font-size:0.95rem; font-weight:bold;">Schedule generation:</label>
+      <button id="reschedCheckedInBtn" class="btn-main" style="margin-top:0.5rem; margin-bottom:0.5rem; width:100%;" onclick="runRescheduleCheckedIn()">
+        🔄 (Re)Schedule Checked-In Only
+      </button>
+      <button id="reschedActiveBtn" class="btn-sub" style="margin-top:0.5rem; margin-bottom:0.5rem; background-color: #2d6a4f; color: white; width:100%;" onclick="runRescheduleActive()">
+        ⚡ Schedule All Active
+      </button>
+      <button id="clearSchedBtn" class="btn-sub" style="margin-top:0.5rem; margin-bottom:0.5rem; background-color: #d90429; color: white; width:100%;" onclick="runClearSchedule()">
+        🗑️ Clear Schedule
+      </button>
+    </div>
+
+    
+
     <!-- 2. Combined Roster Manager -->
     <details class="card" style="margin-bottom:1rem; background: var(--bg-color); cursor: pointer;" open>
       <summary style="font-weight:bold; font-size:1.05rem; outline:none;">
@@ -429,6 +446,7 @@
 </button>
 </div>
 
+
         <!-- Search Input -->
         <input 
           type="text" 
@@ -446,21 +464,6 @@
         </div>
       </div>
     </details>
-
-    <!-- 3. Reschedule with Checked-In Players -->
-    <div class="card" style="margin-bottom:1rem; background: var(--bg-color); padding: 1rem; border-radius: 0.5rem;">
-      <label style="font-size:0.95rem; font-weight:bold;">Schedule generation:</label>
-      <button id="reschedCheckedInBtn" class="btn-main" style="margin-top:0.5rem; margin-bottom:0.5rem; width:100%;" onclick="runRescheduleCheckedIn()">
-        🔄 (Re)Schedule Checked-In Only
-      </button>
-      <button id="reschedActiveBtn" class="btn-sub" style="margin-top:0.5rem; margin-bottom:0.5rem; background-color: #2d6a4f; color: white; width:100%;" onclick="runRescheduleActive()">
-        ⚡ Schedule All Active
-      </button>
-      <button id="clearSchedBtn" class="btn-sub" style="margin-top:0.5rem; margin-bottom:0.5rem; background-color: #d90429; color: white; width:100%;" onclick="runClearSchedule()">
-        🗑️ Clear Schedule
-      </button>
-    </div>
-
     <!-- 5. Additional Tools & Scoring -->
     <details class="card" style="margin-bottom:1rem; background: var(--bg-color); cursor: pointer;">
       <summary style="font-weight:bold; font-size:1.05rem; outline:none;">🛠️ Additional Admin Actions & Standings</summary>
@@ -468,17 +471,6 @@
         <button onclick="runAdmin('sortActivePlayersForSheet')">Sort Active Players</button>
         <button onclick="runAdmin('processWeeklyScoresForSheet', { shift: true })">Process Weekly Standings (Shift)</button>
         <button onclick="runAdmin('processWeeklyScoresForSheet', { shift: false })">Just Correct Scores/Rank (No Shift)</button>
-<!--        <button onclick="runAdmin('webExportSchedulePdf')">Export Schedule PDF</button>-->
-      </div>
-    </details>
-
-    <!-- 5. Additional Tools & Scoring -->
-    <details class="card" style="margin-bottom:1rem; background: var(--bg-color); cursor: pointer;">
-      <summary style="font-weight:bold; font-size:1.05rem; outline:none;">🛠️ Additional Admin Actions & Standings</summary>
-      <div style="margin-top:0.75rem; display:flex; flex-direction:column; gap:0.5rem;">
-        <button onclick="runAdmin('sortActivePlayersForSheet')">Sort Active Players</button>
-        <button onclick="runAdmin('processWeeklyScoresForSheet', {  shift: true })">Process Weekly Standings (Shift)</button>
-        <button onclick="runAdmin('processWeeklyScoresForSheet', {  shift: false })">Just Correct Scores/Rank (No Shift)</button>
 <!--        <button onclick="runAdmin('webExportSchedulePdf')">Export Schedule PDF</button>-->
       </div>
     </details>
