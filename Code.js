@@ -3739,171 +3739,273 @@ function manuallyResetCourtsAndCheckIns() {
 
 
 
-
 /**
- * Syncs missing players from the 'Score [Group]' sheet to the 'Sched [Group]' sheet.
- * Combines First Name and Last Name from Score sheet and matches flexibly against Sched sheet full names.
+ * Synchronizes 'Sched [Group]' against 'Score [Group]':
+ * 1. PRUNES rows on Sched sheet for players who were DELETED or marked INACTIVE/QUIT on Score sheet.
+ * 2. SYNCS valid players from Score sheet who are missing from Sched sheet.
  *
  * @param {Spreadsheet} ss - Active Spreadsheet object
  * @param {string} cleanGroup - Clean group name (e.g., "Mens", "Womens")
  * @param {Sheet} schedSheet - Target 'Sched [Group]' sheet object
- * @returns {number} Count of new players added
+ * @returns {Object} { addedCount, prunedCount }
  */
 function syncScoreSheetPlayersToSched(ss, cleanGroup, schedSheet) {
   try {
-    if (!ss || !cleanGroup || !schedSheet) return 0;
+    if (!ss || !cleanGroup || !schedSheet) return { addedCount: 0, prunedCount: 0 };
 
     const scoreSheetName = "Score " + cleanGroup;
     const scoreSheet = ss.getSheetByName(scoreSheetName);
-    if (!scoreSheet) return 0;
+    if (!scoreSheet) return { addedCount: 0, prunedCount: 0 };
 
     const scoreData = scoreSheet.getDataRange().getValues();
-    if (scoreData.length <= 1) return 0;
+    if (scoreData.length <= 1) return { addedCount: 0, prunedCount: 0 };
 
     const scoreHeaders = scoreData[0].map(h => String(h || '').trim().toLowerCase());
 
-    // 1. Explicitly locate First Name and Last Name columns on Score sheet
-    let firstIdx = scoreHeaders.findIndex(h => /first|fname|f_name|given/i.test(h));
-    let lastIdx = scoreHeaders.findIndex(h => /last|lname|l_name|sur\s*name|family/i.test(h));
+    // 1. Locate columns on Score sheet
+    let firstIdx = scoreHeaders.findIndex(h => /first|fname|f_name/i.test(h));
+    let lastIdx = scoreHeaders.findIndex(h => /last|lname|l_name/i.test(h));
+    let singleNameIdx = scoreHeaders.findIndex(h => /player|full\s*name|^name$/i.test(h));
+    let statusIdx = scoreHeaders.findIndex(h => /status|active|state/i.test(h));
 
     const isSeparateFirstLast = (firstIdx !== -1 && lastIdx !== -1);
-    let singleNameIdx = -1;
 
-    if (!isSeparateFirstLast) {
-      singleNameIdx = scoreHeaders.findIndex(h => /^player(\s*name)?$|^full\s*name$\vert{}^name$/i.test(h));
-      if (singleNameIdx === -1 && firstIdx === -1 && lastIdx === -1) {
-        singleNameIdx = 0; // Default Column A
-      }
-    }
-
-    // Safety Guard: Abort if we only found a First Name column without a Last Name column
-    if (firstIdx !== -1 && lastIdx === -1 && singleNameIdx === -1) {
-      Logger.log(`⚠️ Sync aborted for '${scoreSheetName}': Found First Name column but could not locate Last Name column.`);
-      return 0;
-    }
-
-    // 2. Read existing Sched sheet full names into normalized token lookup
-    const schedData = schedSheet.getDataRange().getValues();
-    const schedHeaders = schedData.length > 0 ? schedData[0].map(h => String(h || '').trim().toLowerCase()) : [];
-    let schedPlayerIdx = schedHeaders.findIndex(h => /player|full\s*name|^name$/i.test(h));
-    if (schedPlayerIdx === -1) schedPlayerIdx = 0;
-
-    const existingPlayersSet = new Set();
+    // Token normalize helper ("John Smith" === "smith john")
     const getTokensKey = (str) => {
       const tokens = String(str || "").toLowerCase().match(/[a-z0-9]+/g) || [];
       return tokens.sort().join(" ");
     };
 
-    for (let r = 1; r < schedData.length; r++) {
-      const rawName = String(schedData[r][schedPlayerIdx] || '').trim();
-      if (rawName) {
-        existingPlayersSet.add(getTokensKey(rawName));
-      }
-    }
-
-    // 3. Extract Full Names (First + Last) from Score sheet & check against Sched sheet
-    const missingPlayers = [];
+    // 2. Build Set of valid roster full names currently on Score [Group]
+    const validScoreRosterSet = new Set();
+    const validScoreRosterList = [];
 
     for (let r = 1; r < scoreData.length; r++) {
-      let fullPlayerName = "";
+      const row = scoreData[r];
+      const statusVal = statusIdx !== -1 ? String(row[statusIdx] || '').toUpperCase().trim() : "ACTIVE";
 
+      // Skip non-active statuses if your sheet marks them as QUIT/INACTIVE
+      if (/QUIT|DROPPED|REMOVED|INACTIVE/i.test(statusVal)) continue;
+
+      let fullName = "";
       if (isSeparateFirstLast) {
-        const first = String(scoreData[r][firstIdx] || '').trim();
-        const last = String(scoreData[r][lastIdx] || '').trim();
-        if (first || last) {
-          fullPlayerName = `${first} ${last}`.replace(/\s+/g, ' ').trim();
-        }
+        const first = String(row[firstIdx] || '').trim();
+        const last = String(row[lastIdx] || '').trim();
+        if (first || last) fullName = `${first} ${last}`.replace(/\s+/g, ' ').trim();
       } else if (singleNameIdx !== -1) {
-        fullPlayerName = String(scoreData[r][singleNameIdx] || '').replace(/\s+/g, ' ').trim();
+        fullName = String(row[singleNameIdx] || '').replace(/\s+/g, ' ').trim();
       }
 
-      if (!fullPlayerName) continue;
-      if (/^total|^summary|^average|^rank|^court/i.test(fullPlayerName)) continue;
+      if (!fullName || /^total|^summary|^average|^rank|^court/i.test(fullName)) continue;
 
-      const tokenKey = getTokensKey(fullPlayerName);
-      if (tokenKey && !existingPlayersSet.has(tokenKey)) {
-        existingPlayersSet.add(tokenKey); // Prevent duplicates during loop
-        missingPlayers.push(fullPlayerName);
+      const tokenKey = getTokensKey(fullName);
+      if (tokenKey) {
+        validScoreRosterSet.add(tokenKey);
+        validScoreRosterList.push(fullName);
       }
     }
 
-    if (missingPlayers.length === 0) return 0;
+    // 3. Read current Sched sheet rows & PRUNE deleted players
+    const schedData = schedSheet.getDataRange().getValues();
+    if (schedData.length <= 1) return { addedCount: 0, prunedCount: 0 };
 
-    // 4. Append missing full names to bottom of Sched sheet
-    const numCols = Math.max(schedSheet.getLastColumn(), 8);
-    const newRows = missingPlayers.map(pName => {
-      const row = new Array(numCols).fill("");
-      row[schedPlayerIdx] = pName;
-      return row;
-    });
+    const schedHeaders = schedData[0].map(h => String(h || '').trim().toLowerCase());
+    let schedNameIdx = schedHeaders.findIndex(h => /player|full\s*name|^name$/i.test(h));
+    if (schedNameIdx === -1) schedNameIdx = 0;
 
-    const startRow = schedSheet.getLastRow() + 1;
-    schedSheet.getRange(startRow, 1, newRows.length, numCols).setValues(newRows);
+    const existingSchedTokens = new Set();
+    let rowsToKeep = [schedData[0]]; // Retain header row
+    let prunedCount = 0;
 
-    Logger.log(`✅ Synced ${missingPlayers.length} missing player(s) from '${scoreSheetName}' to '${schedSheet.getName()}': ${missingPlayers.join(", ")}`);
-    return missingPlayers.length;
+    for (let r = 1; r < schedData.length; r++) {
+      const pName = String(schedData[r][schedNameIdx] || '').trim();
+      const tokenKey = getTokensKey(pName);
+
+      if (!pName) continue;
+
+      // Keep row ONLY if player is still present on Score sheet
+      if (validScoreRosterSet.has(tokenKey)) {
+        existingSchedTokens.add(tokenKey);
+        rowsToKeep.push(schedData[r]);
+      } else {
+        prunedCount++;
+        Logger.log(`✂️ Pruned deleted player '${pName}' from '${schedSheet.getName()}'.`);
+      }
+    }
+
+    // Rewrite Sched sheet if any ghost rows were pruned
+    if (prunedCount > 0) {
+      schedSheet.clearContents();
+      schedSheet.getRange(1, 1, rowsToKeep.length, rowsToKeep[0].length).setValues(rowsToKeep);
+    }
+
+    // 4. ADD missing roster players from Score sheet to bottom of Sched sheet
+    const missingPlayers = validScoreRosterList.filter(name => !existingSchedTokens.has(getTokensKey(name)));
+
+    if (missingPlayers.length > 0) {
+      const numCols = Math.max(schedSheet.getLastColumn(), 8);
+      const newRows = missingPlayers.map(pName => {
+        const row = new Array(numCols).fill("");
+        row[schedNameIdx] = pName;
+        return row;
+      });
+
+      const startRow = schedSheet.getLastRow() + 1;
+      schedSheet.getRange(startRow, 1, newRows.length, numCols).setValues(newRows);
+    }
+
+    Logger.log(`✅ Sync Complete for '${cleanGroup}': ${missingPlayers.length} added, ${prunedCount} pruned.`);
+    return { addedCount: missingPlayers.length, prunedCount: prunedCount };
 
   } catch (err) {
     Logger.log(`❌ Error in syncScoreSheetPlayersToSched: ${err.message}`);
-    return 0;
+    return { addedCount: 0, prunedCount: 0 };
   }
 }
 
 /**
- * Ensures a player is listed on the schedule sheet ('Sched [Group]').
- * Uses token-sorted full name matching ("Terry Boult" === "Boult, Terry").
- * 
- * @param {string} group - Group name (e.g., "Mens", "Womens", "Mixed")
- * @param {string} fullName - Full name of the player (e.g., "Terry Boult")
+ * Processes check-in strictly isolated to 'Score [cleanGroup]'.
+ * Rejects check-in if player is not explicitly on Score [cleanGroup].
  */
-function ensurePlayerOnSchedSheet(group, fullName) {
+function ensurePlayerCheckedIn(cleanGroup, playerTarget) {
   try {
-    if (!group || !fullName) return;
-
-    const cleanGroup = String(group).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
-    const sheetName = "Sched " + cleanGroup;
-
     const ss = getDb();
-    const sheet = ss.getSheetByName(sheetName);
-    if (!sheet) {
-      Logger.log(`ensurePlayerOnSchedSheet: Sheet '${sheetName}' not found.`);
-      return;
+    const schedSheetName = "Sched " + cleanGroup;
+    const scoreSheetName = "Score " + cleanGroup;
+
+    const schedSheet = ss.getSheetByName(schedSheetName);
+    if (!schedSheet) {
+      return { status: "failed", success: false, message: `Schedule sheet '${schedSheetName}' not found.` };
     }
 
-    const cleanTarget = String(fullName).replace(/\s+/g, ' ').trim();
-    if (!cleanTarget) return;
+    const cleanTarget = String(playerTarget || "").trim();
+    if (!cleanTarget) {
+      return { status: "failed", success: false, message: "No player name or phone provided." };
+    }
 
+    const targetDigits = cleanTarget.replace(/\D/g, "");
     const getTokensKey = (str) => {
       const tokens = String(str || "").toLowerCase().match(/[a-z0-9]+/g) || [];
       return tokens.sort().join(" ");
     };
-    const targetKey = getTokensKey(cleanTarget);
+    const targetTokenKey = getTokensKey(cleanTarget);
 
-    const data = sheet.getDataRange().getValues();
-    if (data.length > 0) {
-      const headers = data[0].map(h => String(h || '').trim().toLowerCase());
-      let nameColIdx = headers.findIndex(h => /player|full\s*name|^name$/i.test(h));
-      if (nameColIdx === -1) nameColIdx = 0;
+    // -------------------------------------------------------------
+    // 1. STRICT ROSTER VERIFICATION (Score [cleanGroup] ONLY)
+    // -------------------------------------------------------------
+    const scoreSheet = ss.getSheetByName(scoreSheetName);
+    if (!scoreSheet) {
+      return { status: "failed", success: false, message: `Score sheet '${scoreSheetName}' not found.` };
+    }
 
-      // 1. Search existing player names on Sched sheet
-      for (let r = 1; r < data.length; r++) {
-        const cellName = String(data[r][nameColIdx] || '').trim();
-        if (cellName && getTokensKey(cellName) === targetKey) {
-          return; // Player already exists
+    const scoreData = scoreSheet.getDataRange().getValues();
+    let isRosterMember = false;
+    let matchedOfficialName = "";
+
+    if (scoreData.length > 1) {
+      const scoreHeaders = scoreData[0].map(h => String(h || '').trim().toLowerCase());
+
+      let firstIdx = scoreHeaders.findIndex(h => /first|fname|f_name/i.test(h));
+      let lastIdx = scoreHeaders.findIndex(h => /last|lname|l_name/i.test(h));
+      let singleNameIdx = scoreHeaders.findIndex(h => /player|full\s*name|^name$/i.test(h));
+      let phoneIdx = scoreHeaders.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
+      let statusIdx = scoreHeaders.findIndex(h => /status|active|state/i.test(h));
+
+      for (let r = 1; r < scoreData.length; r++) {
+        const row = scoreData[r];
+        const statusVal = statusIdx !== -1 ? String(row[statusIdx] || '').toUpperCase().trim() : "ACTIVE";
+
+        // Ignore players marked quit/dropped/inactive
+        if (/QUIT|DROPPED|REMOVED|INACTIVE/i.test(statusVal)) continue;
+
+        let rowFirst = firstIdx !== -1 ? String(row[firstIdx] || '').trim() : '';
+        let rowLast = lastIdx !== -1 ? String(row[lastIdx] || '').trim() : '';
+        let rowFullName = (rowFirst || rowLast) ? `${rowFirst} ${rowLast}`.trim() : (singleNameIdx !== -1 ? String(row[singleNameIdx] || '').trim() : '');
+
+        if (!rowFullName || /^total|^summary|^average|^rank/i.test(rowFullName)) continue;
+
+        let rowPhone = phoneIdx !== -1 ? String(row[phoneIdx] || '').replace(/\D/g, '') : '';
+
+        let isPhoneMatch = targetDigits.length >= 7 && rowPhone.length >= 7 && rowPhone.endsWith(targetDigits.slice(-7));
+        let isNameMatch = targetTokenKey && getTokensKey(rowFullName) === targetTokenKey;
+
+        if (isPhoneMatch || isNameMatch) {
+          isRosterMember = true;
+          matchedOfficialName = rowFullName;
+          break;
         }
       }
     }
 
-    // 2. Append missing player row with full grid width
-    const numCols = Math.max(sheet.getLastColumn(), 8);
-    const newRow = new Array(numCols).fill("");
-    newRow[0] = cleanTarget;
+    // 🛑 REJECT CHECK-IN IF NOT ON THIS LADDER'S SCORE SHEET
+    if (!isRosterMember) {
+      Logger.log(`⛔ Check-in rejected for '${cleanTarget}': Not on '${scoreSheetName}'.`);
+      return {
+        status: "not_found",
+        success: false,
+        message: `⚠️ Player '${cleanTarget}' is not on the roster for '${cleanGroup}'. If you quit or switched ladders, please contact an administrator.`
+      };
+    }
 
-    sheet.appendRow(newRow);
-    Logger.log(`Added '${cleanTarget}' to schedule sheet '${sheetName}'.`);
+    // -------------------------------------------------------------
+    // 2. CHECK-IN ON SCHED SHEET
+    // -------------------------------------------------------------
+    const timeStamp = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone() || "America/Phoenix", "HH:mm:ss");
+    const schedData = schedSheet.getDataRange().getValues();
+
+    if (schedData.length > 1) {
+      const schedHeaders = schedData[0].map(h => String(h || '').trim().toLowerCase());
+      let nameIdx = schedHeaders.findIndex(h => /player|full\s*name|^name$/i.test(h));
+      if (nameIdx === -1) nameIdx = 0;
+
+      let checkInIdx = schedHeaders.findIndex(h => /check|x/i.test(h));
+      if (checkInIdx === -1) checkInIdx = 2;
+
+      for (let r = 1; r < schedData.length; r++) {
+        const cellName = String(schedData[r][nameIdx] || '').trim();
+        if (cellName && getTokensKey(cellName) === getTokensKey(matchedOfficialName)) {
+          schedSheet.getRange(r + 1, checkInIdx + 1).setValue(timeStamp);
+
+          if (typeof CacheService !== 'undefined') {
+            const cacheKey = typeof getCheckInCacheKey === 'function' ? getCheckInCacheKey(schedSheetName) : null;
+            if (cacheKey) CacheService.getScriptCache().remove(cacheKey);
+          }
+
+          return {
+            status: "success",
+            success: true,
+            message: `✅ ${matchedOfficialName} checked in successfully at ${timeStamp}.`
+          };
+        }
+      }
+    }
+
+    // -------------------------------------------------------------
+    // 3. ROSTER MEMBER IS MISSING FROM SCHED -> APPEND & MARK CHECKED-IN
+    // -------------------------------------------------------------
+    const numCols = Math.max(schedSheet.getLastColumn(), 8);
+    const newRow = new Array(numCols).fill("");
+
+    newRow[0] = matchedOfficialName;
+    newRow[1] = "";
+    newRow[2] = timeStamp;
+
+    schedSheet.appendRow(newRow);
+
+    if (typeof CacheService !== 'undefined') {
+      const cacheKey = typeof getCheckInCacheKey === 'function' ? getCheckInCacheKey(schedSheetName) : null;
+      if (cacheKey) CacheService.getScriptCache().remove(cacheKey);
+    }
+
+    return {
+      status: "success",
+      success: true,
+      message: `✅ ${matchedOfficialName} added to schedule and checked in at ${timeStamp}.`
+    };
 
   } catch (err) {
-    Logger.log("Error in ensurePlayerOnSchedSheet: " + err.message);
+    Logger.log(`❌ Error in ensurePlayerCheckedIn: ${err.message}`);
+    return { status: "error", success: false, message: "Check-in failed: " + err.message };
   }
 }
 
