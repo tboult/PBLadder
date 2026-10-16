@@ -184,36 +184,6 @@ async function saveAllAdminScores() {
 }
 
 
-async function loadAdminRoster(groupName) {
-  const container = document.getElementById('adminPlayerStatusList');
-  const saveBtn = document.getElementById('btnSaveAllScores');
-
-  if (container) {
-    container.innerHTML = '<div style="padding: 1rem; text-align: center; color: #666;">⏳ Loading roster and scores...</div>';
-  }
-  if (saveBtn) saveBtn.disabled = true;
-
-  try {
-    // Delegates to loadUnifiedRosterData to reuse shared in-flight promises and group memory
-    const players = await loadUnifiedRosterData(groupName);
-
-    if (Array.isArray(players) && players.length > 0) {
-      adminPlayersCache = players;
-      filterAdminPlayers(); // Render populated DOM
-    } else {
-      if (container) {
-        container.innerHTML = '<i style="color:red;">Failed to load player roster.</i>';
-      }
-    }
-  } catch (err) {
-    console.error("Error in loadAdminRoster:", err);
-    if (container) {
-      container.innerHTML = '<i style="color:red;">Error connecting to server.</i>';
-    }
-  } finally {
-    if (saveBtn) saveBtn.disabled = false;
-  }
-}
 
 
 
@@ -316,20 +286,70 @@ async function getAdminPdf() {
     if (statusEl) statusEl.innerText = '❌ Error requesting PDF.';
   }
 }
-async function loadAdminTabData(groupName) {
-    await loadAdminPlayerStatusCache(groupName);
-    renderAdminCourts(groupName);    
-}
 
-async function loadAdminPlayerStatusCache(groupName) {
-  const data = await loadUnifiedRosterData(groupName, true);
-  if (Array.isArray(data)) {
+
+/**
+ * Loads admin roster status cache. Respects memory caching unless forceRefresh is explicitly true.
+ */
+async function loadAdminPlayerStatusCache(groupName, forceRefresh = false) {
+  if (!groupName) return [];
+
+  // ✅ FIX: Default to forceRefresh = false so memory cache is respected on tab switches/inits
+  const data = await loadUnifiedRosterData(groupName, forceRefresh);
+  
+  if (Array.isArray(data) && data.length > 0) {
     adminPlayersCache = data;
     adminCacheTimestamp = Date.now();
     filterAdminPlayers();
   }
   return data;
 }
+
+/**
+ * Admin tab view loader.
+ */
+async function loadAdminTabData(groupName, forceRefresh = false) {
+  await loadAdminPlayerStatusCache(groupName, forceRefresh);
+  if (typeof renderAdminCourts === 'function') {
+    renderAdminCourts(groupName);
+  }
+}
+
+/**
+ * Admin roster view loader for container rendering.
+ */
+async function loadAdminRoster(groupName, forceRefresh = false) {
+  const container = document.getElementById('adminPlayerStatusList');
+  const saveBtn = document.getElementById('btnSaveAllScores');
+
+  if (container) {
+    container.innerHTML = '<div style="padding: 1rem; text-align: center; color: #666;">⏳ Loading roster and scores...</div>';
+  }
+  if (saveBtn) saveBtn.disabled = true;
+
+  try {
+    const players = await loadUnifiedRosterData(groupName, forceRefresh);
+
+    if (Array.isArray(players) && players.length > 0) {
+      adminPlayersCache = players;
+      filterAdminPlayers();
+    } else {
+      if (container) {
+        container.innerHTML = '<i style="color:red;">Failed to load player roster.</i>';
+      }
+    }
+    return players;
+  } catch (err) {
+    console.error("Error in loadAdminRoster:", err);
+    if (container) {
+      container.innerHTML = '<i style="color:red;">Error connecting to server.</i>';
+    }
+    return [];
+  } finally {
+    if (saveBtn) saveBtn.disabled = false;
+  }
+}
+
 function loadCheckInPlayers(groupName, forceRefresh = true) {
   return loadUnifiedRosterData(groupName, forceRefresh);
 }

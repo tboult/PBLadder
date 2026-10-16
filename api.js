@@ -53,27 +53,36 @@ async function apiCall(action, payload = {}) {
   return result;
 }
 
-
+// Initialize group-aware memory cache dictionary
+window.groupRosterCache = window.groupRosterCache || {};
 let currentRosterFetchPromise = null;
 let lastFetchedGroup = null;
 
+/**
+ * Shared roster loader with group-aware memory caching and in-flight request deduplication.
+ */
 async function loadUnifiedRosterData(groupName, forceRefresh = false) {
   if (!groupName) return [];
 
-  // 1. Return in-flight request if currently fetching for the target group
+  // 1. Deduplicate: Return active in-flight Promise if currently fetching for this exact group
   if (currentRosterFetchPromise && lastFetchedGroup === groupName) {
+    console.log(`⏳ [Roster] Reusing in-flight network request for group: "${groupName}"`);
     return currentRosterFetchPromise;
   }
 
-  // 2. Return memory roster if already fetched for this group and not force-refreshing
-  if (!forceRefresh && lastFetchedGroup === groupName && Array.isArray(window.cachedRoster) && window.cachedRoster.length > 0) {
-    return window.cachedRoster;
+  // 2. Memory Cache: Return cached group roster if available and not forcing a refresh
+  if (!forceRefresh && Array.isArray(window.groupRosterCache[groupName]) && window.groupRosterCache[groupName].length > 0) {
+    console.log(`⚡ [Roster Memory Hit] Returning cached roster for group: "${groupName}"`);
+    window.cachedRoster = window.groupRosterCache[groupName];
+    window.unifiedRoster = window.groupRosterCache[groupName];
+    window.appPlayersCache = window.groupRosterCache[groupName];
+    return window.groupRosterCache[groupName];
   }
 
   lastFetchedGroup = groupName;
   const saveBtn = document.getElementById("btnSaveAllScores");
 
-  // 3. Set loading state on the Save button
+  // 3. UI Loading State
   if (saveBtn) {
     saveBtn.innerText = "⏳ Loading data...";
     saveBtn.disabled = true;
@@ -90,17 +99,17 @@ async function loadUnifiedRosterData(groupName, forceRefresh = false) {
           ? (Array.isArray(res.players) ? res.players : (Array.isArray(res.data) ? res.data : null)) 
           : null;
 
-        // Guard against race conditions if group changed while request was in-flight
-        if (lastFetchedGroup === groupName && playersList) {
+        if (playersList) {
+          window.groupRosterCache[groupName] = playersList;
           window.cachedRoster = playersList;
           window.unifiedRoster = playersList;
           window.appPlayersCache = playersList;
           return playersList;
         }
-        return window.cachedRoster || [];
+        return window.groupRosterCache[groupName] || window.cachedRoster || [];
       } catch (err) {
         console.error("Error fetching roster:", err);
-        return [];
+        return window.groupRosterCache[groupName] || [];
       } finally {
         if (lastFetchedGroup === groupName) {
           currentRosterFetchPromise = null;
@@ -108,15 +117,12 @@ async function loadUnifiedRosterData(groupName, forceRefresh = false) {
       }
     })();
 
-    // FIX: Must await the promise here so the outer finally block waits for the API call to complete
-    const result = await currentRosterFetchPromise;
-    return result;
+    return await currentRosterFetchPromise;
 
   } catch (error) {
     console.error("Error in loadUnifiedRosterData:", error);
-    return [];
+    return window.groupRosterCache[groupName] || [];
   } finally {
-    // 4. Restore original state ONLY AFTER the network request completes
     if (saveBtn) {
       saveBtn.innerText = "💾 Save All Scores";
       saveBtn.disabled = false;
@@ -124,6 +130,7 @@ async function loadUnifiedRosterData(groupName, forceRefresh = false) {
     }
   }
 }
+
 
 
 
