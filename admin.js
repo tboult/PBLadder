@@ -462,11 +462,11 @@ async function toggleAdminPlayerActive(btnEl, playerName, phone, currentActiveSt
     targetState: !currentActiveState
   };
 
-  console.log('📡 Sending toggleUnifiedActiveStatus payload:', payload);
+  logDebug('📡 Sending toggleUnifiedActiveStatus payload:', payload);
 
   try {
     const res = await apiCall('toggleUnifiedActiveStatus', payload);
-    console.log('✅ Server response for toggleUnifiedActiveStatus:', res);
+    logDebug('✅ Server response for toggleUnifiedActiveStatus:', res);
 
     if (res && res.success === true) {
       const newActiveState = res.newStatus 
@@ -553,7 +553,7 @@ async function loadAdminPlayerData(group, isBackgroundPoll = false) {
           localStorage.getItem("scpb_saved_group") || 
           localStorage.getItem("scpb_selected_group");
     const targetgroup = group || cachedGroup;
-    console.log("loadAdminPlayerData",targetgroup, isBackgroundPoll)
+    logDebug("loadAdminPlayerData",targetgroup, isBackgroundPoll)
   return await loadAdminPlayerStatusCache(targetgroup);
 }
 
@@ -576,7 +576,7 @@ function checkAndUnlockAdmin(phone) {
   function renderAdminCourts(groupName) {
       const cachedGroup = localStorage.getItem("scpb_saved_group") || localStorage.getItem("scpb_selected_group");
       if(!groupName) groupName =cachedGroup;
-    console.log("🔍 renderAdminCourts:", {  groupName });      
+    logDebug("🔍 renderAdminCourts:", {  groupName });      
     const list = document.getElementById('admin-court-list');
     if (!list) return;
     list.innerHTML = '';
@@ -705,7 +705,7 @@ function getTargetGroup() {
  * Sets the active group and updates all 'active-group-label' elements in the DOM.
  */
 function setTargetGroup(newGroup) {
-  console.log(`🎯 Setting target group to: ${newGroup}`);
+  logDebug(`🎯 Setting target group to: ${newGroup}`);
 
   // 1. Save state in memory and localStorage
   window.currentGroup = newGroup;
@@ -742,7 +742,7 @@ async function generateTestGroupSheets() {
     const res = await apiCall('createTestGroupSheets', {});
     
     if (res && (res.success || (res.data && res.data.success))) {
-      console.log('✅ Test sheets created successfully:', res);
+      logDebug('✅ Test sheets created successfully:', res);
       if (statusEl) statusEl.innerText = '✅ Test sheets created from Mens!';
     } else {
       console.error('❌ Failed to create test sheets:', res);
@@ -797,7 +797,7 @@ async function loadAdminGroupSelector() {
       window.currentGroup = groups[0];
     }
 
-    console.log(`✅ Admin selector loaded with groups: [${groups.join(', ')}]. Currently selected: '${selectEl.value}'`);
+    logDebug(`✅ Admin selector loaded with groups: [${groups.join(', ')}]. Currently selected: '${selectEl.value}'`);
   } catch (err) {
     console.error('Failed to populate admin group selector:', err);
   }
@@ -807,7 +807,7 @@ async function loadAdminGroupSelector() {
  * Handles when the admin changes the selected group in the dropdown.
  */
 async function onAdminGroupChange(newGroup) {
-  console.log(`🔄 Admin switched group to: ${newGroup}`);
+  logDebug(`🔄 Admin switched group to: ${newGroup}`);
   
   // 1. Store selection in global state & local storage
   window.currentGroup = newGroup;
@@ -826,7 +826,7 @@ async function onAdminGroupChange(newGroup) {
     await refreshAdminView(newGroup);
   } else {
     // Fallback if no specific refresh function exists
-    console.log('No specific reload function found, reloading active tab...');
+    logDebug('No specific reload function found, reloading active tab...');
   }
 }
 
@@ -835,11 +835,11 @@ async function onAdminGroupChange(newGroup) {
 
 
 async function setTestGroup(enabled) {
-  console.log(`Setting Test Group state to: ${enabled}...`);
+  logDebug(`Setting Test Group state to: ${enabled}...`);
   try {
     const res = await apiCall('setTestGroupState', { enabled: enabled });
     if (res && res.success) {
-      console.log(`✅ Success: ${res.message}`);
+      logDebug(`✅ Success: ${res.message}`);
     } else {
       console.error('❌ Failed to set Test Group state:', res);
     }

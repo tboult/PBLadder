@@ -1,3 +1,5 @@
+
+
 // Initialize group-specific cache dictionary
 window.groupRosterCache = window.groupRosterCache || {};
 
@@ -18,13 +20,13 @@ async function apiCall(action, payload = {}) {
       apiQueue.some(q => q.action === 'getUnifiedRoster' && q.payload?.group === targetGroup);
 
     if (!isForceRefresh && Array.isArray(groupCache) && groupCache.length > 0 && !isDuplicateQueued) {
-      console.log(`⚡ [API Cache Hit] Returning cached roster for group: "${targetGroup}"`);
+      logDebug(`⚡ [API Cache Hit] Returning cached roster for group: "${targetGroup}"`);
       return Promise.resolve({ success: true, registered: true, players: groupCache, source: 'memory_cache' });
     }
   }
   // ---------------------------------------------------
 
-  console.log(`🚀 [API Call Initiated] "${action}"`, {
+  logDebug(`🚀 [API Call Initiated] "${action}"`, {
     payload,
     time: new Date().toLocaleTimeString()
   });
@@ -45,7 +47,7 @@ async function apiCall(action, payload = {}) {
     window.groupRosterCache[payload.group] = result.players;
   }
 
-  console.log(`✅ [API result] "${action}"`, {
+  logDebug(`✅ [API result] "${action}"`, {
     result,
     time: new Date().toLocaleTimeString()
   });
@@ -66,13 +68,13 @@ async function loadUnifiedRosterData(groupName, forceRefresh = false) {
 
   // 1. Deduplicate: Return active in-flight Promise if currently fetching for this exact group
   if (currentRosterFetchPromise && lastFetchedGroup === groupName) {
-    console.log(`⏳ [Roster] Reusing in-flight network request for group: "${groupName}"`);
+    logDebug(`⏳ [Roster] Reusing in-flight network request for group: "${groupName}"`);
     return currentRosterFetchPromise;
   }
 
   // 2. Memory Cache: Return cached group roster if available and not forcing a refresh
   if (!forceRefresh && Array.isArray(window.groupRosterCache[groupName]) && window.groupRosterCache[groupName].length > 0) {
-    console.log(`⚡ [Roster Memory Hit] Returning cached roster for group: "${groupName}"`);
+    logDebug(`⚡ [Roster Memory Hit] Returning cached roster for group: "${groupName}"`);
     window.cachedRoster = window.groupRosterCache[groupName];
     window.unifiedRoster = window.groupRosterCache[groupName];
     window.appPlayersCache = window.groupRosterCache[groupName];
@@ -92,7 +94,7 @@ async function loadUnifiedRosterData(groupName, forceRefresh = false) {
   try {
     currentRosterFetchPromise = (async () => {
       try {
-        console.log(`📡 Fetching fresh roster for group: "${groupName}"...`);
+        logDebug(`📡 Fetching fresh roster for group: "${groupName}"...`);
         const res = await apiCall('getUnifiedRoster', { group: groupName, forceRefresh: forceRefresh });
 
         const playersList = (res && res.success) 
@@ -136,7 +138,7 @@ async function loadUnifiedRosterData(groupName, forceRefresh = false) {
 
 
 async function onGroupRadioChange(selectedGroup) {
-  console.log(`onGroupRadioChange ${selectedGroup}`);
+  logDebug(`onGroupRadioChange ${selectedGroup}`);
   const cleanGroup = String(selectedGroup).replace(/^(Sched|Score)\s*/i, '').trim() ;
 
   // 1. Force DOM elements directly to show loading immediately
@@ -466,7 +468,7 @@ let checkInPlayersCache = [];
 
 // Replace renderCheckInPlayers to display just the auto-checked user
 function renderCheckInPlayers(players) {
-  console.log(`📡 rendercheckinplayers : "${players}"...`);
+  logDebug(`📡 rendercheckinplayers : "${players}"...`);
   const nameEl = document.getElementById('checkinPlayerName');
   const badgeEl = document.getElementById('checkinPlayerStatusBadge');
   const btnEl = document.getElementById('userCheckinBtn');
@@ -1079,7 +1081,7 @@ function submitSingleGameScore(gameNum, btnElement) {
     handled = true;
 
     try {
-      console.log(`[Submit G${gameNum} Response Received]`, rawRes);
+      logDebug(`[Submit G${gameNum} Response Received]`, rawRes);
 
       // Unwrap response payload (handles top-level, res.result, or res.data)
       const res = (rawRes && rawRes.result) ? rawRes.result : ((rawRes && rawRes.data) ? rawRes.data : rawRes);
@@ -1306,7 +1308,7 @@ async function submitUserRegistration() {
                 (topGroupSelect ? topGroupSelect.value : '');
 
   // Log values for easy debugging
-  console.log("🔍 Registration Attempt Values:", { first, last, phone, email, group, comment });
+  logDebug("🔍 Registration Attempt Values:", { first, last, phone, email, group, comment });
 
   // 3. VALIDATE GROUP SELECTION
   if (!group) {
@@ -1379,11 +1381,11 @@ async function submitUserRegistration() {
 }
 
 async function toggleStatus() {
-  console.log(`In togglestatus...`);
+  logDebug(`In togglestatus...`);
   if (!activeLookupPlayer) return;
   const statusEl = document.getElementById('phoneStatus');
   if (statusEl) statusEl.innerText = 'Updating status...';
-  console.log(`In togglestatus with activeLookupPlayer...`);
+  logDebug(`In togglestatus with activeLookupPlayer...`);
   try {
     const res = await apiCall('toggleUnifiedActiveStatus', {
       phone: activeLookupPlayer.phone,
@@ -2126,7 +2128,7 @@ async function toggleStatusFromSetup() {
 
   const cleanPhone = typeof normalizePhone === "function" ? normalizePhone(phone) : phone.replace(/\D/g, "");
 
-     console.log(`In togglestatus from Setup 2842...`);
+     logDebug(`In togglestatus from Setup 2842...`);
     
   if (!cleanPhone || cleanPhone.length < 7) {
     alert("Please enter a valid phone number first.");
@@ -2237,7 +2239,7 @@ function isValidEmail(emailStr) {
 
   const targetTheme = isDev ? 'devtheme.css' : 'prodtheme.css';
 
-  console.log(`[Theme Switcher] Host: "${hostname}" | Loading: ${targetTheme}`);
+  logDebug(`[Theme Switcher] Host: "${hostname}" | Loading: ${targetTheme}`);
   
   if (themeLink) {
     themeLink.href = targetTheme;
@@ -2288,7 +2290,7 @@ async function loadRankingsAndSched(targetGroup = null) {
   if (statusEl) statusEl.innerHTML = '<span class="loading-spinner"></span>Loading schedule & standings...';
 
   try {
-    console.log(`📊 [Rankings & Sched] Requesting data for group: "${group}"`);
+    logDebug(`📊 [Rankings & Sched] Requesting data for group: "${group}"`);
     const res = await apiCall('getRankingsAndSchedData', { group: group });
 
     if (statusEl) statusEl.innerText = '';
@@ -2314,7 +2316,7 @@ async function loadRankingsAndSched(targetGroup = null) {
 
     // Diagnostic check
     const computed = window.getComputedStyle(contentEl);
-    console.log('🔍 [DOM Visibility Diagnostic]:', {
+    logDebug('🔍 [DOM Visibility Diagnostic]:', {
       display: computed.display,
       visibility: computed.visibility,
       opacity: computed.opacity,
@@ -2391,7 +2393,7 @@ function checkGeofence(userPhoneOverride) {
       });
 
       if (isAdmin) {
-        console.log("⚡ Admin phone detected (" + cleanUser + "). Bypassing geofence restriction.");
+        logDebug("⚡ Admin phone detected (" + cleanUser + "). Bypassing geofence restriction.");
         if (statusElement) {
           statusElement.innerHTML = '';
         }
@@ -2558,7 +2560,7 @@ async function processApiQueue() {
   const targetSheet = payload.sheet || payload.sheetName || payload.scoreSheetName || "N/A";
   const targetGroup = payload.groupName || payload.group || "N/A";
 
-  console.log(`📡 [API Dispatch] Sending "${action}" to server...`, {
+  logDebug(`📡 [API Dispatch] Sending "${action}" to server...`, {
     action,
     group: targetGroup,
     sheet: targetSheet,
@@ -2616,7 +2618,7 @@ async function processApiQueue() {
     // If the backend returns 'data.data', unwrap it while explicitly injecting 'success: true' and 'registered: true' 
     // to guarantee properties exist on caller functions.
     if (data && (data.status === "success" || data.success === true)) {
-      console.log(`✅ [API Success] "${action}":`, data.data || data);
+      logDebug(`✅ [API Success] "${action}":`, data.data || data);
       let unwrapped = (data.data !== undefined) ? data.data : data;
 
       if (typeof unwrapped === 'object' && unwrapped !== null && !Array.isArray(unwrapped)) {
@@ -2637,7 +2639,7 @@ async function processApiQueue() {
         message: data.message || 'User not found/registered'
       });
     } else {
-      console.log(`✅ [API Response] Raw data returned for "${action}":`, data);
+      logDebug(`✅ [API Response] Raw data returned for "${action}":`, data);
       resolve(data);
     }
   } catch (err) {
@@ -2719,19 +2721,19 @@ function getSavedName() {
 }
 
 function savePlayerCredentials(phone, name) {
-  console.log(` in SavePlayerCredential:`, phone, name);                  
+  logDebug(` in SavePlayerCredential:`, phone, name);                  
   if (phone) {
-    console.log(` caching phone:`, phone, phone.length);                      
+    logDebug(` caching phone:`, phone, phone.length);                      
     const cleanPhone = String(phone).replace(/\D/g, '');
     if (cleanPhone.length === 10) {
       localStorage.setItem('scpb_saved_phone', cleanPhone);
       localStorage.setItem('saved_phone', cleanPhone);
-      console.log(` caching phone:`, cleanPhone);              
+      logDebug(` caching phone:`, cleanPhone);              
     }
   }
   if (name && typeof name === 'string') {
     localStorage.setItem('scpb_saved_name', name.trim());
-    console.log(` caching name:`, name);      
+    logDebug(` caching name:`, name);      
   }
 }  
 
@@ -2764,7 +2766,7 @@ window.addEventListener('hashchange', () => {
 
 
 async function handlePlayerNotFoundInCurrentGroup(searchedPhone, currentGroup) {
-  console.log("handlePlayerNotFoundInCurrentGroup:", searchedPhone, currentGroup);
+  logDebug("handlePlayerNotFoundInCurrentGroup:", searchedPhone, currentGroup);
   const statusMsg = document.getElementById('phoneStatus') || document.getElementById('checkInStatus');
 
   try {
@@ -2816,7 +2818,7 @@ async function handlePlayerNotFoundInCurrentGroup(searchedPhone, currentGroup) {
 }
 
 async function checkRegistrationStatus(phone) {
-  console.log("checkregistrationstatus:", phone);
+  logDebug("checkregistrationstatus:", phone);
   const cleanPhoneInput = String(phone || '').replace(/\D/g, '');
   const statusMsg = document.getElementById('phoneStatus') || document.getElementById('checkInStatus');
 
@@ -3015,7 +3017,7 @@ async function runClearSchedule() {
   }
 
   try {
-    console.log(`🗑️ [Clear Schedule] Calling API for group: "${currentGroup}"`);
+    logDebug(`🗑️ [Clear Schedule] Calling API for group: "${currentGroup}"`);
 
     // Build payload and invoke apiCall directly
     const payload = { 

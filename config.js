@@ -9,6 +9,17 @@ const isLocalhost = Boolean(
   window.location.protocol === "file:"
 );
 
+// At the top of config.js or api.js
+const IS_DEV = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+function logDebug(...args) {
+  if (IS_DEV) {
+    console.log(...args);
+  }
+}
+
+
+
 // Automatically set 'dev' on local testing, 'prod' on live deployment
 const ENV = isLocalhost ? "dev" : "prod";
 

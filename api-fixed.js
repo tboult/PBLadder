@@ -17,7 +17,7 @@ const GROUP_COURT_MAP = {
   "Default": [5, 6, 9, 10, 13, 14, 15, 16]
 };
 
-  console.log('window.API_URL:', window.API_URL);  
+  logDebug('window.API_URL:', window.API_URL);  
   
 
   let apiQueue = [];
@@ -207,18 +207,18 @@ async function handleUserAndAdminState(phone, player) {
   let isAdminUser = false;
   if (player && (player.isAdmin || player.role === 'admin')) {
       isAdminUser = true;
-      console.log('isamind1:',isAdminUser)
+      logDebug('isamind1:',isAdminUser)
   } else if (typeof checkAdminStatus === "function") {
       isAdminUser = await checkAdminStatus(phone);
-      console.log('isamind2:',isAdminUser)
+      logDebug('isamind2:',isAdminUser)
   } else if (typeof checkIfAdmin === "function") {
       isAdminUser = checkIfAdmin(phone);
-      console.log('isamind3:',isAdminUser)      
+      logDebug('isamind3:',isAdminUser)      
   }
 
   // 3. Trigger Admin UI / Controls if Admin
   if (isAdminUser) {
-    console.log("👑 Admin privileges granted for:", phone);
+    logDebug("👑 Admin privileges granted for:", phone);
     if (typeof showAdminControls === "function") showAdminControls(true);
     if (typeof enableAdminUI === "function") enableAdminUI(true);
     if (typeof setAdminMode === "function") setAdminMode(true);
@@ -245,11 +245,11 @@ async function handleUserAndAdminState(phone, player) {
 
   
   async function checkAppVersion() {
-      console.log(`Checking Version ...`);      
+      logDebug(`Checking Version ...`);      
   try {
       const res = await apiCall('getAppVersion');
     if (res && res.version && res.version !== CURRENT_APP_VERSION) {
-      console.log(`New app version detected (${res.version}). Consider Force resetting caches...`);
+      logDebug(`New app version detected (${res.version}). Consider Force resetting caches...`);
       //forceResetApp();
     }
   } catch (err) {
@@ -343,11 +343,11 @@ if (secretTapCount >= 5) {
  */
 function logAllCachedValues() {
   console.group('📦 === LOCAL STORAGE CACHE DUMP ===');
-  console.log('scpb_saved_group:', localStorage.getItem('scpb_saved_group'));
-  console.log('scpb_saved_phone:', localStorage.getItem('scpb_saved_phone'));
-  console.log('saved_phone:     ', localStorage.getItem('saved_phone'));
-  console.log('activeTab:       ', localStorage.getItem('activeTab'));
-  console.log('scpb_player_name:', localStorage.getItem('scpb_player_name'));
+  logDebug('scpb_saved_group:', localStorage.getItem('scpb_saved_group'));
+  logDebug('scpb_saved_phone:', localStorage.getItem('scpb_saved_phone'));
+  logDebug('saved_phone:     ', localStorage.getItem('saved_phone'));
+  logDebug('activeTab:       ', localStorage.getItem('activeTab'));
+  logDebug('scpb_player_name:', localStorage.getItem('scpb_player_name'));
   console.groupEnd();
 }
 
@@ -365,11 +365,11 @@ function printDbSummary(dbData) {
   // Safely unwrap nested response structures from apiCall wrapper or backend object
   const info = dbData.dbDebug || dbData.dbSummary || dbData.data || dbData.payload || dbData.result || dbData;
 
-  console.log("📊 [DB DEBUG SUMMARY]");
-  console.log("   Name:", info.name || info.id || "Unknown");
-  console.log("   Source:", info.source || info._debugSource || "N/A");
-  console.log("   Loaded At:", info.loadedAt || info._debugLoadedAt || "N/A");
-  console.log("   From Cache:", info.fromCache ?? info._debugFromCache ?? false);
+  logDebug("📊 [DB DEBUG SUMMARY]");
+  logDebug("   Name:", info.name || info.id || "Unknown");
+  logDebug("   Source:", info.source || info._debugSource || "N/A");
+  logDebug("   Loaded At:", info.loadedAt || info._debugLoadedAt || "N/A");
+  logDebug("   From Cache:", info.fromCache ?? info._debugFromCache ?? false);
 }
 
 
@@ -379,20 +379,20 @@ function printDbSummary(dbData) {
 // ==========================================
 document.addEventListener("DOMContentLoaded", async function () {
 
-  console.log("🚀 Initializing Application...");
+  logDebug("🚀 Initializing Application...");
 let lastCheckedPhone = "";
 
 // 1. Fetch & Verify Database Connection
   if (typeof SHEET_ID !== 'undefined' && SHEET_ID) {
     try {
-      console.log(`Trying to load requested sheetID: "${SHEET_ID}"...`);
+      logDebug(`Trying to load requested sheetID: "${SHEET_ID}"...`);
       const res = await apiCall('getdb', { sheetid: SHEET_ID }); 
 
       if (res && (!res.message?.toLowerCase().includes("error"))) {
-          console.log(`✅ Loaded requesed DB successfully.`,res);
+          logDebug(`✅ Loaded requesed DB successfully.`,res);
         printDbSummary(res);
       } else {
-          console.log(`⚠️ Loaded DB fallback (explicit ID was invalid or ignored):`,res);
+          logDebug(`⚠️ Loaded DB fallback (explicit ID was invalid or ignored):`,res);
         if (res) printDbSummary(res); // <--- Added so you still see what sheet was loaded
       }
     } catch (err) {
@@ -434,7 +434,7 @@ let lastCheckedPhone = "";
     await fetchGroupRoster(cachedGroup);
   }
 
-  console.log(`📌 App loaded | Group: "${cachedGroup}" | Saved Phone: "${scpb_saved_phone}"`);
+  logDebug(`📌 App loaded | Group: "${cachedGroup}" | Saved Phone: "${scpb_saved_phone}"`);
 
   // 3. Process Saved Phone on Initial Load
   if (phoneInput) {
@@ -448,7 +448,7 @@ let lastCheckedPhone = "";
       const player = match ? match.player : null;
 
       if (exists) {
-        console.log("✅ Player found in current group on startup:", player);
+        logDebug("✅ Player found in current group on startup:", player);
         lastCheckedPhone = scpb_saved_phone;
 
         if (typeof handleUserAndAdminState === "function") {
@@ -456,7 +456,7 @@ let lastCheckedPhone = "";
         }
 
       } else if (scpb_saved_phone.replace(/\D/g, "").length >= 10) {
-        console.log("⚠️ Saved phone not in active group. Triggering cross-group search...");
+        logDebug("⚠️ Saved phone not in active group. Triggering cross-group search...");
         if (typeof handlePlayerNotFoundInCurrentGroup === "function") {
           await handlePlayerNotFoundInCurrentGroup(scpb_saved_phone, currentGroup);
         }
@@ -489,7 +489,7 @@ let lastCheckedPhone = "";
           const player = match ? match.player : null;
 
           if (exists) {
-            console.log("✅ Live player match found:", player);
+            logDebug("✅ Live player match found:", player);
             if (typeof savePhoneToCache === "function") savePhoneToCache(digits);
 
             if (typeof handleUserAndAdminState === "function") {
@@ -497,7 +497,7 @@ let lastCheckedPhone = "";
             }
 
           } else {
-            console.log("🔍 Live lookup: Player not in current group. Executing cross-group lookup...");
+            logDebug("🔍 Live lookup: Player not in current group. Executing cross-group lookup...");
             if (typeof handlePlayerNotFoundInCurrentGroup === "function") {
               await handlePlayerNotFoundInCurrentGroup(digits, currentGroup);
             }
@@ -617,7 +617,7 @@ function updateGlobalLoaderStatus() {
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('./sw.js')
-        .then(reg => console.log('PWA Service Worker registered:', reg.scope))
+        .then(reg => logDebug('PWA Service Worker registered:', reg.scope))
         .catch(err => console.warn('Service Worker registration failed:', err));
     });
 }
