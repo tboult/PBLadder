@@ -1,38 +1,49 @@
+// Initialize group-specific cache dictionary
+window.groupRosterCache = window.groupRosterCache || {};
+
 async function apiCall(action, payload = {}) {
   if (!action) {
     console.error("❌ [API Error] Action cannot be empty.");
     return Promise.reject(new Error("API action cannot be empty"));
   }
 
+  // --- GROUP-AWARE ROSTER DEDUPLICATION & CACHING ---
+  if (action === 'getUnifiedRoster') {
+    const targetGroup = payload?.group;
+    const isForceRefresh = Boolean(payload?.forceRefresh);
+    const groupCache = (targetGroup && window.groupRosterCache[targetGroup]) || null;
+
+    // Check if an identical request for this group is already queued in apiQueue
+    const isDuplicateQueued = typeof apiQueue !== 'undefined' && 
+      apiQueue.some(q => q.action === 'getUnifiedRoster' && q.payload?.group === targetGroup);
+
+    if (!isForceRefresh && Array.isArray(groupCache) && groupCache.length > 0 && !isDuplicateQueued) {
+      console.log(`⚡ [API Cache Hit] Returning cached roster for group: "${targetGroup}"`);
+      return Promise.resolve({ success: true, registered: true, players: groupCache, source: 'memory_cache' });
+    }
+  }
+  // ---------------------------------------------------
+
   console.log(`🚀 [API Call Initiated] "${action}"`, {
     payload,
     time: new Date().toLocaleTimeString()
   });
 
-  // FIX: Bypass deduplication when forceRefresh is true, unless an identical roster request is already queued
-  const isForceRefresh = Boolean(payload && payload.forceRefresh);
-  const isDuplicateRosterQueued = typeof apiQueue !== 'undefined' && action === 'getUnifiedRoster' && 
-      apiQueue.some(q => q.action === 'getUnifiedRoster' && q.payload?.group === payload?.group);
-
-  const cachedPlayers = (Array.isArray(window.appPlayersCache) && window.appPlayersCache.length > 0) 
-    ? window.appPlayersCache 
-    : (window.cachedRoster || []);
-  const hasCachedPlayers = Array.isArray(cachedPlayers) && cachedPlayers.length > 0;
-
-  // Only return early if duplicate is queued or if cached players actually exist in memory
-  if ((isDuplicateRosterQueued || (!isForceRefresh && hasCachedPlayers)) && typeof apiQueue !== 'undefined' && action === 'getUnifiedRoster') {
-    console.log(`⚡ [API Cache Hit] Deduplicating "${action}", returning cached players.`, cachedPlayers);
-    return Promise.resolve({ success: true, registered: true, players: cachedPlayers });
-  }
-
   const result = await new Promise((resolve, reject) => {
     if (typeof apiQueue !== 'undefined') {
       apiQueue.push({ action, payload, resolve, reject });
-      if (typeof isProcessingQueue !== 'undefined' && !isProcessingQueue && typeof processApiQueue === 'function') processApiQueue();
+      if (typeof isProcessingQueue !== 'undefined' && !isProcessingQueue && typeof processApiQueue === 'function') {
+        processApiQueue();
+      }
     } else {
       resolve({ success: false, error: 'apiQueue not initialized' });
     }
   });
+
+  // Store successful roster responses in group-specific cache
+  if (action === 'getUnifiedRoster' && result && result.success && Array.isArray(result.players) && payload?.group) {
+    window.groupRosterCache[payload.group] = result.players;
+  }
 
   console.log(`✅ [API result] "${action}"`, {
     result,
@@ -41,6 +52,7 @@ async function apiCall(action, payload = {}) {
 
   return result;
 }
+
 
 let currentRosterFetchPromise = null;
 let lastFetchedGroup = null;

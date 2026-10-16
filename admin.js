@@ -184,7 +184,6 @@ async function saveAllAdminScores() {
 }
 
 
-
 async function loadAdminRoster(groupName) {
   const container = document.getElementById('adminPlayerStatusList');
   const saveBtn = document.getElementById('btnSaveAllScores');
@@ -195,17 +194,19 @@ async function loadAdminRoster(groupName) {
   if (saveBtn) saveBtn.disabled = true;
 
   try {
-    const res = await apiCall('getUnifiedRoster', { group: groupName });
+    // Delegates to loadUnifiedRosterData to reuse shared in-flight promises and group memory
+    const players = await loadUnifiedRosterData(groupName);
 
-    if (res && res.success && Array.isArray(res.players)) {
-      adminPlayersCache = res.players;
-      filterAdminPlayers(); // Render populated data
+    if (Array.isArray(players) && players.length > 0) {
+      adminPlayersCache = players;
+      filterAdminPlayers(); // Render populated DOM
     } else {
       if (container) {
         container.innerHTML = '<i style="color:red;">Failed to load player roster.</i>';
       }
     }
   } catch (err) {
+    console.error("Error in loadAdminRoster:", err);
     if (container) {
       container.innerHTML = '<i style="color:red;">Error connecting to server.</i>';
     }
@@ -213,6 +214,7 @@ async function loadAdminRoster(groupName) {
     if (saveBtn) saveBtn.disabled = false;
   }
 }
+
 
 
 
