@@ -1042,7 +1042,7 @@ async function clearAllAdminScores() {
   }
 }
 
-async function runSkipWeek() {
+async function runSkipWeek(weekTarget = 'current') {
   const groupRadio = document.querySelector('input[name="adminGroupRadio"]:checked')
                   || document.querySelector('input[name="helpGroupRadio"]:checked')
                   || document.querySelector('input[name="checkinGroupRadio"]:checked');
@@ -1050,26 +1050,23 @@ async function runSkipWeek() {
 
   if (!groupName) return alert('Please select a target group first.');
 
-  const confirmMsg = `Are you sure you want to SKIP the week for group '${groupName}' (e.g., due to bad weather)?\n\nThis will:\n1. Copy ranks from the previous week to the current week.\n2. Clear out all scores for the current week.`;
+  const isPrev = weekTarget === 'previous';
+  const labelText = isPrev ? 'PREVIOUS week' : 'CURRENT week';
+
+  const confirmMsg = `Are you sure you want to SKIP the ${labelText} for group '${groupName}'?\n\nThis will:\n1. Run automatic backups (Snapshot & Drive).\n2. Copy ranks into the ${labelText}.\n3. Clear scores for that week.`;
   if (!confirm(confirmMsg)) return;
 
-  const btn = document.getElementById('skipWeekBtn');
+  const btnId = isPrev ? 'skipPrevWeekBtn' : 'skipCurrWeekBtn';
+  const btn = document.getElementById(btnId) || document.getElementById('skipWeekBtn');
   const originalText = btn ? btn.innerText : '';
   if (btn) {
     btn.disabled = true;
-    btn.innerText = '⌛ Skipping Week...';
+    btn.innerText = '⌛ Skipping...';
   }
 
   try {
-    const res = await apiCall('skipWeek', { group: groupName });
-    let msg = '';
-    if (typeof res === 'string') {
-      msg = res;
-    } else if (res && res.message) {
-      msg = res.message;
-    } else {
-      msg = `✅ Week skipped for group '${groupName}'.`;
-    }
+    const res = await apiCall('skipWeek', { group: groupName, weekOption: weekTarget });
+    let msg = typeof res === 'string' ? res : (res && res.message) ? res.message : `✅ Week skipped for group '${groupName}'.`;
 
     alert(msg);
     if (typeof reloadAdminScores === 'function') {

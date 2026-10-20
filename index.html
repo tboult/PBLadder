@@ -467,11 +467,12 @@
     <!-- 5. Additional Tools & Scoring -->
     <details class="card" style="margin-bottom:1rem; background: var(--bg-color); cursor: pointer;">
       <summary style="font-weight:bold; font-size:1.05rem; outline:none;">🛠️ Additional Admin Actions & Standings</summary>
-      <div style="margin-top:0.75rem; display:flex; flex-direction:column; gap:0.5rem;">
-      <button id="skipWeekBtn" class="btn-sub" style="margin-top:0.5rem; margin-bottom:0.5rem; background-color: #d9534f; color: white; width:100%;" onclick="runSkipWeek()">
-        ⏭️ Skip Week (Rain / Bad Weather)
+<button id="skipCurrWeekBtn" class="btn-sub" style="margin-top:0.5rem; margin-bottom:0.5rem; background-color: #d9534f; color: white; width:100%;" onclick="runSkipWeek('current')">
+        ⏭️ Skip Current Week (Rainout)
       </button>
-      </div>
+      <button id="skipPrevWeekBtn" class="btn-sub" style="margin-top:0.5rem; margin-bottom:0.5rem; background-color: #c9302c; color: white; width:100%;" onclick="runSkipWeek('previous')">
+        ⏮️ Skip Previous Week (Missed Rainout)
+      </button>
         <button class="btn-main" style="margin-top:0.5rem; margin-bottom:0.5rem; width:100%; color: white; background-color: #2d6a4f;" onclick="runAdmin('processWeeklyScoresForSheet', { shift: true })">Process Weekly Standings with new Scores (Shift)</button>
         <button onclick="runAdmin('processWeeklyScoresForSheet', { shift: false })">Just Correct Scores/Rank (No Shift)</button>
         <button onclick="runAdmin('sortActivePlayersForSheet')">Sort Active Players</button>
