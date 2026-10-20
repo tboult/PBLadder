@@ -3281,6 +3281,28 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
     var i2Cell = sheet.getRange("I2");
     i2Cell.setValue(currentWeek);
     i2Cell.setHorizontalAlignment("center");
+      var i3Cell = schedSheet.getRange("I3");
+      i3Cell.setValue("Week " + currentWeek);
+      i3Cell.setHorizontalAlignment("center");
+
+
+        let weekDateStr = "";
+        if (typeof WEEK_1_START_DATE !== 'undefined' && typeof weekNum !== 'undefined') {
+            try {
+                const startDate = new Date(WEEK_1_START_DATE + "T00:00:00");
+                startDate.setDate(startDate.getDate() + (weekNum - 1) * 7);
+                weekDateStr = Utilities.formatDate(startDate, ss.getSpreadsheetTimeZone(), "yyyy-MM-dd");
+            } catch (e) {
+                weekDateStr = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "yyyy-MM-dd");
+            }
+        } else {
+            weekDateStr = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "yyyy-MM-dd");
+        }        
+
+      var i4Cell = schedSheet.getRange("I4");
+      i4Cell.setValue(weekDateStr);
+      i4Cell.setHorizontalAlignment("center");
+
 
     // 6. Synchronize courts to Score sheet AND activate checked-in inactive players
     let scoreSheetName = "Score " + groupName;
@@ -4351,6 +4373,31 @@ function ScheduleAll(genTarget, courts) {
       var i2Cell = schedSheet.getRange("I2");
       i2Cell.setValue(currentWeek);
       i2Cell.setHorizontalAlignment("center");
+
+
+      var i3Cell = schedSheet.getRange("I3");
+      i3Cell.setValue("Week " + currentWeek);
+      i3Cell.setHorizontalAlignment("center");
+
+
+        let weekDateStr = "";
+        if (typeof WEEK_1_START_DATE !== 'undefined' && typeof weekNum !== 'undefined') {
+            try {
+                const startDate = new Date(WEEK_1_START_DATE + "T00:00:00");
+                startDate.setDate(startDate.getDate() + (weekNum - 1) * 7);
+                weekDateStr = Utilities.formatDate(startDate, ss.getSpreadsheetTimeZone(), "yyyy-MM-dd");
+            } catch (e) {
+                weekDateStr = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "yyyy-MM-dd");
+            }
+        } else {
+            weekDateStr = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "yyyy-MM-dd");
+        }        
+
+      var i4Cell = schedSheet.getRange("I4");
+      i4Cell.setValue(weekDateStr);
+      i4Cell.setHorizontalAlignment("center");
+
+        
 
       // -------------------------------------------------------------
       // 3. SCORE SHEET: CLEAR 'PTS' & UPDATE COLUMN D ('COURT')
