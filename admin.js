@@ -1042,9 +1042,7 @@ async function clearAllAdminScores() {
   }
 }
 
-
 async function runSkipWeek(weekTarget = 'current') {
-  // 1. Resolve selected group
   const groupRadio = document.querySelector('input[name="adminGroupRadio"]:checked')
                   || document.querySelector('input[name="helpGroupRadio"]:checked')
                   || document.querySelector('input[name="checkinGroupRadio"]:checked');
@@ -1053,8 +1051,6 @@ async function runSkipWeek(weekTarget = 'current') {
   if (!groupName) return alert('Please select a target group first.');
 
   const isPrev = (weekTarget === 'previous' || weekTarget === 'prev');
-  const targetOption = isPrev ? 'previous' : 'current';
-
   const btnId = isPrev ? 'skipPrevWeekBtn' : 'skipCurrWeekBtn';
   const btn = document.getElementById(btnId) || document.getElementById('skipWeekBtn');
   const originalText = btn ? btn.innerText : '';
@@ -1065,7 +1061,7 @@ async function runSkipWeek(weekTarget = 'current') {
   }
 
   try {
-    // 2. Query backend for accurate week info
+    // 1. Fetch exact week info from backend
     const weekInfo = await apiCall('getWeekInfo', { group: groupName });
     
     let activeWeekNum = (weekInfo && weekInfo.currentWeek) ? weekInfo.currentWeek : 1;
@@ -1073,29 +1069,27 @@ async function runSkipWeek(weekTarget = 'current') {
     let scheduleDate = (weekInfo && weekInfo.scheduleDate) ? weekInfo.scheduleDate : '';
 
     if (isPrev && targetWeekNum < 1) {
-      alert(`Cannot skip Previous Week because current active week is Week ${activeWeekNum}.`);
+      alert(`Cannot skip Previous Week because active week is Week ${activeWeekNum}.`);
       return;
     }
 
-    // 3. Format explicit prompt: "Previous Week (W2)" or "Current Week (W3)"
+    // 2. Clear & explicit confirmation prompt
     const labelText = isPrev ? `Previous Week (W${targetWeekNum})` : `Current Week (W${targetWeekNum})`;
     const dateText = scheduleDate ? ` [Date: ${scheduleDate}]` : '';
 
     const confirmMsg = `Are you sure you want to skip ${labelText}${dateText} for group '${groupName}'?\n\n` +
                        `This will:\n` +
                        `1. Run an automatic full Drive backup.\n` +
-                       `2. Copy ranks into Week ${targetWeekNum} rank column.\n` +
+                       `2. Copy ranks into Week ${targetWeekNum} (R${targetWeekNum}) column.\n` +
                        `3. Clear scores for Week ${targetWeekNum}.`;
 
     if (!confirm(confirmMsg)) return;
 
     if (btn) btn.innerText = '⌛ Skipping...';
 
-    // 4. Send skip request with target week number
+    // 3. Send explicit targetWeekNum to backend
     const res = await apiCall('skipWeek', { 
       group: groupName, 
-      weekOption: targetOption,
-      weekTarget: targetOption,
       week: targetWeekNum
     });
 
@@ -1115,6 +1109,7 @@ async function runSkipWeek(weekTarget = 'current') {
     }
   }
 }
+
 
 
 
