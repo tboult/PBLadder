@@ -1050,10 +1050,26 @@ async function runSkipWeek(weekTarget = 'current') {
 
   if (!groupName) return alert('Please select a target group first.');
 
-  const isPrev = weekTarget === 'previous';
-  const labelText = isPrev ? 'PREVIOUS week' : 'CURRENT week';
+  const isPrev = (weekTarget === 'previous' || weekTarget === 'prev');
+  const targetOption = isPrev ? 'previous' : 'current';
 
-  const confirmMsg = `Are you sure you want to SKIP the ${labelText} for group '${groupName}'?\n\nThis will:\n1. Run automatic backups (Snapshot & Drive).\n2. Copy ranks into the ${labelText}.\n3. Clear scores for that week.`;
+  // Resolve current active week from DOM element if present
+  let activeWeekNum = null;
+  const schedHeader = document.querySelector('#schedHeader, .sched-week-title, #adminWeekHeader');
+  if (schedHeader) {
+    const match = schedHeader.innerText.match(/Week\s*(\d+)/i);
+    if (match) activeWeekNum = parseInt(match[1], 10);
+  }
+
+  let weekDetailText = "";
+  if (activeWeekNum) {
+    const targetNum = isPrev ? activeWeekNum - 1 : activeWeekNum;
+    weekDetailText = ` Week ${targetNum} (${targetOption.toUpperCase()} WEEK)`;
+  } else {
+    weekDetailText = ` ${targetOption.toUpperCase()} WEEK`;
+  }
+
+  const confirmMsg = `Are you sure you want to SKIP${weekDetailText} for group '${groupName}'?\n\nThis will:\n1. Run an automatic full Drive backup.\n2. Copy ranks into the target week's rank column.\n3. Clear scores for that week.`;
   if (!confirm(confirmMsg)) return;
 
   const btnId = isPrev ? 'skipPrevWeekBtn' : 'skipCurrWeekBtn';
@@ -1065,7 +1081,12 @@ async function runSkipWeek(weekTarget = 'current') {
   }
 
   try {
-    const res = await apiCall('skipWeek', { group: groupName, weekOption: weekTarget });
+    const res = await apiCall('skipWeek', { 
+      group: groupName, 
+      weekOption: targetOption,
+      weekTarget: targetOption 
+    });
+
     let msg = typeof res === 'string' ? res : (res && res.message) ? res.message : `✅ Week skipped for group '${groupName}'.`;
 
     alert(msg);
@@ -1082,3 +1103,4 @@ async function runSkipWeek(weekTarget = 'current') {
     }
   }
 }
+
