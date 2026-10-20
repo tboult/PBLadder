@@ -1364,7 +1364,7 @@ function findColIndex(colMap, headerRow, candidateNames) {
  * }}
  */
 
- safeParseRankVal(val, defaultPrevRank, currentPopulation) {
+function safeParseRankVal(val, defaultPrevRank, currentPopulation) {
   currentPopulation = Number(currentPopulation) || 0;
 
   const emptyResult = {
