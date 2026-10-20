@@ -1041,3 +1041,47 @@ async function clearAllAdminScores() {
     }
   }
 }
+
+async function runSkipWeek() {
+  const groupRadio = document.querySelector('input[name="adminGroupRadio"]:checked')
+                  || document.querySelector('input[name="helpGroupRadio"]:checked')
+                  || document.querySelector('input[name="checkinGroupRadio"]:checked');
+  const groupName = groupRadio ? groupRadio.value : (typeof getSavedGroup === 'function' ? getSavedGroup() : localStorage.getItem('scpb_selected_group'));
+
+  if (!groupName) return alert('Please select a target group first.');
+
+  const confirmMsg = `Are you sure you want to SKIP the week for group '${groupName}' (e.g., due to bad weather)?\n\nThis will:\n1. Copy ranks from the previous week to the current week.\n2. Clear out all scores for the current week.`;
+  if (!confirm(confirmMsg)) return;
+
+  const btn = document.getElementById('skipWeekBtn');
+  const originalText = btn ? btn.innerText : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerText = '⌛ Skipping Week...';
+  }
+
+  try {
+    const res = await apiCall('skipWeek', { group: groupName });
+    let msg = '';
+    if (typeof res === 'string') {
+      msg = res;
+    } else if (res && res.message) {
+      msg = res.message;
+    } else {
+      msg = `✅ Week skipped for group '${groupName}'.`;
+    }
+
+    alert(msg);
+    if (typeof reloadAdminScores === 'function') {
+      reloadAdminScores();
+    }
+  } catch (err) {
+    console.error("Error skipping week:", err);
+    alert('Network error attempting to skip week: ' + (err.message || String(err)));
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerText = originalText;
+    }
+  }
+}
