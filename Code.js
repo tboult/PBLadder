@@ -1344,6 +1344,7 @@ function findColIndex(colMap, headerRow, candidateNames) {
  *   17.6%-R
  *   17.6%-r
  *   17.6%-I
+ *   17.6%-i 
  *
  * @param {*} val
  * @param {number} defaultPrevRank
@@ -1362,7 +1363,8 @@ function findColIndex(colMap, headerRow, candidateNames) {
  *   rawStr: string
  * }}
  */
-function safeParseRankVal(val, defaultPrevRank, currentPopulation) {
+
+ safeParseRankVal(val, defaultPrevRank, currentPopulation) {
   currentPopulation = Number(currentPopulation) || 0;
 
   const emptyResult = {
@@ -1372,6 +1374,8 @@ function safeParseRankVal(val, defaultPrevRank, currentPopulation) {
     restriction: "",
     isRestricted: false,
     isInactive: false,
+    isRosterInactive: false,
+    isNonPlayingActive: false,
     isPercentage: false,
     rawStr: ""
   };
@@ -1383,10 +1387,7 @@ function safeParseRankVal(val, defaultPrevRank, currentPopulation) {
   let str;
 
   if (val instanceof Date) {
-    str =
-      (val.getMonth() + 1) +
-      "/" +
-      val.getDate();
+    str = (val.getMonth() + 1) + "/" + val.getDate();
   } else {
     str = String(val).trim();
   }
@@ -1397,55 +1398,36 @@ function safeParseRankVal(val, defaultPrevRank, currentPopulation) {
     return emptyResult;
   }
 
-  /*
-   * Read the suffix separately.
-   *
-   * Uppercase R = upward movement was restricted.
-   * Lowercase r = downward movement was restricted.
-   * I or i = inactive.
-   */
   let restriction = "";
 
   if (/-R(?:\s*)$/i.test(str)) {
-    restriction = str.match(/-R\s*$/i)[0].includes("r")
-      ? "r"
-      : "R";
+    restriction = str.match(/-R\s*$/i)[0].includes("r") ? "r" : "R";
   }
 
   /*
-   * The case-insensitive test above cannot distinguish R from r
-   * reliably after normalization, so inspect the final suffix directly.
+   * Inspect final hyphenated suffix (-R, -r, -I, -i).
    */
   const suffixMatch = str.match(/-([RrIi])\s*$/);
 
   if (suffixMatch) {
-    restriction = suffixMatch[1];
+    restriction = suffixMatch[1]; // Preserves exact case ('R', 'r', 'I', 'i')
     str = str.replace(/-([RrIi])\s*$/, "").trim();
   }
 
   /*
-   * Also support formats such as 23R49, where R is between numbers.
-   * Do not treat that R as the directional suffix.
+   * Fallback for unhyphenated trailing I or i (e.g., "23/49i").
    */
-  const inactiveMatch = str.match(/I\s*$/i);
+  const inactiveMatch = str.match(/([Ii])\s*$/);
 
-  if (inactiveMatch) {
-    restriction = "I";
-    str = str.replace(/I\s*$/i, "").trim();
+  if (inactiveMatch && !restriction) {
+    restriction = inactiveMatch[1]; // Preserves exact case ('i' or 'I')
+    str = str.replace(/([Ii])\s*$/, "").trim();
   }
 
   /*
-   * Percentage format.
-   *
-   * Example:
-   *   17.6%-R
-   *
-   * This means rank position 17.6% through the field, not rank 17
-   * out of 6.
+   * Percentage format (e.g., "17.6%-i" or "17.6%-I")
    */
-  const percentMatch = str.match(
-    /^(\d+(?:\.\d+)?)\s*%\s*$/
-  );
+  const percentMatch = str.match(/^(\d+(?:\.\d+)?)\s*%\s*$/);
 
   if (percentMatch) {
     const percentage = Number(percentMatch[1]);
@@ -1457,14 +1439,8 @@ function safeParseRankVal(val, defaultPrevRank, currentPopulation) {
     let rank = defaultPrevRank;
 
     if (currentPopulation > 0) {
-      rank = Math.round(
-        (percentage / 100) * currentPopulation
-      );
-
-      rank = Math.max(
-        1,
-        Math.min(currentPopulation, rank)
-      );
+      rank = Math.round((percentage / 100) * currentPopulation);
+      rank = Math.max(1, Math.min(currentPopulation, rank));
     }
 
     return {
@@ -1473,29 +1449,22 @@ function safeParseRankVal(val, defaultPrevRank, currentPopulation) {
       percentage: percentage,
       restriction: restriction,
       isRestricted: restriction === "R" || restriction === "r",
-      isInactive: restriction === "I",
+      isInactive: restriction === "I" || restriction === "i",
+      isRosterInactive: restriction === "I",
+      isNonPlayingActive: restriction === "i",
       isPercentage: true,
       rawStr: String(val).trim()
     };
   }
 
   /*
-   * Fraction or compact-rank format.
-   *
-   * Supported:
-   *   23/49
-   *   23R49
-   *   23/49-R
+   * Fraction or compact-rank format (e.g., "23/49-i")
    */
-  const numericMatch = str.match(
-    /^(\d+)(?:\s*\/\s*|\s*[Rr]\s*)(\d+)?$/i
-  );
+  const numericMatch = str.match(/^(\d+)(?:\s*\/\s*|\s*[Rr]\s*)(\d+)?$/i);
 
   if (numericMatch) {
     let rank = Number(numericMatch[1]);
-    let numPeople = numericMatch[2]
-      ? Number(numericMatch[2])
-      : 0;
+    let numPeople = numericMatch[2] ? Number(numericMatch[2]) : 0;
 
     if (!Number.isFinite(rank) || rank <= 0) {
       rank = defaultPrevRank;
@@ -1508,38 +1477,34 @@ function safeParseRankVal(val, defaultPrevRank, currentPopulation) {
     return {
       rank: rank,
       numPeople: numPeople,
-      percentage:
-        numPeople > 0
-          ? (rank / numPeople) * 100
-          : null,
+      percentage: numPeople > 0 ? (rank / numPeople) * 100 : null,
       restriction: restriction,
       isRestricted: restriction === "R" || restriction === "r",
-      isInactive: restriction === "I",
+      isInactive: restriction === "I" || restriction === "i",
+      isRosterInactive: restriction === "I",
+      isNonPlayingActive: restriction === "i",
       isPercentage: false,
       rawStr: String(val).trim()
     };
   }
 
   /*
-   * Fallback for a plain numeric value such as "23".
+   * Plain numeric value (e.g., "23-i")
    */
-  const plainNumberMatch = str.match(
-    /^(\d+(?:\.\d+)?)$/
-  );
+  const plainNumberMatch = str.match(/^(\d+(?:\.\d+)?)$/);
 
   if (plainNumberMatch) {
     const rank = Number(plainNumberMatch[1]);
 
     return {
-      rank:
-        Number.isFinite(rank) && rank > 0
-          ? Math.round(rank)
-          : defaultPrevRank,
+      rank: Number.isFinite(rank) && rank > 0 ? Math.round(rank) : defaultPrevRank,
       numPeople: 0,
       percentage: null,
       restriction: restriction,
       isRestricted: restriction === "R" || restriction === "r",
-      isInactive: restriction === "I",
+      isInactive: restriction === "I" || restriction === "i",
+      isRosterInactive: restriction === "I",
+      isNonPlayingActive: restriction === "i",
       isPercentage: false,
       rawStr: String(val).trim()
     };
@@ -1691,11 +1656,12 @@ function safeParseRankVal(val, defaultPrevRank, currentPopulation) {
 }
 
 /**
- * Renders an inactive player's carried-forward standing.
- * asPercent true  -> "44.9%-I"   (percentile method)
- * asPercent false -> "22/49-I"   (absolute method)
- * A prior value with no denominator cannot yield a percentile,
- * so it falls back to the bare rank.
+ * Renders a non-playing or inactive player's carried-forward standing.
+ * - Active roster status but did not play -> suffix "-i" (lowercase)
+ * - Inactive roster status                -> suffix "-I" (uppercase)
+ * 
+ * asPercent true  -> "44.9%-i" / "44.9%-I"   (percentile method)
+ * asPercent false -> "22/49-i"  / "22/49-I"   (absolute method)
  */
 function formatInactiveStanding(player, asPercent) {
   if (!player.hasPrior) return "";
@@ -1705,15 +1671,19 @@ function formatInactiveStanding(player, asPercent) {
     pct = (player.priorRank / player.priorNumPeople) * 100;
   }
 
+  // Determine suffix based on roster status
+  const isRosterInactive = String(player.status || "").toUpperCase().trim() === "INACTIVE";
+  const suffix = isRosterInactive ? "-I" : "-i";
+
   if (asPercent) {
     return (pct === null || pct === undefined)
-      ? (player.priorRank + "-I")
-      : (pct.toFixed(1) + "%-I");
+      ? (player.priorRank + suffix)
+      : (pct.toFixed(1) + "%" + suffix);
   }
 
   return (player.priorNumPeople > 0)
-    ? (player.priorRank + "/" + player.priorNumPeople + "-I")
-    : (player.priorRank + "-I");
+    ? (player.priorRank + "/" + player.priorNumPeople + suffix)
+    : (player.priorRank + suffix);
 }
 
 /* Ranking code goals
@@ -2145,6 +2115,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
           rowRaw: row.slice(),
           name: pName,
           isActive: hasScore,
+          status: rawStatus, // Preserve roster status ("ACTIVE" or "INACTIVE")
           cumScore: cumScore,
           maxPtsForPlayedWeeks: maxPts,
           cumPct: cumPct,
@@ -2257,7 +2228,8 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
         if (totColIdx !== undefined) p.rowRaw[totColIdx] = p.cumScore;
         if (posColIdx !== undefined) p.rowRaw[posColIdx] = p.maxPtsForPlayedWeeks;
         if (pctColIdx !== undefined) p.rowRaw[pctColIdx] = p.cumPct;
-        if (col.status !== undefined) p.rowRaw[col.status] = "INACTIVE";
+        // Preserve roster status (keep ACTIVE as ACTIVE, INACTIVE as INACTIVE)
+        if (col.status !== undefined) p.rowRaw[col.status] = p.status;
         if (rawRankColIdx !== undefined) p.rowRaw[rawRankColIdx] = "";
         if (sortValColIdx !== undefined) p.rowRaw[sortValColIdx] = "";
         if (newLeftColIdx !== undefined) p.rowRaw[newLeftColIdx] = "";
@@ -2437,11 +2409,14 @@ function updateRankingsSheetForGroup(ss, groupName, activePlayers,
   rankSheet.getRange(1, 1, 1, width).setFontWeight("bold");
   rankSheet.setFrozenRows(1);
 
-  if (weekNum !== undefined && weekNum !== null && weekNum !== "") {
+if (weekNum !== undefined && weekNum !== null && weekNum !== "") {
     rankSheet.getRange(1, 1).setNote(
-      "Week " + weekNum + " standings. " +
-      "Rank column uses the primary method. " +
-      "-R upward movement capped, -r drop limited, -I inactive.");
+      "Week " + weekNum + " standings.\n" +
+      "Rank column uses the primary method.\n" +
+      "-R upward movement capped, -r drop limited,\n" +
+      "-i active player (but did not play this week),\n" +
+      "-I inactive roster player."
+    );
   }
 }
 
