@@ -1042,7 +1042,9 @@ async function clearAllAdminScores() {
   }
 }
 
+
 async function runSkipWeek(weekTarget = 'current') {
+  // 1. Resolve selected group
   const groupRadio = document.querySelector('input[name="adminGroupRadio"]:checked')
                   || document.querySelector('input[name="helpGroupRadio"]:checked')
                   || document.querySelector('input[name="checkinGroupRadio"]:checked');
@@ -1053,23 +1055,34 @@ async function runSkipWeek(weekTarget = 'current') {
   const isPrev = (weekTarget === 'previous' || weekTarget === 'prev');
   const targetOption = isPrev ? 'previous' : 'current';
 
-  // Resolve current active week from DOM element if present
+  // 2. Resolve current active week number from global state or DOM
   let activeWeekNum = null;
-  const schedHeader = document.querySelector('#schedHeader, .sched-week-title, #adminWeekHeader');
-  if (schedHeader) {
-    const match = schedHeader.innerText.match(/Week\s*(\d+)/i);
-    if (match) activeWeekNum = parseInt(match[1], 10);
+  if (typeof window.currentWeekNum === 'number') activeWeekNum = window.currentWeekNum;
+  else if (typeof window.currentWeek === 'number') activeWeekNum = window.currentWeek;
+  else if (window.appData && window.appData.weekNum) activeWeekNum = parseInt(window.appData.weekNum, 10);
+
+  if (!activeWeekNum) {
+    const headerEl = document.querySelector('#schedHeader, .sched-week-title, #adminWeekHeader, #weekTitle, .week-header');
+    if (headerEl) {
+      const match = headerEl.innerText.match(/Week\s*(\d+)/i) || headerEl.innerText.match(/W(\d+)/i);
+      if (match) activeWeekNum = parseInt(match[1], 10);
+    }
   }
 
-  let weekDetailText = "";
+  // 3. Construct explicit week label (e.g., "Previous Week (W2)" or "Current Week (W3)")
+  let labelText = isPrev ? 'Previous Week' : 'Current Week';
+  let targetWeekNum = null;
+
   if (activeWeekNum) {
-    const targetNum = isPrev ? activeWeekNum - 1 : activeWeekNum;
-    weekDetailText = ` Week ${targetNum} (${targetOption.toUpperCase()} WEEK)`;
-  } else {
-    weekDetailText = ` ${targetOption.toUpperCase()} WEEK`;
+    targetWeekNum = isPrev ? activeWeekNum - 1 : activeWeekNum;
+    if (targetWeekNum < 1) {
+      return alert(`Cannot skip Previous Week because the current active week is Week ${activeWeekNum}.`);
+    }
+    labelText += ` (W${targetWeekNum})`;
   }
 
-  const confirmMsg = `Are you sure you want to SKIP${weekDetailText} for group '${groupName}'?\n\nThis will:\n1. Run an automatic full Drive backup.\n2. Copy ranks into the target week's rank column.\n3. Clear scores for that week.`;
+  // 4. Confirmation dialog with explicit week number
+  const confirmMsg = `Are you sure you want to skip ${labelText} for group '${groupName}'?\n\nThis will:\n1. Run an automatic full Drive backup.\n2. Copy ranks into Week ${targetWeekNum ? targetWeekNum : ''} rank column.\n3. Clear scores for Week ${targetWeekNum ? targetWeekNum : ''}.`;
   if (!confirm(confirmMsg)) return;
 
   const btnId = isPrev ? 'skipPrevWeekBtn' : 'skipCurrWeekBtn';
@@ -1084,7 +1097,8 @@ async function runSkipWeek(weekTarget = 'current') {
     const res = await apiCall('skipWeek', { 
       group: groupName, 
       weekOption: targetOption,
-      weekTarget: targetOption 
+      weekTarget: targetOption,
+      week: targetWeekNum
     });
 
     let msg = typeof res === 'string' ? res : (res && res.message) ? res.message : `✅ Week skipped for group '${groupName}'.`;
@@ -1103,4 +1117,6 @@ async function runSkipWeek(weekTarget = 'current') {
     }
   }
 }
+
+
 
