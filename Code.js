@@ -1943,9 +1943,8 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
   /* true (and omitted) -> percentile in Week N, absolute in LASTR.
    * false              -> absolute in Week N, percentile in LASTR.
    * This restores the original meaning of the third argument. */
-    const doUpdateScores  = (updateScores === false) ? false : true;
-    const primaryIsScaled = (useScaledRankAsPrimary === false) ? false : true;
-    
+  const doUpdateScores  = (updateScores === false) ? false : true;
+  const primaryIsScaled = (useScaledRankAsPrimary === false) ? false : true;
 
   return executeWithLock(function () {
     const ss = (typeof getDb === "function")
@@ -2030,7 +2029,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
       const prevRColIdx   = resolveCol(col, headerRow,
                               ["r" + (weekNum - 1), "R" + (weekNum - 1)]);
 
-// Step 1: Harvest and sync scores only if updateScores is true
+      // Step 1: Harvest and sync scores only if updateScores is true
       if (updateScores) {
         if (typeof harvestScoresFromSchedules === "function") {
           const warnings = harvestScoresFromSchedules(
@@ -2110,6 +2109,11 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
           suspectHistory.push(pName + ": " + prev.rawStr);
         }
 
+        // ✅ Read current roster status (ACTIVE vs INACTIVE)
+        const rawStatus = (col.status !== undefined && row[col.status] !== undefined && row[col.status] !== "")
+          ? String(row[col.status]).toUpperCase().trim()
+          : "ACTIVE";
+
         const obj = {
           rowIndex: i,
           rowRaw: row.slice(),
@@ -2162,20 +2166,17 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
           throw new Error("Missing method result for row " + p.rowIndex);
         }
 
-
-       if (primaryIsScaled) {
+        if (primaryIsScaled) {
           p.primaryStr = s.outStr;
           p.primaryFinalRank = s.finalRank;
           p.primaryIsRestr = s.isRestricted;
           p.method2Str = a.outStr;
-       } else {
+        } else {
           p.primaryStr = a.outStr;
           p.primaryFinalRank = a.finalRank;
           p.primaryIsRestr = a.isRestricted;
           p.method2Str = s.outStr;
-        }          
-
-
+        }
 
         p.diagSortVal = p.sortVal;
         p.diagNewLeft = p.primaryFinalRank;
@@ -2193,13 +2194,12 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
         }
       });
 
-      /* ---- inactive players keep prior value, marked -I ---- */
-        inactivePlayers.forEach(function (p) {
+      /* ---- non-playing & inactive players keep prior value, marked -i or -I ---- */
+      inactivePlayers.forEach(function (p) {
         p.primaryFinalRank = numActive + 1;
         p.primaryStr = formatInactiveStanding(p, primaryIsScaled);
         p.method2Str  = formatInactiveStanding(p, !primaryIsScaled);
       });
-
 
       /* ---- write back ---- */
       activePlayers.forEach(function (p) {
@@ -2228,8 +2228,10 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
         if (totColIdx !== undefined) p.rowRaw[totColIdx] = p.cumScore;
         if (posColIdx !== undefined) p.rowRaw[posColIdx] = p.maxPtsForPlayedWeeks;
         if (pctColIdx !== undefined) p.rowRaw[pctColIdx] = p.cumPct;
-        // Preserve roster status (keep ACTIVE as ACTIVE, INACTIVE as INACTIVE)
+        
+        // Preserve true roster status (ACTIVE -> "ACTIVE", INACTIVE -> "INACTIVE")
         if (col.status !== undefined) p.rowRaw[col.status] = p.status;
+        
         if (rawRankColIdx !== undefined) p.rowRaw[rawRankColIdx] = "";
         if (sortValColIdx !== undefined) p.rowRaw[sortValColIdx] = "";
         if (newLeftColIdx !== undefined) p.rowRaw[newLeftColIdx] = "";
@@ -2256,11 +2258,10 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
         sheet.getRange(1, lastRColIdx + 1, finalRows.length, 1)
              .setNumberFormat('@');
       }
-        if (typeof updateRankingsSheetForGroup === "function") {
-            updateRankingsSheetForGroup(
-                ss, cleanGroupName, activePlayers, inactivePlayers, weekNum);
-        }
-
+      if (typeof updateRankingsSheetForGroup === "function") {
+        updateRankingsSheetForGroup(
+          ss, cleanGroupName, activePlayers, inactivePlayers, weekNum);
+      }
 
       sheet.clearContents();
       sheet.getRange(1, 1, finalRows.length, finalRows[0].length)
@@ -2269,11 +2270,10 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
       if (backupScore) ss.deleteSheet(backupScore);
       if (backupSched) ss.deleteSheet(backupSched);
 
-
       const primaryName = primaryIsScaled ? "Percentile-scaled" : "Absolute";
       const secondName  = primaryIsScaled ? "Absolute" : "Percentile-scaled";
 
-        let msg = "Alert: Processed '" + sheet.getName() + "'. " +
+      let msg = "Alert: Processed '" + sheet.getName() + "'. " +
         numActive + " active, " + inactivePlayers.length + " inactive. " +
         "Week " + weekNum + " = " + primaryName +
         "; LASTR = " + secondName + ". " +
@@ -2281,10 +2281,8 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
         "Movement cap used: scaled \u00B1" + scaled.windowUsed +
         ", absolute \u00B1" + absolute.windowUsed +
         " (requested \u00B1" + maxMove + "). " +
-          "Newcomer band starts at rank " + scaled.bandStart + ".";
+        "Newcomer band starts at rank " + scaled.bandStart + ".";
 
-
-        
       if (scaled.windowUsed > maxMove || absolute.windowUsed > maxMove) {
         msg += " The requested cap was mathematically impossible for this " +
                "field; the smallest feasible cap was used.";
@@ -2302,7 +2300,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
         ss.deleteSheet(backupScore);
       }
       if (backupSched && schedSheet) {
-          schedSheet.clear();
+        schedSheet.clear();
         backupSched.getDataRange().copyTo(schedSheet.getRange(1, 1));
         ss.deleteSheet(backupSched);
       }
@@ -2310,6 +2308,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
     }
   });
 }
+
 
 
 
