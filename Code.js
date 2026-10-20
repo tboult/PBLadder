@@ -3281,7 +3281,7 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
     var i2Cell = sheet.getRange("I2");
     i2Cell.setValue(currentWeek);
     i2Cell.setHorizontalAlignment("center");
-      var i3Cell = schedSheet.getRange("I3");
+     var i3Cell = sheet.getRange("I3");
       i3Cell.setValue("Week " + currentWeek);
       i3Cell.setHorizontalAlignment("center");
 
@@ -3299,7 +3299,7 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
             weekDateStr = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "yyyy-MM-dd");
         }        
 
-      var i4Cell = schedSheet.getRange("I4");
+      var i4Cell = sheet.getRange("I4");
       i4Cell.setValue(weekDateStr);
       i4Cell.setHorizontalAlignment("center");
 
