@@ -1055,45 +1055,43 @@ async function runSkipWeek(weekTarget = 'current') {
   const isPrev = (weekTarget === 'previous' || weekTarget === 'prev');
   const targetOption = isPrev ? 'previous' : 'current';
 
-  // 2. Resolve current active week number from global state or DOM
-  let activeWeekNum = null;
-  if (typeof window.currentWeekNum === 'number') activeWeekNum = window.currentWeekNum;
-  else if (typeof window.currentWeek === 'number') activeWeekNum = window.currentWeek;
-  else if (window.appData && window.appData.weekNum) activeWeekNum = parseInt(window.appData.weekNum, 10);
-
-  if (!activeWeekNum) {
-    const headerEl = document.querySelector('#schedHeader, .sched-week-title, #adminWeekHeader, #weekTitle, .week-header');
-    if (headerEl) {
-      const match = headerEl.innerText.match(/Week\s*(\d+)/i) || headerEl.innerText.match(/W(\d+)/i);
-      if (match) activeWeekNum = parseInt(match[1], 10);
-    }
-  }
-
-  // 3. Construct explicit week label (e.g., "Previous Week (W2)" or "Current Week (W3)")
-  let labelText = isPrev ? 'Previous Week' : 'Current Week';
-  let targetWeekNum = null;
-
-  if (activeWeekNum) {
-    targetWeekNum = isPrev ? activeWeekNum - 1 : activeWeekNum;
-    if (targetWeekNum < 1) {
-      return alert(`Cannot skip Previous Week because the current active week is Week ${activeWeekNum}.`);
-    }
-    labelText += ` (W${targetWeekNum})`;
-  }
-
-  // 4. Confirmation dialog with explicit week number
-  const confirmMsg = `Are you sure you want to skip ${labelText} for group '${groupName}'?\n\nThis will:\n1. Run an automatic full Drive backup.\n2. Copy ranks into Week ${targetWeekNum ? targetWeekNum : ''} rank column.\n3. Clear scores for Week ${targetWeekNum ? targetWeekNum : ''}.`;
-  if (!confirm(confirmMsg)) return;
-
   const btnId = isPrev ? 'skipPrevWeekBtn' : 'skipCurrWeekBtn';
   const btn = document.getElementById(btnId) || document.getElementById('skipWeekBtn');
   const originalText = btn ? btn.innerText : '';
+  
   if (btn) {
     btn.disabled = true;
-    btn.innerText = '⌛ Skipping...';
+    btn.innerText = '⌛ Fetching week info...';
   }
 
   try {
+    // 2. Query backend for accurate week info
+    const weekInfo = await apiCall('getWeekInfo', { group: groupName });
+    
+    let activeWeekNum = (weekInfo && weekInfo.currentWeek) ? weekInfo.currentWeek : 1;
+    let targetWeekNum = isPrev ? activeWeekNum - 1 : activeWeekNum;
+    let scheduleDate = (weekInfo && weekInfo.scheduleDate) ? weekInfo.scheduleDate : '';
+
+    if (isPrev && targetWeekNum < 1) {
+      alert(`Cannot skip Previous Week because current active week is Week ${activeWeekNum}.`);
+      return;
+    }
+
+    // 3. Format explicit prompt: "Previous Week (W2)" or "Current Week (W3)"
+    const labelText = isPrev ? `Previous Week (W${targetWeekNum})` : `Current Week (W${targetWeekNum})`;
+    const dateText = scheduleDate ? ` [Date: ${scheduleDate}]` : '';
+
+    const confirmMsg = `Are you sure you want to skip ${labelText}${dateText} for group '${groupName}'?\n\n` +
+                       `This will:\n` +
+                       `1. Run an automatic full Drive backup.\n` +
+                       `2. Copy ranks into Week ${targetWeekNum} rank column.\n` +
+                       `3. Clear scores for Week ${targetWeekNum}.`;
+
+    if (!confirm(confirmMsg)) return;
+
+    if (btn) btn.innerText = '⌛ Skipping...';
+
+    // 4. Send skip request with target week number
     const res = await apiCall('skipWeek', { 
       group: groupName, 
       weekOption: targetOption,
@@ -1101,7 +1099,7 @@ async function runSkipWeek(weekTarget = 'current') {
       week: targetWeekNum
     });
 
-    let msg = typeof res === 'string' ? res : (res && res.message) ? res.message : `✅ Week skipped for group '${groupName}'.`;
+    let msg = typeof res === 'string' ? res : (res && res.message) ? res.message : `✅ Week ${targetWeekNum} skipped for group '${groupName}'.`;
 
     alert(msg);
     if (typeof reloadAdminScores === 'function') {
@@ -1109,7 +1107,7 @@ async function runSkipWeek(weekTarget = 'current') {
     }
   } catch (err) {
     console.error("Error skipping week:", err);
-    alert('Network error attempting to skip week: ' + (err.message || String(err)));
+    alert('Error attempting to skip week: ' + (err.message || String(err)));
   } finally {
     if (btn) {
       btn.disabled = false;
@@ -1117,6 +1115,9 @@ async function runSkipWeek(weekTarget = 'current') {
     }
   }
 }
+
+
+
 
 
 
