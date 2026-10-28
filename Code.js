@@ -3252,41 +3252,107 @@ function saveCheckIns(schedSheetName, checkedPlayerNames) {
 }
 
 /**
- * MANUAL RUNNER: Call this function manually from the GAS Editor or assign it
- * to a spreadsheet button to clear Courts, Check-Ins, AND Scores at any time.
- */
-/**
- * Menu action to clear schedule data for the currently active tab.
- * Builds an explicit payload matching the Web App API call format.
+ * Menu action to clear schedule data.
+ * Displays a popup modal with dynamic group options to eliminate tab guessing.
  */
 function manuallyResetCourtsAndCheckIns() {
   const ss = (typeof getDb === "function") ? getDb() : SpreadsheetApp.getActiveSpreadsheet();
-  const activeSheet = ss.getActiveSheet();
-  const activeName = activeSheet ? activeSheet.getName() : "";
-  const cleanGroup = activeName.replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
+  
+  // 1. Automatically discover available schedule groups in this spreadsheet
+  let groups = [];
+  if (typeof getActiveScheduleTabs === 'function') {
+    groups = getActiveScheduleTabs().map(t => t.replace(/^Sched\s*/i, "").trim());
+  } else {
+    const schedSheets = ss.getSheets().filter(s => s.getName().startsWith("Sched "));
+    groups = schedSheets.map(s => s.getName().replace(/^Sched\s*/i, "").trim());
+  }
 
-  const ui = SpreadsheetApp.getUi();
-
-  if (!cleanGroup) {
-    ui.alert("⚠️ Action Canceled", "Could not determine the group from active tab '" + activeName + "'. Please switch to a Score or Sched tab.", ui.ButtonSet.OK);
+  if (groups.length === 0) {
+    SpreadsheetApp.getUi().alert("⚠️ No schedule sheets found (e.g. 'Sched Women') in this spreadsheet.");
     return;
   }
 
-  // Explicit payload identical to Web App call
-  const payload = {
-    group: cleanGroup,
-    sheet: cleanGroup,
-    schedSheetName: "Sched " + cleanGroup
-  };
+  // 2. Build Modal Options HTML
+  let optionsHtml = groups.map(g => `<option value="${g}">${g}</option>`).join("");
 
-  const response = resetCheckInsAndSchedData(payload);
+  let htmlContent = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <base target="_top">
+        <style>
+          body { font-family: Arial, sans-serif; padding: 15px; background: #ffffff; color: #333; margin: 0; }
+          label { font-weight: bold; font-size: 13px; margin-bottom: 8px; display: block; color: #444; }
+          select { width: 100%; padding: 8px 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; margin-bottom: 20px; box-sizing: border-box; }
+          .btn-container { text-align: right; margin-top: 10px; }
+          button { padding: 8px 16px; font-size: 13px; border-radius: 4px; border: none; cursor: pointer; font-weight: bold; }
+          .btn-cancel { background: #e0e0e0; color: #333; margin-right: 8px; }
+          .btn-clear { background: #d9534f; color: white; }
+          .btn-clear:hover { background: #c9302c; }
+          #status { font-size: 12px; color: #666; margin-top: 8px; text-align: center; display: none; }
+        </style>
+      </head>
+      <body>
+        <label for="groupSelect">Select Schedule Group to Clear:</label>
+        <select id="groupSelect">
+          ${optionsHtml}
+          <option value="ALL">-- CLEAR ALL GROUPS --</option>
+        </select>
 
-  if (response && response.message) {
-    ui.alert("Clear Schedule Complete", response.message, ui.ButtonSet.OK);
+        <div class="btn-container">
+          <button class="btn-cancel" onclick="google.script.host.close()">Cancel</button>
+          <button id="clearBtn" class="btn-clear" onclick="runClear()">Clear Schedule</button>
+        </div>
+
+        <div id="status">Clearing schedule data, please wait...</div>
+
+        <script>
+          function runClear() {
+            const selected = document.getElementById('groupSelect').value;
+            document.getElementById('clearBtn').disabled = true;
+            document.getElementById('status').style.display = 'block';
+
+            google.script.run
+              .withSuccessHandler(function(res) {
+                alert((res && res.message) ? res.message : "Schedule cleared successfully.");
+                google.script.host.close();
+              })
+              .withFailureHandler(function(err) {
+                alert("Error: " + err.message);
+                document.getElementById('clearBtn').disabled = false;
+                document.getElementById('status').style.display = 'none';
+              })
+              .runMenuClearSchedule(selected);
+          }
+        </script>
+      </body>
+    </html>
+  `;
+
+  const htmlOutput = HtmlService.createHtmlOutput(htmlContent)
+    .setWidth(360)
+    .setHeight(180);
+
+  SpreadsheetApp.getUi().showModalDialog(htmlOutput, "Clear Schedule Data");
+}
+
+/**
+ * Backend target function called by the modal selection dialog.
+ */
+function runMenuClearSchedule(groupSelection) {
+  if (groupSelection === "ALL") {
+    // Pass boolean true to clear all schedule tabs
+    return resetCheckInsAndSchedData(true);
   } else {
-    ui.alert("Clear Schedule Complete", "Cleared Courts, Check-Ins, and Scores for 'Sched " + cleanGroup + "'.", ui.ButtonSet.OK);
+    // Pass explicit payload object for the selected group
+    return resetCheckInsAndSchedData({
+      group: groupSelection,
+      sheet: groupSelection,
+      schedSheetName: "Sched " + groupSelection
+    });
   }
 }
+
 
 
 
@@ -3559,6 +3625,8 @@ function ensurePlayerCheckedIn(cleanGroup, playerTarget) {
     return { status: "error", success: false, message: "Check-in failed: " + err.message };
   }
 }
+
+
 
 
 /**
