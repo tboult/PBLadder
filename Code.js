@@ -3255,8 +3255,37 @@ function saveCheckIns(schedSheetName, checkedPlayerNames) {
  * MANUAL RUNNER: Call this function manually from the GAS Editor or assign it
  * to a spreadsheet button to clear Courts, Check-Ins, AND Scores at any time.
  */
+/**
+ * Menu action to clear schedule data for the currently active tab.
+ * Builds an explicit payload matching the Web App API call format.
+ */
 function manuallyResetCourtsAndCheckIns() {
-  return resetCheckInsAndSchedData(true);
+  const ss = (typeof getDb === "function") ? getDb() : SpreadsheetApp.getActiveSpreadsheet();
+  const activeSheet = ss.getActiveSheet();
+  const activeName = activeSheet ? activeSheet.getName() : "";
+  const cleanGroup = activeName.replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
+
+  const ui = SpreadsheetApp.getUi();
+
+  if (!cleanGroup) {
+    ui.alert("⚠️ Action Canceled", "Could not determine the group from active tab '" + activeName + "'. Please switch to a Score or Sched tab.", ui.ButtonSet.OK);
+    return;
+  }
+
+  // Explicit payload identical to Web App call
+  const payload = {
+    group: cleanGroup,
+    sheet: cleanGroup,
+    schedSheetName: "Sched " + cleanGroup
+  };
+
+  const response = resetCheckInsAndSchedData(payload);
+
+  if (response && response.message) {
+    ui.alert("Clear Schedule Complete", response.message, ui.ButtonSet.OK);
+  } else {
+    ui.alert("Clear Schedule Complete", "Cleared Courts, Check-Ins, and Scores for 'Sched " + cleanGroup + "'.", ui.ButtonSet.OK);
+  }
 }
 
 
