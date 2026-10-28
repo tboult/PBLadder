@@ -1663,6 +1663,10 @@ function assignRanksWithinWindows(items, numSlots) {
  *  MAIN
  * ========================================================================= */
 
+/* =========================================================================
+ *  MAIN
+ * ========================================================================= */
+
 function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, useScaledRankAsPrimary = true) {
   const doUpdateScores  = (updateScores === false) ? false : true;
   const primaryIsScaled = (useScaledRankAsPrimary === false) ? false : true;
@@ -1873,7 +1877,17 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
 
       activePlayers.forEach(p => writeRowData(p, "ACTIVE"));
       inactivePlayers.forEach(p => writeRowData(p));
+      
+      // Sort Active by Final Computed Rank
       activePlayers.sort((a, b) => a.primaryFinalRank - b.primaryFinalRank);
+
+      // Sort Inactive strictly by prior Rank
+      inactivePlayers.sort((a, b) => {
+        const pa = a.hasPrior ? a.priorRank : 99999;
+        const pb = b.hasPrior ? b.priorRank : 99999;
+        if (pa !== pb) return pa - pb;
+        return (b.priorNumPeople || 0) - (a.priorNumPeople || 0); // Tie breaker using previous field size
+      });
 
       const finalRows = [headerRow];
       activePlayers.forEach(p => finalRows.push(p.rowRaw));
@@ -1926,6 +1940,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
     }
   });
 }
+
 
 
 
