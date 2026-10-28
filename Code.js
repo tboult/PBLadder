@@ -4076,11 +4076,10 @@ function handleCheckInPlayer(payload) {
   }
 }
 
-
 /**
  * Reorders the Sched sheet to match new rankings while preserving scores,
  * courts, check-ins, and submitter info strictly coupled to each player.
- * Expands Sched headers to include Phone (Col J), First Name (Col K), and Last Name (Col L).
+ * Clears old Column I week metadata prior to writing new week information.
  */
 function rebuildSchedSheetOrder(ss, cleanGroupName, activePlayers, inactivePlayers, prevWeekNum) {
   let schedSheet = ss.getSheetByName("Sched " + cleanGroupName);
@@ -4228,7 +4227,13 @@ function rebuildSchedSheetOrder(ss, cleanGroupName, activePlayers, inactivePlaye
   schedSheet.clearContents();
   schedSheet.getRange(1, 1, newRows.length, headers.length).setValues(newRows);
 
-  // Safely advance week header metadata
+  // Clear all old Column I week metadata across all rows before stamping new week info
+  let maxColRows = Math.max(schedSheet.getLastRow(), 20);
+  if (maxColRows > 0) {
+    schedSheet.getRange(1, 9, maxColRows, 1).clearContent().clearFormat();
+  }
+
+  // Stamp new week header metadata in Column I (Rows 1-4)
   let nextWeek = prevWeekNum + 1;
   if (nextWeek <= 10) {
     try {
@@ -4244,6 +4249,8 @@ function rebuildSchedSheetOrder(ss, cleanGroupName, activePlayers, inactivePlaye
     }
   }
 }
+
+
 
 
 
