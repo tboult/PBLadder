@@ -3533,65 +3533,60 @@ function ensurePlayerCheckedIn(cleanGroup, playerTarget) {
 
 /**
  * Schedule reset routine.
- * Handles context-aware execution while preserving player identity columns:
- * 1. Sheet UI Run (Menu/Button): Automatically detects and uses currently active tab.
- * 2. Web App Run: Resolves selected group from payload or web app state/cache.
- * 3. Automated Trigger Run: Resolves group based on Day of Week (Mon=Women, Thu=Men, Fri=Mixed).
+ * Handles three execution modes while keeping player identity columns intact:
+ * 1. Explicit Payload Object/String (App): Uses payload.group or payload.schedSheetName.
+ * 2. Menu Call (payload === true): Uses currently active Google Sheet tab if it matches a valid group.
+ * 3. Automated Trigger (payload undefined): Uses Day-of-Week schedule.
  */
 function resetCheckInsAndSchedData(payload) {
   return executeWithLock(function() {
     const ss = getDb();
     let targetTabs = [];
-    let rawGroup = "";
+    let targetGroup = "";
 
-    // Detect execution context (Sheet UI vs Web App / Trigger)
-    let isSheetUI = false;
-    try {
-      SpreadsheetApp.getUi();
-      isSheetUI = true;
-    } catch (e) {
-      isSheetUI = false;
+    // 1. Prioritize explicit Object or String payload (Web App API calls)
+    if (typeof payload === 'string' && payload.trim() !== "" && payload !== "true") {
+      targetGroup = payload;
+    } else if (typeof payload === 'object' && payload !== null) {
+      targetGroup = payload.group || payload.groupName || payload.selectedGroup || payload.activeGroup || payload.schedSheetName || payload.tab || "";
     }
 
-    if (isSheetUI) {
-      // CONTEXT 1: Called from Google Sheet UI -> Use active sheet tab
+    // 2. If no group in payload (e.g. Menu Call passing true), check currently active sheet tab
+    if (!targetGroup) {
       const activeSheet = ss.getActiveSheet();
       if (activeSheet) {
-        rawGroup = activeSheet.getName();
-      }
-    } else {
-      // CONTEXT 2: Called from Web App or Script Call
-      if (typeof payload === 'string' && payload.trim() !== "" && payload !== "true") {
-        rawGroup = payload;
-      } else if (typeof payload === 'object' && payload !== null) {
-        rawGroup = payload.group || payload.groupName || payload.selectedGroup || payload.activeGroup || payload.schedSheetName || payload.tab || "";
-      }
-
-      // If payload === true or group not in string/object, check web app session helpers
-      if (!rawGroup && (payload === true || typeof payload === 'boolean')) {
-        if (typeof getAppSelectedGroup === 'function') rawGroup = getAppSelectedGroup();
-        else if (typeof getSelectedGroup === 'function') rawGroup = getSelectedGroup();
-        else if (typeof getActiveGroup === 'function') rawGroup = getActiveGroup();
-        else if (typeof getCurrentGroup === 'function') rawGroup = getCurrentGroup();
-
-        if (!rawGroup && typeof CacheService !== 'undefined') {
-          try {
-            const cache = CacheService.getScriptCache();
-            rawGroup = cache.get("SELECTED_GROUP") || cache.get("ACTIVE_GROUP") || cache.get("CURRENT_GROUP") || "";
-          } catch(e) {}
+        const activeName = activeSheet.getName();
+        const candidateGroup = activeName.replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
+        
+        // Confirm that a Schedule sheet actually exists for this candidate group name
+        if (candidateGroup && (ss.getSheetByName("Sched " + candidateGroup) || ss.getSheetByName(candidateGroup))) {
+          targetGroup = candidateGroup;
         }
       }
     }
 
-    // Assign target tab if a group was resolved from Sheet UI or Web App
-    if (rawGroup) {
-      const cleanGroup = String(rawGroup).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
+    // 3. Fallback to App Cache / State functions if targetGroup is still empty and payload === true
+    if (!targetGroup && (payload === true || typeof payload === 'boolean')) {
+      if (typeof getAppSelectedGroup === 'function') targetGroup = getAppSelectedGroup();
+      else if (typeof getSelectedGroup === 'function') targetGroup = getSelectedGroup();
+
+      if (!targetGroup && typeof CacheService !== 'undefined') {
+        try {
+          const cache = CacheService.getScriptCache();
+          targetGroup = cache.get("SELECTED_GROUP") || cache.get("ACTIVE_GROUP") || "";
+        } catch(e) {}
+      }
+    }
+
+    // Set target tab if a specific group was resolved
+    if (targetGroup) {
+      const cleanGroup = String(targetGroup).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
       if (cleanGroup) {
         targetTabs = ["Sched " + cleanGroup];
       }
     }
 
-    // CONTEXT 3: Automated Timer Run (No payload, not Sheet UI) -> Day of Week logic
+    // 4. Automated Timer Trigger (no payload provided and active tab is not a group tab)
     if (targetTabs.length === 0) {
       const dayOfWeek = new Date().getDay(); // 0 = Sun, 1 = Mon, 4 = Thu, 5 = Fri
       const allTabs = typeof getActiveScheduleTabs === 'function'
@@ -3622,12 +3617,12 @@ function resetCheckInsAndSchedData(payload) {
 
       const cleanGroup = String(tabName).replace(/^Sched\s*/i, "").trim();
 
-      // 1. Sync missing players from Score sheet using First + Last Name
+      // Sync missing players from Score sheet using First + Last Name
       if (typeof syncScoreSheetPlayersToSched === 'function') {
         syncScoreSheetPlayersToSched(ss, cleanGroup, schedSheet);
       }
 
-      // 2. Clear Courts, Check-Ins, Game 1-3 Scores, Totals, and Submitter Info on Sched sheet
+      // Clear Courts, Check-Ins, Game 1-3 Scores, Totals, and Submitter Info on Sched sheet
       const dataRange = schedSheet.getDataRange();
       const data = dataRange.getValues();
       if (data.length > 1) {
@@ -3666,7 +3661,7 @@ function resetCheckInsAndSchedData(payload) {
         dataRange.setValues(data);
       }
 
-      // 3. Clear Courts and Points on corresponding 'Score [Group]' sheet
+      // Clear Courts and Points on corresponding 'Score [Group]' sheet
       const scoreSheet = ss.getSheetByName("Score " + cleanGroup);
       if (scoreSheet) {
         const scoreData = scoreSheet.getDataRange().getValues();
@@ -3675,17 +3670,17 @@ function resetCheckInsAndSchedData(payload) {
           const scoreHeaders = scoreData[0].map(h => String(h || '').trim().toLowerCase());
           
           let scrtIdx = scoreHeaders.findIndex(h => /court|crt/i.test(h));
-          if (scrtIdx === -1) scrtIdx = 3; // Col D
+          if (scrtIdx === -1) scrtIdx = 3;
 
           let ptsIdx = scoreHeaders.findIndex(h => /^pts$|^points$|^total$/i.test(h));
-          if (ptsIdx === -1) ptsIdx = 4; // Col E
+          if (ptsIdx === -1) ptsIdx = 4;
 
           scoreSheet.getRange(2, scrtIdx + 1, numScoreRows, 1).setValues(new Array(numScoreRows).fill([""]));
           scoreSheet.getRange(2, ptsIdx + 1, numScoreRows, 1).clearContent();
         }
       }
 
-      // 4. Invalidate caches
+      // Invalidate caches
       if (typeof CacheService !== 'undefined') {
         try {
           const cache = CacheService.getScriptCache();
