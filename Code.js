@@ -1061,10 +1061,10 @@ function cleanPhoneDigits(phoneVal) {
 
 
 
-
 /**
- * Harvests scores from the Schedule sheet into the Pts column of the Score sheet.
+ * Harvests scores and court assignments from the Schedule sheet into the Score sheet.
  * Computes sum of Game 1, 2, 3 and corrects Sched Total if needed.
+ * Copies Court assignment and verified scores to the Score sheet.
  * Utilizes Name, Phone (Col J), First Name (Col K), and Last Name (Col L) for exact matching.
  */
 function harvestScoresFromSchedules(ss, data, col, targetWeekIdx, schedSheet, weekNum) {
@@ -1075,6 +1075,7 @@ function harvestScoresFromSchedules(ss, data, col, targetWeekIdx, schedSheet, we
   if (schedData.length <= 1) return warnings;
 
   let schedHeaders = schedData[0].map(h => String(h || '').trim().toLowerCase());
+  
   let nameIdx = schedHeaders.findIndex(h => /name|player/i.test(h));
   if (nameIdx === -1) nameIdx = 0;
 
@@ -1091,19 +1092,22 @@ function harvestScoresFromSchedules(ss, data, col, targetWeekIdx, schedSheet, we
   if (scoreIdx === -1) scoreIdx = schedHeaders.findIndex(h => /pts|points|score|total/i.test(h));
   if (scoreIdx === -1 && schedHeaders.length >= 7) scoreIdx = 6;
 
+  let schedCourtIdx = schedHeaders.findIndex(h => /court|crt/i.test(h));
+  if (schedCourtIdx === -1 && schedHeaders.length >= 2) schedCourtIdx = 1;
+
   let g1Idx = schedHeaders.findIndex(h => /game\s*1|\bg1\b/i.test(h));
   let g2Idx = schedHeaders.findIndex(h => /game\s*2|\bg2\b/i.test(h));
   let g3Idx = schedHeaders.findIndex(h => /game\s*3|\bg3\b/i.test(h));
 
   if (scoreIdx === -1) return warnings;
 
-  let schedScoresByPhoneKey = {};
-  let schedScoresByFirstLastKey = {};
-  let schedScoresByNameKey = {};
-  let hasAnySchedScores = false;
+  let schedMapByPhoneKey = {};
+  let schedMapByFirstLastKey = {};
+  let schedMapByNameKey = {};
+  let hasAnySchedData = false;
   let schedModified = false;
 
-  // PASS 1: Read Sched sheet, sum games, and fix Sched Total if needed
+  // PASS 1: Read Sched sheet, sum games, fix Sched Total if needed, and extract Court
   for (let r = 1; r < schedData.length; r++) {
     let rawSchedName = schedData[r][nameIdx];
     if (!rawSchedName || String(rawSchedName).startsWith("---") || String(rawSchedName).toLowerCase().startsWith("time:")) continue;
@@ -1112,7 +1116,8 @@ function harvestScoresFromSchedules(ss, data, col, targetWeekIdx, schedSheet, we
     let schedFirst = firstIdx !== -1 ? normalizeName(schedData[r][firstIdx]) : "";
     let schedLast  = lastIdx !== -1 ? normalizeName(schedData[r][lastIdx]) : "";
     let phoneDigits = (phoneIdx !== -1 && schedData[r][phoneIdx]) ? cleanPhoneDigits(schedData[r][phoneIdx]) : "";
-    
+    let rawCourt = (schedCourtIdx !== -1 && schedData[r][schedCourtIdx] !== undefined) ? String(schedData[r][schedCourtIdx]).trim() : "";
+
     let recordedTotalStr = schedData[r][scoreIdx];
     let recordedTotal = (recordedTotalStr !== "" && recordedTotalStr !== null) ? parseFloat(recordedTotalStr) : NaN;
     
@@ -1141,24 +1146,25 @@ function harvestScoresFromSchedules(ss, data, col, targetWeekIdx, schedSheet, we
       finalValToUse = recordedTotal;
     }
 
-    if (finalValToUse !== null) {
-      if (phoneDigits && phoneDigits.length >= 7) schedScoresByPhoneKey[phoneDigits.slice(-7)] = finalValToUse;
-      if (schedFirst && schedLast) schedScoresByFirstLastKey[schedFirst + "_" + schedLast] = finalValToUse;
-      if (normName) schedScoresByNameKey[normName] = finalValToUse;
-      hasAnySchedScores = true;
-    }
+    let schedInfo = { score: finalValToUse, court: rawCourt };
+
+    if (phoneDigits && phoneDigits.length >= 7) schedMapByPhoneKey[phoneDigits.slice(-7)] = schedInfo;
+    if (schedFirst && schedLast) schedMapByFirstLastKey[schedFirst + "_" + schedLast] = schedInfo;
+    if (normName) schedMapByNameKey[normName] = schedInfo;
+    hasAnySchedData = true;
   }
 
   if (schedModified) {
     schedSheet.getRange(1, 1, schedData.length, schedData[0].length).setValues(schedData);
   }
 
-  if (!hasAnySchedScores) return warnings;
+  if (!hasAnySchedData) return warnings;
 
   let ptsColIdx = col.pts !== undefined ? col.pts : col.points;
-  if (ptsColIdx === undefined) return warnings;
+  let scoreCourtIdx = col.court !== undefined ? col.court : data[0].map(h => String(h || '').trim().toLowerCase()).findIndex(h => /court|crt/i.test(h));
+  if (scoreCourtIdx === -1) scoreCourtIdx = 3; // Default Column D
 
-  // PASS 2: Write verified scores to Score sheet array
+  // PASS 2: Write verified scores and court assignments to Score sheet array
   for (let i = 1; i < data.length; i++) {
     let row = data[i];
     let firstName = col.first !== undefined ? String(row[col.first] || "").trim() : "";
@@ -1174,36 +1180,44 @@ function harvestScoresFromSchedules(ss, data, col, targetWeekIdx, schedSheet, we
     let phoneColIdx = col.phone !== undefined ? col.phone : col.mobile;
     let scorePhoneDigits = phoneColIdx !== undefined ? cleanPhoneDigits(row[phoneColIdx]) : "";
 
-    let schedVal = undefined;
+    let schedInfo = undefined;
 
     // Match by Phone (Last 7 Digits)
     if (scorePhoneDigits && scorePhoneDigits.length >= 7) {
-      schedVal = schedScoresByPhoneKey[scorePhoneDigits.slice(-7)];
+      schedInfo = schedMapByPhoneKey[scorePhoneDigits.slice(-7)];
     }
     // Match by First + Last Name
-    if (schedVal === undefined && normFirst && normLast) {
-      schedVal = schedScoresByFirstLastKey[normFirst + "_" + normLast];
+    if (schedInfo === undefined && normFirst && normLast) {
+      schedInfo = schedMapByFirstLastKey[normFirst + "_" + normLast];
     }
     // Match by Full Name
-    if (schedVal === undefined && normName) {
-      schedVal = schedScoresByNameKey[normName];
+    if (schedInfo === undefined && normName) {
+      schedInfo = schedMapByNameKey[normName];
     }
 
-    let currentPts = row[ptsColIdx];
-    
-    if (schedVal !== undefined) {
-      let parsedPts = (currentPts !== "" && currentPts !== null) ? parseFloat(currentPts) : NaN;
+    if (schedInfo !== undefined) {
+      // Copy Court Assignment to Score sheet
+      if (scoreCourtIdx !== -1 && schedInfo.court !== undefined) {
+        row[scoreCourtIdx] = schedInfo.court;
+      }
 
-      if (isNaN(parsedPts) || Math.abs(parsedPts - schedVal) > 0.001) {
-        row[ptsColIdx] = schedVal;
-        let oldScoreVal = isNaN(parsedPts) ? "(blank)" : parsedPts;
-        warnings.push(`Score Mismatch [${rawScoreName}]: Pts was ${oldScoreVal}. Auto-updated to match schedule (${schedVal}).`);
+      // Copy Score to Pts column
+      if (ptsColIdx !== undefined && schedInfo.score !== null && schedInfo.score !== undefined) {
+        let currentPts = row[ptsColIdx];
+        let parsedPts = (currentPts !== "" && currentPts !== null) ? parseFloat(currentPts) : NaN;
+
+        if (isNaN(parsedPts) || Math.abs(parsedPts - schedInfo.score) > 0.001) {
+          row[ptsColIdx] = schedInfo.score;
+          let oldScoreVal = isNaN(parsedPts) ? "(blank)" : parsedPts;
+          warnings.push(`Score Mismatch [${rawScoreName}]: Pts was ${oldScoreVal}. Auto-updated to match schedule (${schedInfo.score}).`);
+        }
       }
     }
   }
 
   return warnings;
 }
+
 
 
 
