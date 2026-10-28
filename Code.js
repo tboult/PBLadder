@@ -3533,23 +3533,66 @@ function ensurePlayerCheckedIn(cleanGroup, playerTarget) {
 
 /**
  * Schedule reset routine.
- * Unconditionally clears Courts, Check-Ins, Game 1-3 scores, and Total on Sched sheet.
- * Also clears Courts and Points on the corresponding Score sheet and invalidates caches.
+ * Handles context-aware execution while preserving player identity columns:
+ * 1. Sheet UI Run (Menu/Button): Automatically detects and uses currently active tab.
+ * 2. Web App Run: Resolves selected group from payload or web app state/cache.
+ * 3. Automated Trigger Run: Resolves group based on Day of Week (Mon=Women, Thu=Men, Fri=Mixed).
  */
 function resetCheckInsAndSchedData(payload) {
   return executeWithLock(function() {
     const ss = getDb();
-
-    let clearCourts = true;
-    let clearCheckIns = true;
-    let clearScores = true;
     let targetTabs = [];
+    let rawGroup = "";
 
-    const hasExplicitPayload = payload !== undefined && payload !== null && 
-      (typeof payload === 'string' || (typeof payload === 'object' && Object.keys(payload).length > 0));
+    // Detect execution context (Sheet UI vs Web App / Trigger)
+    let isSheetUI = false;
+    try {
+      SpreadsheetApp.getUi();
+      isSheetUI = true;
+    } catch (e) {
+      isSheetUI = false;
+    }
 
-    if (!hasExplicitPayload) {
-      // Automatic scheduled trigger behavior based on day of week
+    if (isSheetUI) {
+      // CONTEXT 1: Called from Google Sheet UI -> Use active sheet tab
+      const activeSheet = ss.getActiveSheet();
+      if (activeSheet) {
+        rawGroup = activeSheet.getName();
+      }
+    } else {
+      // CONTEXT 2: Called from Web App or Script Call
+      if (typeof payload === 'string' && payload.trim() !== "" && payload !== "true") {
+        rawGroup = payload;
+      } else if (typeof payload === 'object' && payload !== null) {
+        rawGroup = payload.group || payload.groupName || payload.selectedGroup || payload.activeGroup || payload.schedSheetName || payload.tab || "";
+      }
+
+      // If payload === true or group not in string/object, check web app session helpers
+      if (!rawGroup && (payload === true || typeof payload === 'boolean')) {
+        if (typeof getAppSelectedGroup === 'function') rawGroup = getAppSelectedGroup();
+        else if (typeof getSelectedGroup === 'function') rawGroup = getSelectedGroup();
+        else if (typeof getActiveGroup === 'function') rawGroup = getActiveGroup();
+        else if (typeof getCurrentGroup === 'function') rawGroup = getCurrentGroup();
+
+        if (!rawGroup && typeof CacheService !== 'undefined') {
+          try {
+            const cache = CacheService.getScriptCache();
+            rawGroup = cache.get("SELECTED_GROUP") || cache.get("ACTIVE_GROUP") || cache.get("CURRENT_GROUP") || "";
+          } catch(e) {}
+        }
+      }
+    }
+
+    // Assign target tab if a group was resolved from Sheet UI or Web App
+    if (rawGroup) {
+      const cleanGroup = String(rawGroup).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
+      if (cleanGroup) {
+        targetTabs = ["Sched " + cleanGroup];
+      }
+    }
+
+    // CONTEXT 3: Automated Timer Run (No payload, not Sheet UI) -> Day of Week logic
+    if (targetTabs.length === 0) {
       const dayOfWeek = new Date().getDay(); // 0 = Sun, 1 = Mon, 4 = Thu, 5 = Fri
       const allTabs = typeof getActiveScheduleTabs === 'function'
         ? getActiveScheduleTabs()
@@ -3563,28 +3606,8 @@ function resetCheckInsAndSchedData(payload) {
         targetTabs = [findMatchingTab(/(?<!wo)men/i) || "Sched Men"];
       } else if (dayOfWeek === 5) { // Friday -> Mixed
         targetTabs = [findMatchingTab(/mixed/i) || "Sched Mixed"];
-      } else {
+      } else { // Other days -> All active schedule tabs
         targetTabs = allTabs;
-      }
-    } else {
-      // Explicit payload call (e.g., menu action or API call)
-      let rawGroup = "";
-      if (typeof payload === 'string') {
-        rawGroup = payload;
-      } else if (typeof payload === 'object') {
-        rawGroup = payload.group || payload.groupName || payload.schedSheetName || payload.tab || "";
-        clearCourts = payload.clearCourts !== undefined ? Boolean(payload.clearCourts) : true;
-        clearCheckIns = payload.clearCheckIns !== undefined ? Boolean(payload.clearCheckIns) : true;
-        clearScores = payload.clearScores !== undefined ? Boolean(payload.clearScores) : true;
-      }
-
-      if (rawGroup) {
-        const cleanGroup = String(rawGroup).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
-        targetTabs = ["Sched " + cleanGroup];
-      } else {
-        targetTabs = typeof getActiveScheduleTabs === 'function'
-          ? getActiveScheduleTabs()
-          : (typeof SCHEDULE_TABS !== 'undefined' ? SCHEDULE_TABS : []);
       }
     }
 
@@ -3604,7 +3627,7 @@ function resetCheckInsAndSchedData(payload) {
         syncScoreSheetPlayersToSched(ss, cleanGroup, schedSheet);
       }
 
-      // 2. Unconditionally clear Court, Check-In, Game 1-3 Scores, Total, and Entered By on Sched sheet
+      // 2. Clear Courts, Check-Ins, Game 1-3 Scores, Totals, and Submitter Info on Sched sheet
       const dataRange = schedSheet.getDataRange();
       const data = dataRange.getValues();
       if (data.length > 1) {
@@ -3632,37 +3655,33 @@ function resetCheckInsAndSchedData(payload) {
         if (enteredIdx === -1 && headers.length >= 8) enteredIdx = 7;
 
         for (let r = 1; r < data.length; r++) {
-          if (clearCourts && courtIdx !== -1) data[r][courtIdx] = "";
-          if (clearCheckIns && checkInIdx !== -1) data[r][checkInIdx] = "";
-          if (clearScores) {
-            if (g1Idx !== -1) data[r][g1Idx] = "";
-            if (g2Idx !== -1) data[r][g2Idx] = "";
-            if (g3Idx !== -1) data[r][g3Idx] = "";
-            if (totIdx !== -1) data[r][totIdx] = "";
-            if (enteredIdx !== -1) data[r][enteredIdx] = "";
-          }
+          if (courtIdx !== -1)   data[r][courtIdx]   = "";
+          if (checkInIdx !== -1) data[r][checkInIdx] = "";
+          if (g1Idx !== -1)      data[r][g1Idx]      = "";
+          if (g2Idx !== -1)      data[r][g2Idx]      = "";
+          if (g3Idx !== -1)      data[r][g3Idx]      = "";
+          if (totIdx !== -1)     data[r][totIdx]     = "";
+          if (enteredIdx !== -1) data[r][enteredIdx] = "";
         }
         dataRange.setValues(data);
       }
 
       // 3. Clear Courts and Points on corresponding 'Score [Group]' sheet
-      if (clearScores) {
-        const scoreSheet = ss.getSheetByName("Score " + cleanGroup);
-        if (scoreSheet) {
-          const scoreData = scoreSheet.getDataRange().getValues();
-          if (scoreData.length > 1) {
-            const numScoreRows = scoreData.length - 1;
-            const scoreHeaders = scoreData[0].map(h => String(h || '').trim().toLowerCase());
-            
-            let scrtIdx = scoreHeaders.findIndex(h => /court|crt/i.test(h));
-            if (scrtIdx === -1) scrtIdx = 3; // Col D
+      const scoreSheet = ss.getSheetByName("Score " + cleanGroup);
+      if (scoreSheet) {
+        const scoreData = scoreSheet.getDataRange().getValues();
+        if (scoreData.length > 1) {
+          const numScoreRows = scoreData.length - 1;
+          const scoreHeaders = scoreData[0].map(h => String(h || '').trim().toLowerCase());
+          
+          let scrtIdx = scoreHeaders.findIndex(h => /court|crt/i.test(h));
+          if (scrtIdx === -1) scrtIdx = 3; // Col D
 
-            let ptsIdx = scoreHeaders.findIndex(h => /^pts$|^points$\vert{}^total$/i.test(h));
-            if (ptsIdx === -1) ptsIdx = 4; // Col E
+          let ptsIdx = scoreHeaders.findIndex(h => /^pts$|^points$|^total$/i.test(h));
+          if (ptsIdx === -1) ptsIdx = 4; // Col E
 
-            scoreSheet.getRange(2, scrtIdx + 1, numScoreRows, 1).setValues(new Array(numScoreRows).fill([""]));
-            scoreSheet.getRange(2, ptsIdx + 1, numScoreRows, 1).clearContent();
-          }
+          scoreSheet.getRange(2, scrtIdx + 1, numScoreRows, 1).setValues(new Array(numScoreRows).fill([""]));
+          scoreSheet.getRange(2, ptsIdx + 1, numScoreRows, 1).clearContent();
         }
       }
 
@@ -3685,12 +3704,7 @@ function resetCheckInsAndSchedData(payload) {
       processedTabs.push(tabName);
     });
 
-    const actions = [];
-    if (clearCourts) actions.push("Courts");
-    if (clearCheckIns) actions.push("Check-Ins");
-    if (clearScores) actions.push("Game Scores & Totals");
-
-    const msg = `Cleared [${actions.join(", ")}] & synced players for: ${processedTabs.join(", ") || "None"}.`;
+    const msg = `Cleared Courts, Check-Ins, Game Scores & Totals for: ${processedTabs.join(", ") || "None"}.`;
     logDebug("resetCheckInsAndSchedData", msg);
     return { success: true, message: msg };
   });
