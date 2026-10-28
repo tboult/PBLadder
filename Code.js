@@ -3531,6 +3531,7 @@ function ensurePlayerCheckedIn(cleanGroup, playerTarget) {
   }
 }
 
+
 /**
  * Schedule reset routine.
  * Handles three execution modes while keeping player identity columns intact:
@@ -3704,6 +3705,7 @@ function resetCheckInsAndSchedData(payload) {
     return { success: true, message: msg };
   });
 }
+
 
 
 /**
