@@ -3506,7 +3506,8 @@ function ensurePlayerCheckedIn(cleanGroup, playerTarget) {
 /**
  * Schedule reset routine.
  * Calls syncScoreSheetPlayersToSched using First + Last Name matching,
- * clears Sched fields, wipes Score sheet courts and points, and clears caches.
+ * clears Sched scores, wipes check-ins from dates prior to today,
+ * wipes Score sheet courts and points if requested, and clears caches.
  */
 function resetCheckInsAndSchedData(payload) {
   return executeWithLock(function() {
@@ -3565,6 +3566,10 @@ function resetCheckInsAndSchedData(payload) {
       }
     }
 
+    // Midnight start boundary for current day
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
     let processedTabs = [];
 
     targetTabs.forEach(tabName => {
@@ -3608,7 +3613,26 @@ function resetCheckInsAndSchedData(payload) {
 
         for (let r = 1; r < data.length; r++) {
           if (clearCourts && courtIdx !== -1) data[r][courtIdx] = "";
-          if (clearCheckIns && checkInIdx !== -1) data[r][checkInIdx] = "";
+          
+          // Clear check-in ONLY if timestamp is from a date earlier than today
+          if (clearCheckIns && checkInIdx !== -1) {
+            const val = data[r][checkInIdx];
+            if (val !== "" && val !== null && val !== undefined) {
+              let isOld = true;
+              if (val instanceof Date) {
+                isOld = val.getTime() < todayStart.getTime();
+              } else if (typeof val === 'string') {
+                const parsed = Date.parse(val);
+                if (!isNaN(parsed)) {
+                  isOld = parsed < todayStart.getTime();
+                }
+              }
+              if (isOld) {
+                data[r][checkInIdx] = "";
+              }
+            }
+          }
+
           if (clearScores) {
             if (g1Idx !== -1) data[r][g1Idx] = "";
             if (g2Idx !== -1) data[r][g2Idx] = "";
@@ -3662,7 +3686,7 @@ function resetCheckInsAndSchedData(payload) {
 
     const actions = [];
     if (clearCourts) actions.push("Courts");
-    if (clearCheckIns) actions.push("Check-Ins");
+    if (clearCheckIns) actions.push("Old Check-Ins");
     if (clearScores) actions.push("Scores & Totals");
 
     const msg = `Cleared [${actions.join(", ")}] & synced players for: ${processedTabs.join(", ") || "None"}.`;
@@ -3670,6 +3694,7 @@ function resetCheckInsAndSchedData(payload) {
     return { success: true, message: msg };
   });
 }
+
 
 /**
  * Generates schedule tabs on Sched sheet, clears previous weekly scores/totals,
@@ -4043,39 +4068,22 @@ function rebuildSchedSheetOrder(ss, cleanGroupName, activePlayers, inactivePlaye
   
   let newRows = [headers];
   
-  let courtIdx = headers.findIndex(h => /court/i.test(String(h).toLowerCase()));
-  let checkInIdx = headers.findIndex(h => /check|x/i.test(String(h).toLowerCase()));
-  let g1Idx = headers.findIndex(h => /game\s*1|g1/i.test(String(h).toLowerCase()));
-  let g2Idx = headers.findIndex(h => /game\s*2|g2/i.test(String(h).toLowerCase()));
-  let g3Idx = headers.findIndex(h => /game\s*3|g3/i.test(String(h).toLowerCase()));
-  let totIdx = headers.findIndex(h => /total|tot/i.test(String(h).toLowerCase()));
-  let entIdx = headers.findIndex(h => /entered|by/i.test(String(h).toLowerCase()));
-  
   const addRow = (pName) => {
     let clean = String(pName).trim().toLowerCase();
+    // Copy the exact old row (preserving all scores/check-ins), or create a blank one if new
     let rowCopy = oldDataMap[clean] ? [...oldDataMap[clean]] : new Array(headers.length).fill("");
     rowCopy[nameIdx] = pName;
-    
-    // Wipe weekly scheduling & score data clean for the next week
-    if(courtIdx !== -1) rowCopy[courtIdx] = "";
-    if(checkInIdx !== -1) rowCopy[checkInIdx] = "";
-    if(g1Idx !== -1) rowCopy[g1Idx] = "";
-    if(g2Idx !== -1) rowCopy[g2Idx] = "";
-    if(g3Idx !== -1) rowCopy[g3Idx] = "";
-    if(totIdx !== -1) rowCopy[totIdx] = "";
-    if(entIdx !== -1) rowCopy[entIdx] = "";
-    
     newRows.push(rowCopy);
   };
   
-  // They are already sorted by rank from processWeeklyScoresForSheet
+  // Reorder based on the newly calculated ranks
   activePlayers.forEach(p => addRow(p.name));
   inactivePlayers.forEach(p => addRow(p.name));
   
   schedSheet.clearContents();
   schedSheet.getRange(1, 1, newRows.length, headers.length).setValues(newRows);
   
-  // Advance the week safely without relying on external functions
+  // Advance the week safely
   let nextWeek = prevWeekNum + 1;
   if (nextWeek <= 10) {
     try {
@@ -4091,4 +4099,5 @@ function rebuildSchedSheetOrder(ss, cleanGroupName, activePlayers, inactivePlaye
     }
   }
 }
+
 
