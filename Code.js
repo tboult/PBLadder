@@ -1065,7 +1065,7 @@ function cleanPhoneDigits(phoneVal) {
 /**
  * Harvests scores from the Schedule sheet into the Pts column of the Score sheet.
  * Computes sum of Game 1, 2, 3 and corrects Sched Total if needed.
- * Overwrites Score Pts with the verified Sched sum.
+ * Utilizes Name, Phone (Col J), First Name (Col K), and Last Name (Col L) for exact matching.
  */
 function harvestScoresFromSchedules(ss, data, col, targetWeekIdx, schedSheet, weekNum) {
   let warnings = [];
@@ -1079,22 +1079,26 @@ function harvestScoresFromSchedules(ss, data, col, targetWeekIdx, schedSheet, we
   if (nameIdx === -1) nameIdx = 0;
 
   let phoneIdx = schedHeaders.findIndex(h => /phone|cell|mobile/i.test(h));
-  let scoreIdx = schedHeaders.findIndex(h => /^(pts|points|score|total|tot)$/i.test(h));
-  if (scoreIdx === -1) {
-    scoreIdx = schedHeaders.findIndex(h => /pts|points|score|total/i.test(h));
-  }
-  if (scoreIdx === -1 && schedHeaders.length >= 7) {
-    scoreIdx = 6; // Default to Column G
-  }
+  if (phoneIdx === -1 && schedHeaders.length >= 10) phoneIdx = 9;
 
-  // Find Game columns
+  let firstIdx = schedHeaders.findIndex(h => /\bfirst\b|fname/i.test(h));
+  if (firstIdx === -1 && schedHeaders.length >= 11) firstIdx = 10;
+
+  let lastIdx = schedHeaders.findIndex(h => /\blast\b|lname/i.test(h));
+  if (lastIdx === -1 && schedHeaders.length >= 12) lastIdx = 11;
+
+  let scoreIdx = schedHeaders.findIndex(h => /^(pts|points|score|total|tot)$/i.test(h));
+  if (scoreIdx === -1) scoreIdx = schedHeaders.findIndex(h => /pts|points|score|total/i.test(h));
+  if (scoreIdx === -1 && schedHeaders.length >= 7) scoreIdx = 6;
+
   let g1Idx = schedHeaders.findIndex(h => /game\s*1|\bg1\b/i.test(h));
   let g2Idx = schedHeaders.findIndex(h => /game\s*2|\bg2\b/i.test(h));
   let g3Idx = schedHeaders.findIndex(h => /game\s*3|\bg3\b/i.test(h));
 
   if (scoreIdx === -1) return warnings;
 
-  let schedScoresByCompositeKey = {};
+  let schedScoresByPhoneKey = {};
+  let schedScoresByFirstLastKey = {};
   let schedScoresByNameKey = {};
   let hasAnySchedScores = false;
   let schedModified = false;
@@ -1105,6 +1109,8 @@ function harvestScoresFromSchedules(ss, data, col, targetWeekIdx, schedSheet, we
     if (!rawSchedName || String(rawSchedName).startsWith("---") || String(rawSchedName).toLowerCase().startsWith("time:")) continue;
 
     let normName = normalizeName(rawSchedName);
+    let schedFirst = firstIdx !== -1 ? normalizeName(schedData[r][firstIdx]) : "";
+    let schedLast  = lastIdx !== -1 ? normalizeName(schedData[r][lastIdx]) : "";
     let phoneDigits = (phoneIdx !== -1 && schedData[r][phoneIdx]) ? cleanPhoneDigits(schedData[r][phoneIdx]) : "";
     
     let recordedTotalStr = schedData[r][scoreIdx];
@@ -1125,7 +1131,6 @@ function harvestScoresFromSchedules(ss, data, col, targetWeekIdx, schedSheet, we
 
     if (hasGames) {
       finalValToUse = computedSum;
-      // Warn and Correct if the sum doesn't match the recorded total
       if (isNaN(recordedTotal) || Math.abs(computedSum - recordedTotal) > 0.001) {
         let oldVal = isNaN(recordedTotal) ? "(blank)" : recordedTotal;
         warnings.push(`Sched Mismatch [${rawSchedName}]: Sum of games is ${computedSum}, but Total was ${oldVal}. Corrected to ${computedSum}.`);
@@ -1133,18 +1138,17 @@ function harvestScoresFromSchedules(ss, data, col, targetWeekIdx, schedSheet, we
         schedModified = true;
       }
     } else if (!isNaN(recordedTotal)) {
-      // If no games entered but total exists, fallback to total
       finalValToUse = recordedTotal;
     }
 
     if (finalValToUse !== null) {
-      if (phoneDigits) schedScoresByCompositeKey[normName + "_" + phoneDigits] = finalValToUse;
-      schedScoresByNameKey[normName] = finalValToUse;
+      if (phoneDigits && phoneDigits.length >= 7) schedScoresByPhoneKey[phoneDigits.slice(-7)] = finalValToUse;
+      if (schedFirst && schedLast) schedScoresByFirstLastKey[schedFirst + "_" + schedLast] = finalValToUse;
+      if (normName) schedScoresByNameKey[normName] = finalValToUse;
       hasAnySchedScores = true;
     }
   }
 
-  // Auto-Fix Sched sheet if totals were wrong
   if (schedModified) {
     schedSheet.getRange(1, 1, schedData.length, schedData[0].length).setValues(schedData);
   }
@@ -1154,7 +1158,7 @@ function harvestScoresFromSchedules(ss, data, col, targetWeekIdx, schedSheet, we
   let ptsColIdx = col.pts !== undefined ? col.pts : col.points;
   if (ptsColIdx === undefined) return warnings;
 
-  // PASS 2: Write verified scores to the Score sheet array
+  // PASS 2: Write verified scores to Score sheet array
   for (let i = 1; i < data.length; i++) {
     let row = data[i];
     let firstName = col.first !== undefined ? String(row[col.first] || "").trim() : "";
@@ -1164,21 +1168,32 @@ function harvestScoresFromSchedules(ss, data, col, targetWeekIdx, schedSheet, we
       : (col.name !== undefined ? String(row[col.name] || "").trim() : "");
 
     let normName = normalizeName(rawScoreName);
-    if (!normName) continue;
+    let normFirst = normalizeName(firstName);
+    let normLast  = normalizeName(lastName);
 
     let phoneColIdx = col.phone !== undefined ? col.phone : col.mobile;
     let scorePhoneDigits = phoneColIdx !== undefined ? cleanPhoneDigits(row[phoneColIdx]) : "";
-    let compositeKey = normName + "_" + scorePhoneDigits;
 
-    let schedVal = schedScoresByCompositeKey[compositeKey];
-    if (schedVal === undefined) schedVal = schedScoresByNameKey[normName];
+    let schedVal = undefined;
+
+    // Match by Phone (Last 7 Digits)
+    if (scorePhoneDigits && scorePhoneDigits.length >= 7) {
+      schedVal = schedScoresByPhoneKey[scorePhoneDigits.slice(-7)];
+    }
+    // Match by First + Last Name
+    if (schedVal === undefined && normFirst && normLast) {
+      schedVal = schedScoresByFirstLastKey[normFirst + "_" + normLast];
+    }
+    // Match by Full Name
+    if (schedVal === undefined && normName) {
+      schedVal = schedScoresByNameKey[normName];
+    }
 
     let currentPts = row[ptsColIdx];
     
     if (schedVal !== undefined) {
       let parsedPts = (currentPts !== "" && currentPts !== null) ? parseFloat(currentPts) : NaN;
 
-      // Force update if Score sheet doesn't perfectly match the computed Schedule total
       if (isNaN(parsedPts) || Math.abs(parsedPts - schedVal) > 0.001) {
         row[ptsColIdx] = schedVal;
         let oldScoreVal = isNaN(parsedPts) ? "(blank)" : parsedPts;
@@ -1189,6 +1204,7 @@ function harvestScoresFromSchedules(ss, data, col, targetWeekIdx, schedSheet, we
 
   return warnings;
 }
+
 
 
 
@@ -1663,10 +1679,6 @@ function assignRanksWithinWindows(items, numSlots) {
  *  MAIN
  * ========================================================================= */
 
-/* =========================================================================
- *  MAIN
- * ========================================================================= */
-
 function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, useScaledRankAsPrimary = true) {
   const doUpdateScores  = (updateScores === false) ? false : true;
   const primaryIsScaled = (useScaledRankAsPrimary === false) ? false : true;
@@ -1688,7 +1700,6 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
     let backupScore, backupSched;
     const ts = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "HHmmss");
 
-    // Helper to safely delete old backup sheets to prevent ID conflicts
     function safeDeleteTemp(name) {
       try {
         const ex = ss.getSheetByName(name);
@@ -1714,7 +1725,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
       backupSched.hideSheet();
     }
     
-    SpreadsheetApp.flush(); // Force sync after creating backups
+    SpreadsheetApp.flush();
 
     try {
       const data = sheet.getDataRange().getValues();
@@ -1750,7 +1761,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
       const currRColIdx   = resolveCol(col, headerRow, ["r" + weekNum, "R" + weekNum]);
       const prevRColIdx   = resolveCol(col, headerRow, ["r" + (weekNum - 1), "R" + (weekNum - 1)]);
 
-      // Step 1: Harvest and sync scores
+      // Harvest and sync scores from Sched sheet
       if (updateScores) {
         if (typeof harvestScoresFromSchedules === "function") {
           const warnings = harvestScoresFromSchedules(ss, data, col, targetWeekIdx, schedSheet, weekNum);
@@ -1793,6 +1804,9 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
         const pName = (col.name !== undefined && row[col.name]) ? row[col.name].toString().trim() : (firstName + " " + lastName).trim();
         if (!pName) continue;
 
+        const phoneColIdx = col.phone !== undefined ? col.phone : col.mobile;
+        const pPhone = phoneColIdx !== undefined ? cleanPhoneDigits(row[phoneColIdx]) : "";
+
         const v = (targetWeekIdx !== undefined) ? row[targetWeekIdx] : "";
         const hasScore = (v !== "" && v !== null && v !== undefined && !isNaN(parseFloat(v)));
 
@@ -1815,7 +1829,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
         const rawStatus = (col.status !== undefined && row[col.status] !== undefined && row[col.status] !== "") ? String(row[col.status]).toUpperCase().trim() : "ACTIVE";
 
         const obj = {
-          rowIndex: i, rowRaw: row.slice(), name: pName, isActive: hasScore, status: rawStatus, 
+          rowIndex: i, rowRaw: row.slice(), name: pName, firstName: firstName, lastName: lastName, phone: pPhone, isActive: hasScore, status: rawStatus, 
           cumScore: cumScore, maxPtsForPlayedWeeks: maxPts, cumPct: cumPct,
           hasPrior: prev.hasPrior, priorRank: prev.rank, priorNumPeople: prev.numPeople, priorPercent: prev.percent, priorRawStr: prev.rawStr
         };
@@ -1878,15 +1892,15 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
       activePlayers.forEach(p => writeRowData(p, "ACTIVE"));
       inactivePlayers.forEach(p => writeRowData(p));
       
-      // Sort Active by Final Computed Rank
+      // Sort Active by computed rank
       activePlayers.sort((a, b) => a.primaryFinalRank - b.primaryFinalRank);
 
-      // Sort Inactive strictly by prior Rank
+      // Sort Inactive strictly by prior rank
       inactivePlayers.sort((a, b) => {
         const pa = a.hasPrior ? a.priorRank : 99999;
         const pb = b.hasPrior ? b.priorRank : 99999;
         if (pa !== pb) return pa - pb;
-        return (b.priorNumPeople || 0) - (a.priorNumPeople || 0); // Tie breaker using previous field size
+        return (b.priorNumPeople || 0) - (a.priorNumPeople || 0);
       });
 
       const finalRows = [headerRow];
@@ -1902,13 +1916,12 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
 
       sheet.clearContents();
       sheet.getRange(1, 1, finalRows.length, finalRows[0].length).setValues(finalRows);
-      SpreadsheetApp.flush(); // Ensure score sheet saves before updating schedule
+      SpreadsheetApp.flush();
 
-      // Clean up backups gracefully
       try {
         if (backupScore) ss.deleteSheet(backupScore);
         if (backupSched) ss.deleteSheet(backupSched);
-        SpreadsheetApp.flush(); // Final sync to prevent ghost sheet errors
+        SpreadsheetApp.flush();
       } catch (e) {
         Logger.log("Safe ignore: Failed to delete temp backup sheet: " + e.message);
       }
@@ -1916,6 +1929,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
       const primaryName = primaryIsScaled ? "Percentile-scaled" : "Absolute";
       let msg = "Alert: Processed '" + sheet.getName() + "'. " + numActive + " active, " + inactivePlayers.length + " inactive.";
 
+      // Reorder Schedule sheet while keeping scores strictly coupled to player names
       if (typeof rebuildSchedSheetOrder === "function") {
         rebuildSchedSheetOrder(ss, cleanGroupName, activePlayers, inactivePlayers, weekNum);
       }
@@ -3518,7 +3532,7 @@ function resetCheckInsAndSchedData(payload) {
     let clearScores = false;
     let targetTabs = [];
 
-    const hasExplicitPayload = payload !== undefined && payload !== null && 
+      const hasExplicitPayload = payload !== undefined && payload !== null && 
       (typeof payload === 'string' || (typeof payload === 'object' && Object.keys(payload).length > 0));
 
     if (!hasExplicitPayload) {
@@ -4049,41 +4063,158 @@ function handleCheckInPlayer(payload) {
 }
 
 
+/**
+ * Reorders the Sched sheet to match new rankings while preserving scores,
+ * courts, check-ins, and submitter info strictly coupled to each player.
+ * Expands Sched headers to include Phone (Col J), First Name (Col K), and Last Name (Col L).
+ */
 function rebuildSchedSheetOrder(ss, cleanGroupName, activePlayers, inactivePlayers, prevWeekNum) {
   let schedSheet = ss.getSheetByName("Sched " + cleanGroupName);
   if (!schedSheet) return;
   
-  let data = schedSheet.getDataRange().getValues();
-  if (data.length <= 1) return;
+  let schedData = schedSheet.getDataRange().getValues();
+  if (schedData.length <= 1) return;
   
-  let headers = data[0].map(h => String(h));
-  let nameIdx = headers.findIndex(h => /name|player/i.test(String(h).toLowerCase()));
-  if (nameIdx === -1) nameIdx = 0;
-  
-  let oldDataMap = {};
-  for (let r = 1; r < data.length; r++) {
-    let pName = String(data[r][nameIdx]).trim().toLowerCase();
-    if (pName) oldDataMap[pName] = data[r];
+  let headers = schedData[0].map(h => String(h || ''));
+  while (headers.length < 12) {
+    headers.push("");
   }
   
+  // Enforce standard headers across Columns A-L
+  if (!headers[0]) headers[0] = "Player Name";
+  if (!headers[1]) headers[1] = "Court";
+  if (!headers[2]) headers[2] = "Check-In";
+  if (!headers[3]) headers[3] = "Game 1";
+  if (!headers[4]) headers[4] = "Game 2";
+  if (!headers[5]) headers[5] = "Game 3";
+  if (!headers[6]) headers[6] = "Total";
+  if (!headers[7]) headers[7] = "Entered";
+  if (!headers[9]) headers[9] = "Phone";
+  if (!headers[10]) headers[10] = "First Name";
+  if (!headers[11]) headers[11] = "Last Name";
+
+  let schedHeadersLower = headers.map(h => h.trim().toLowerCase());
+  
+  let nameIdx  = schedHeadersLower.findIndex(h => /name|player/i.test(h));
+  if (nameIdx === -1) nameIdx = 0;
+
+  let phoneIdx = schedHeadersLower.findIndex(h => /phone|cell|mobile/i.test(h));
+  if (phoneIdx === -1) phoneIdx = 9; // Col J
+
+  let firstIdx = schedHeadersLower.findIndex(h => /\bfirst\b|fname/i.test(h));
+  if (firstIdx === -1) firstIdx = 10; // Col K
+
+  let lastIdx  = schedHeadersLower.findIndex(h => /\blast\b|lname/i.test(h));
+  if (lastIdx === -1) lastIdx = 11; // Col L
+
+  // Index existing Sched sheet rows with multi-column lookup keys
+  let schedRows = [];
+  for (let r = 1; r < schedData.length; r++) {
+    let row = schedData[r];
+    while (row.length < 12) row.push("");
+
+    let rawName = String(row[nameIdx] || "").trim();
+    if (!rawName || rawName.startsWith("---") || rawName.toLowerCase().startsWith("time:") || rawName.startsWith("SCHEDULE_WEEK")) {
+      continue;
+    }
+
+    let rawFirst = String(row[firstIdx] || "").trim();
+    let rawLast  = String(row[lastIdx] || "").trim();
+    let phoneDigits = cleanPhoneDigits(row[phoneIdx]);
+
+    let normName = typeof normalizeName === 'function' ? normalizeName(rawName) : rawName.toLowerCase().trim();
+    let normFirst = typeof normalizeName === 'function' ? normalizeName(rawFirst) : rawFirst.toLowerCase().trim();
+    let normLast = typeof normalizeName === 'function' ? normalizeName(rawLast) : rawLast.toLowerCase().trim();
+    let tokenKey = (normName.match(/[a-z0-9]+/g) || []).sort().join(" ");
+
+    schedRows.push({
+      rawRow: row.slice(),
+      rawName: rawName,
+      normName: normName,
+      normFirst: normFirst,
+      normLast: normLast,
+      tokenKey: tokenKey,
+      phoneDigits: phoneDigits,
+      used: false
+    });
+  }
+
+  // 5-Tier Matching Engine
+  function findMatchingRow(p) {
+    let pNorm = typeof normalizeName === 'function' ? normalizeName(p.name) : String(p.name || '').toLowerCase().trim();
+    let pFirstNorm = typeof normalizeName === 'function' ? normalizeName(p.firstName) : String(p.firstName || '').toLowerCase().trim();
+    let pLastNorm = typeof normalizeName === 'function' ? normalizeName(p.lastName) : String(p.lastName || '').toLowerCase().trim();
+    let pTokens = (pNorm.match(/[a-z0-9]+/g) || []).sort().join(" ");
+    let pPhone = cleanPhoneDigits(p.phone);
+
+    let match = null;
+
+    // Tier 1: Phone Match (Last 7 Digits)
+    if (pPhone && pPhone.length >= 7) {
+      let pTail = pPhone.slice(-7);
+      match = schedRows.find(r => !r.used && r.phoneDigits && r.phoneDigits.endsWith(pTail));
+    }
+
+    // Tier 2: Separate First & Last Name Match (Cols K & L)
+    if (!match && pFirstNorm && pLastNorm) {
+      match = schedRows.find(r => !r.used && r.normFirst === pFirstNorm && r.normLast === pLastNorm);
+    }
+
+    // Tier 3: Full Normalized Name Match (Col A)
+    if (!match && pNorm) {
+      match = schedRows.find(r => !r.used && r.normName === pNorm);
+    }
+
+    // Tier 4: Tokenized Name Match ("Smith John" === "John Smith")
+    if (!match && pTokens) {
+      match = schedRows.find(r => !r.used && r.tokenKey === pTokens);
+    }
+
+    // Tier 5: Substring / Partial Name Match
+    if (!match && pNorm && pNorm.length >= 3) {
+      match = schedRows.find(r => !r.used && (r.normName.includes(pNorm) || pNorm.includes(r.normName)));
+    }
+
+    let matchedRow;
+    if (match) {
+      match.used = true;
+      matchedRow = match.rawRow;
+    } else {
+      matchedRow = new Array(12).fill("");
+    }
+
+    while (matchedRow.length < 12) matchedRow.push("");
+
+    // Update roster identity fields from master Score sheet
+    matchedRow[nameIdx] = p.name;
+    if (pPhone) matchedRow[phoneIdx] = p.phone;
+    if (p.firstName) matchedRow[firstIdx] = p.firstName;
+    if (p.lastName) matchedRow[lastIdx] = p.lastName;
+
+    return matchedRow;
+  }
+
   let newRows = [headers];
-  
-  const addRow = (pName) => {
-    let clean = String(pName).trim().toLowerCase();
-    // Copy the exact old row (preserving all scores/check-ins), or create a blank one if new
-    let rowCopy = oldDataMap[clean] ? [...oldDataMap[clean]] : new Array(headers.length).fill("");
-    rowCopy[nameIdx] = pName;
-    newRows.push(rowCopy);
-  };
-  
-  // Reorder based on the newly calculated ranks
-  activePlayers.forEach(p => addRow(p.name));
-  inactivePlayers.forEach(p => addRow(p.name));
-  
+
+  // Reorder Active Players by Rank
+  (activePlayers || []).forEach(p => {
+    newRows.push(findMatchingRow(p));
+  });
+
+  // Reorder Inactive Players by Prior Rank
+  (inactivePlayers || []).forEach(p => {
+    newRows.push(findMatchingRow(p));
+  });
+
+  // Retain any unmatched historical rows
+  schedRows.forEach(r => {
+    if (!r.used) newRows.push(r.rawRow);
+  });
+
   schedSheet.clearContents();
   schedSheet.getRange(1, 1, newRows.length, headers.length).setValues(newRows);
-  
-  // Advance the week safely
+
+  // Safely advance week header metadata
   let nextWeek = prevWeekNum + 1;
   if (nextWeek <= 10) {
     try {
@@ -4095,9 +4226,10 @@ function rebuildSchedSheetOrder(ss, cleanGroupName, activePlayers, inactivePlaye
       let todayStr = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd");
       schedSheet.getRange("I4").setValue(todayStr).setHorizontalAlignment("center");
     } catch (e) {
-      Logger.log("Minor non-fatal error writing week headers: " + e.message);
+      Logger.log("Non-fatal header stamp warning: " + e.message);
     }
   }
 }
+
 
 
