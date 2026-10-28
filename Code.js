@@ -4060,9 +4060,20 @@ function rebuildSchedSheetOrder(ss, cleanGroupName, activePlayers, inactivePlaye
   schedSheet.clearContents();
   schedSheet.getRange(1, 1, newRows.length, headers.length).setValues(newRows);
   
-  // Advance the week if we aren't at the end of the season
+  // Advance the week safely without relying on external functions
   let nextWeek = prevWeekNum + 1;
-  if (nextWeek <= 10 && typeof setWeekNumber === 'function') {
-    setWeekNumber(schedSheet, nextWeek);
+  if (nextWeek <= 10) {
+    try {
+      schedSheet.getRange("I1").setValue("SCHEDULE_WEEK").setFontWeight("bold");
+      schedSheet.getRange("I2").setValue(nextWeek).setHorizontalAlignment("center");
+      schedSheet.getRange("I3").setValue("Week " + nextWeek).setHorizontalAlignment("center");
+      
+      let tz = ss.getSpreadsheetTimeZone() || "America/Phoenix";
+      let todayStr = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd");
+      schedSheet.getRange("I4").setValue(todayStr).setHorizontalAlignment("center");
+    } catch (e) {
+      Logger.log("Minor non-fatal error writing week headers: " + e.message);
+    }
   }
 }
+
