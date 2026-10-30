@@ -337,7 +337,7 @@
   <div id="scoreAutoCheckinBanner" style="display:none; margin-bottom:0.75rem; padding:0.5rem 0.75rem; border-radius:0.5rem; font-size:0.95rem; font-weight:bold; text-align:center;"></div>
 
   <button type="button" id="findFoursomeBtn" class="btn btn-primary" style="width:100%; margin-bottom:0.75rem;" onclick="lookupPhone()">
-    🔄 Recheck for Foursome Assignment
+    🔄 Recheck Court Assignment
   </button>
 
   <div id="lookupResult">
@@ -352,15 +352,16 @@
 
     <div id="scoreEntrySection" style="margin-top: 0.75rem;">
       <h4 style="margin: 0.75rem 0 0.25rem 0;">Submit Court Scores</h4>
+      <!-- Individual game submit buttons are now dynamically generated inside this container by JS -->
       <div id="scoreInputsContainer"></div>
-      <button class="btn-main" style="margin-top:0.75rem; width:100%;" onclick="saveScores()">Submit Scores</button>
     </div>
   </div>
 </div>
 
 
-<!-- TAB 4: RANKINGS & SCHEDULE VIEWER -->
+<!-- TAB 4: RANKINGS VIEWER -->
 <div id="rankschedTab" class="tab-content">
+  <h3 style="margin-top:0;">🏆 Rankings Viewer</h3>
   <div class="card" style="margin-bottom:0.75rem; padding:0.6rem 0.8rem; background:var(--input-bg); border:2px solid var(--input-border); border-radius:0.5rem;">
     <b>Viewing Group:</b> <span class="active-group-label" style="font-size:1.15rem; font-weight:bold; color:#0d6efd; margin-left:4px;">--</span>
     <small style="display:block; color:var(--text-secondary, #666); margin-top:2px;">(To change groups, return to Register & Help tab)</small>
@@ -368,7 +369,6 @@
   <div id="viewerContent" style="margin-top: 0.75rem;"></div>
   <div id="viewerStatus" class="status-msg"></div>
 </div>
-
 
 <!-- TAB 5: ADMIN -->
 <div id="adminTab" class="tab-content">
@@ -411,12 +411,12 @@
     <p>Total Checked In: <strong id="live-player-count">0</strong> &nbsp; &nbsp; Current Byes Required: <strong id="projected-byes">0</strong></p>
 </div>
 
-<!-- <div class="admin-controls"> -->
-<!--     <input type="checkbox" id="optimize-byes-checkbox" name="optimizeByes"> -->
-<!--     <label for="optimize-byes-checkbox"> -->
-<!--         Distribute Byes (Uses 5-player & 6-player groups to eliminate sitting out) -->
-<!--     </label> -->
-<!-- </div>     -->
+<div class="admin-controls">
+    <input type="checkbox" id="optimize-byes-checkbox" name="optimizeByes">
+    <label for="optimize-byes-checkbox">
+        Distribute Byes (Uses 5-player & 6-player groups to eliminate sitting out)
+    </label>
+</div>
 
     <!-- 3. Reschedule with Checked-In Players -->
     <div class="card" style="margin-bottom:1rem; background: var(--bg-color); padding: 1rem; border-radius: 0.5rem;">
