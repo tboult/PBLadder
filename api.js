@@ -553,615 +553,19 @@ async function toggleUserCheckin() {
 
 
 
-async function lookupPhone(cachedPhone) {
-  const phoneInput = document.getElementById('phoneInput') || document.getElementById('scorePhoneInput');
-  const phoneBtn = document.getElementById('savePhoneBtn');
-  const findBtn = document.getElementById('findFoursomeBtn');
 
-  let phone = cachedPhone || (phoneInput ? phoneInput.value : '') || getSavedPhone();
-  phone = String(phone).replace(/\D/g, '');
 
-  if (phone.length !== 10) return;
 
-  if (phoneInput) phoneInput.value = phone;
 
-  document.body.style.cursor = 'wait';
-  if (findBtn) {
-    findBtn.disabled = true;
-    findBtn.innerHTML = '⏳ Checking...';
-  }
-  if (phoneBtn) {
-    phoneBtn.disabled = true;
-    phoneBtn.innerHTML = '⏳ Checking...';
-  }
 
-  try {
-    const currentGroup = getSavedGroup();
-    const result = await apiCall('findFoursomeByPhone', { 
-      groupName: currentGroup, 
-      phone: phone 
-    });
 
-    if (result && (result.success || result.found)) {
-      let playerObj = null;
 
-      if (Array.isArray(result.foursome) && result.foursome.length > 0) {
-        playerObj = (typeof result.player === 'object' && result.player !== null) 
-          ? result.player 
-          : { 
-              name: result.player || result.name || 'Player', 
-              court: result.court || 'Unassigned', 
-              group: result.group || currentGroup 
-            };
-      } else if (result.player || result.name) {
-        playerObj = (typeof result.player === 'object' && result.player !== null)
-          ? result.player
-          : { name: result.player || result.name || 'Player', group: currentGroup };
-      }
 
-      // Extract full name
-      const resolvedName = playerObj 
-        ? (`${playerObj.first || ''} ${playerObj.last || ''}`.trim() || playerObj.name || playerObj.playerName || '') 
-        : '';
 
-      // Cache BOTH name and phone in single storage keys
-      savePlayerCredentials(phone, resolvedName);
 
-      if (findBtn) {
-        findBtn.disabled = true;
-        findBtn.innerHTML = ' Found...';
-      }
 
-      renderLookupResult(playerObj, result.foursome || []);
-      if (typeof updateWelcomeBanner === 'function') updateWelcomeBanner();
-    } else {
-      if (phoneBtn) {
-         phoneBtn.innerHTML = 'Register New Player';
-      }
-        const statusMsg = document.getElementById('phoneStatus');
-        if (statusMsg) {
-            statusMsg.innerText = "Phone number not registered. Please complete registration below.";
-            statusMsg.style.color = "#dc3545";
-        }        
-        const scoreRegSection = document.getElementById('registrationSection');
-          if (scoreRegSection) {
-              scoreRegSection.style.display = 'block';
-          }
 
-          const helpRegAccordion = document.getElementById('registrationAccordion');
-          if (helpRegAccordion) {
-              helpRegAccordion.open = true; // Automatically expands <details> on Tab 1
-          }
-         //phoneBtn.onclick =       showRegistrationFields(); // show name, email, etc.
-        renderLookupResult(null, []);
-    }
-  } catch (err) {
-    console.error("Error during lookup:", err);
-    renderLookupResult(null, []);
-  } finally {
-    document.body.style.cursor = 'default';
-    if (phoneBtn && phoneBtn.innerHTML !== 'Register New Player') {
-      phoneBtn.disabled = false;
-      phoneBtn.innerHTML = 'Recheck Assignment';
-    }
-  }
-}
 
-
-
-
-
-
-
-
-/**
- * Frontend handler for submitting individual game scores.
- * Unpacks nested API responses (res.result) and handles Promise/Callback returns.
- */
-function submitSingleGameScore(gameNum, btnElement) {
-  const btn = btnElement || (typeof event !== 'undefined' ? event.target : null);
-
-  if (!activeLookupFoursome || activeLookupFoursome.length !== 4) {
-    showFeedback("⚠️ Active 4-player court match assignment required.", "warning");
-    return;
-  }
-
-  const scAInput = document.getElementById(`sc${gameNum}_p1`);
-  const scBInput = document.getElementById(`sc${gameNum}_p2`);
-
-  if (!scAInput || !scBInput) return;
-
-  const scoreAVal = scAInput.value.trim();
-  const scoreBVal = scBInput.value.trim();
-
-  if (scoreAVal === "" || scoreBVal === "") {
-    showFeedback(`⚠️ Please enter scores for both teams in Game ${gameNum}.`, "warning");
-    return;
-  }
-
-  const scoreA = parseInt(scoreAVal, 10);
-  const scoreB = parseInt(scoreBVal, 10);
-
-  if (isNaN(scoreA) || isNaN(scoreB)) {
-    showFeedback("⚠️ Scores must be valid numbers.", "warning");
-    return;
-  }
-
-  const getPName = p => (typeof p === 'object' && p !== null ? (p.name || `${p.first || ''} ${p.last || ''}`.trim()) : String(p || ''));
-  const p1 = getPName(activeLookupFoursome[0]);
-  const p2 = getPName(activeLookupFoursome[1]);
-  const p3 = getPName(activeLookupFoursome[2]);
-  const p4 = getPName(activeLookupFoursome[3]);
-
-  let scoresPayload = [];
-  if (gameNum === 1) {
-    scoresPayload = [
-      { name: p1, g1: scoreA },
-      { name: p4, g1: scoreA },
-      { name: p2, g1: scoreB },
-      { name: p3, g1: scoreB }
-    ];
-  } else if (gameNum === 2) {
-    scoresPayload = [
-      { name: p1, g2: scoreA },
-      { name: p3, g2: scoreA },
-      { name: p2, g2: scoreB },
-      { name: p4, g2: scoreB }
-    ];
-  } else if (gameNum === 3) {
-    scoresPayload = [
-      { name: p1, g3: scoreA },
-      { name: p2, g3: scoreA },
-      { name: p3, g3: scoreB },
-      { name: p4, g3: scoreB }
-    ];
-  }
-
-  const groupName = (activeLookupPlayer && activeLookupPlayer.group) || 
-                    (typeof getSavedGroup === 'function' ? getSavedGroup() : '');
-  
-  const submitterName = getPName(activeLookupPlayer) || 
-                        (activeLookupPlayer && activeLookupPlayer.phone) || '';
-
-  const payload = {
-    group: groupName,
-    submittedByName: submitterName,
-    scores: scoresPayload
-  };
-
-  // Button visual lock
-  const originalText = btn ? btn.innerText : `📤 Submit G${gameNum}`;
-  const originalBg = btn ? btn.style.background : "#0d6efd";
-
-  if (btn) {
-    btn.innerText = "⏳ Submitting...";
-    btn.disabled = true;
-    btn.style.background = "#6c757d";
-  }
-
-  let handled = false;
-
-  const handleResponse = (rawRes) => {
-    if (handled) return; // Prevent duplicate execution from both callback and promise
-    handled = true;
-
-    try {
-      // Unwrap response payload (handles top-level, res.result, or res.data)
-      const res = (rawRes && rawRes.result) ? rawRes.result : ((rawRes && rawRes.data) ? rawRes.data : rawRes);
-
-      let isSuccess = false;
-      let msg = "";
-
-      if (typeof res === 'string') {
-        isSuccess = res.includes("Successfully") || res.includes("✅");
-        msg = res;
-      } else if (res && typeof res === 'object') {
-        isSuccess = Boolean(res.success);
-        msg = res.message || (isSuccess ? `✅ Game ${gameNum} scores saved!` : "Error submitting scores.");
-      }
-
-      showFeedback(msg, isSuccess ? "success" : "danger");
-
-      if (btn) {
-        if (isSuccess) {
-          btn.innerText = `✅ G${gameNum} Submitted!`;
-          btn.style.background = "#198754"; // Green success state
-          btn.disabled = true;
-
-          // Reset button back to editable state after 4 seconds
-          setTimeout(() => {
-            btn.innerText = originalText;
-            btn.style.background = originalBg;
-            btn.disabled = false;
-          }, 4000);
-        } else {
-          btn.innerText = originalText;
-          btn.style.background = originalBg;
-          btn.disabled = false;
-        }
-      }
-    } catch (err) {
-      console.error("Response handling error:", err);
-      if (btn) {
-        btn.innerText = originalText;
-        btn.style.background = originalBg;
-        btn.disabled = false;
-      }
-    }
-  };
-
-  // Dispatch API Call with Promise & Callback support
-  try {
-    if (typeof apiCall === 'function') {
-      const promiseOrResult = apiCall('submitCourtScores', payload, handleResponse);
-      if (promiseOrResult && typeof promiseOrResult.then === 'function') {
-        promiseOrResult
-          .then(handleResponse)
-          .catch(err => handleResponse({ success: false, message: (err && err.message) || String(err) }));
-      }
-    } else if (typeof google !== 'undefined' && google.script && google.script.run) {
-      google.script.run
-        .withSuccessHandler(handleResponse)
-        .withFailureHandler(err => handleResponse({ success: false, message: (err && err.message) || String(err) }))
-        .submitCourtScores(payload);
-    } else {
-      handleResponse({ success: false, message: "Backend communication interface unavailable." });
-    }
-  } catch (err) {
-    handleResponse({ success: false, message: "Execution error: " + err.message });
-  }
-}
-
-
-
-function renderLookupResult(player, foursome) { 
-  activeLookupPlayer = player || {};
-  activeLookupFoursome = foursome || [];
-
-  const regEl = document.getElementById('registrationSection');
-  const resultEl = document.getElementById('lookupResult');
-  if (regEl) regEl.style.display = 'none';
-  if (resultEl) resultEl.style.display = 'block';
-
-  // Construct display name
-  let displayName = '';
-  if (typeof player === 'string') {
-    displayName = player;
-  } else if (player) {
-    displayName = `${player.first || ''} ${player.last || ''}`.trim() || player.name || 'Unknown';
-  } else {
-    displayName = 'Unknown';
-  }
-
-  const nameDisp = document.getElementById('pNameDisplay');
-  const groupDisp = document.getElementById('pGroupDisplay');
-  const courtDisp = document.getElementById('pCourtDisplay');
-
-  if (nameDisp) nameDisp.innerText = displayName;
-  if (groupDisp) groupDisp.innerText = (player && player.group) || (typeof getSavedGroup === 'function' ? getSavedGroup() : '');
-  if (courtDisp) courtDisp.innerText = (player && player.court) || '';
-
-  const badge = document.getElementById('pStatusDisplay');
-  if (badge) {
-    const isActive = ((player && player.status) || 'active').toLowerCase() === 'active';
-    badge.innerText = isActive ? 'Active' : 'Inactive';
-    badge.className = isActive ? 'status-badge status-active' : 'status-badge status-inactive';
-  }
-
-  const scoreContainer = document.getElementById('scoreInputsContainer');
-  if (!scoreContainer) return;
-  scoreContainer.innerHTML = '';
-
-  if (activeLookupFoursome.length === 4) {
-    const p1Obj = activeLookupFoursome[0] || {};
-    const p2Obj = activeLookupFoursome[1] || {};
-    const p3Obj = activeLookupFoursome[2] || {};
-    const p4Obj = activeLookupFoursome[3] || {};
-
-    const getPName = (p) => (typeof p === 'object' && p !== null ? (p.name || `${p.first || ''} ${p.last || ''}`.trim()) : String(p || ''));
-    
-    const p1 = getPName(p1Obj);
-    const p2 = getPName(p2Obj);
-    const p3 = getPName(p3Obj);
-    const p4 = getPName(p4Obj);
-
-    // Helper to read game scores from player object
-    const getVal = (p, gNum) => {
-      if (!p || typeof p !== 'object') return '';
-      const v = p[`g${gNum}`] ?? p[`game${gNum}`] ?? p[`game ${gNum}`] ?? '';
-      return (v !== null && v !== undefined && String(v).trim() !== '') ? String(v).trim() : '';
-    };
-
-    // Hydrate existing game scores from Schedule data
-    // Game 1: (P1 & P4) vs (P2 & P3)
-    const g1_a = getVal(p1Obj, 1) || getVal(p4Obj, 1);
-    const g1_b = getVal(p2Obj, 1) || getVal(p3Obj, 1);
-    const hasG1 = g1_a !== '' && g1_b !== '';
-
-    // Game 2: (P1 & P3) vs (P2 & P4)
-    const g2_a = getVal(p1Obj, 2) || getVal(p3Obj, 2);
-    const g2_b = getVal(p2Obj, 2) || getVal(p4Obj, 2);
-    const hasG2 = g2_a !== '' && g2_b !== '';
-
-    // Game 3: (P1 & P2) vs (P3 & P4)
-    const g3_a = getVal(p1Obj, 3) || getVal(p2Obj, 3);
-    const g3_b = getVal(p3Obj, 3) || getVal(p4Obj, 3);
-    const hasG3 = g3_a !== '' && g3_b !== '';
-
-    scoreContainer.innerHTML = `
-      <!-- FOURSOME ROSTER SUMMARY CARD -->
-      <div style="margin-bottom: 1.25rem; padding: 1rem; background-color: #f8f9fa; border: 2px solid #0d6efd; border-radius: 10px;">
-        <p style="margin: 0 0 0.5rem 0; font-size: 1.2rem; color: #0d6efd;"><b>🎾 Assigned Foursome:</b></p>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 1.15rem; font-weight: 600; color: #212529;">
-          <div>P1: ${p1}</div>
-          <div>P2: ${p2}</div>
-          <div>P3: ${p3}</div>
-          <div>P4: ${p4}</div>
-        </div>
-      </div>
-
-      <!-- GAME 1 CARD -->
-      <div style="background: #ffffff; border: 2px solid #0d6efd; border-radius: 10px; padding: 16px; margin-bottom: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.08);">
-        <div style="font-size: 1.3rem; font-weight: bold; color: #0d6efd; border-bottom: 1px solid #dee2e6; padding-bottom: 8px; margin-bottom: 12px;">
-          🏆 Game 1
-        </div>
-        <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px;">
-          <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
-            <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p1} & ${p4}</div>
-            <input type="number" min="0" max="${typeof MAX_GAME_SCORE !== 'undefined' ? MAX_GAME_SCORE : 30}" inputmode="numeric" id="sc1_p1" placeholder="Score" value="${g1_a}"
-                   oninput="validateGameScoreInput(this)"
-                   style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
-          </div>
-
-          <div style="font-size: 1.3rem; font-weight: bold; color: #6c757d;">VS</div>
-
-          <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
-            <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p2} & ${p3}</div>
-            <input type="number" min="0" max="${typeof MAX_GAME_SCORE !== 'undefined' ? MAX_GAME_SCORE : 30}" inputmode="numeric" id="sc1_p2" placeholder="Score" value="${g1_b}"
-                   oninput="validateGameScoreInput(this)"
-                   style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
-          </div>
-        </div>
-        <button type="button" onclick="submitSingleGameScore(1, this)" ${hasG1 ? 'disabled' : ''}
-                style="width: 100%; background: ${hasG1 ? '#198754' : '#0d6efd'}; color: #ffffff; border: none; padding: 12px; font-size: 1.15rem; font-weight: bold; border-radius: 8px; cursor: pointer;">
-          ${hasG1 ? '✅ G1 Submitted' : '📤 Submit G1'}
-        </button>
-      </div>
-
-      <!-- GAME 2 CARD -->
-      <div style="background: #ffffff; border: 2px solid #0d6efd; border-radius: 10px; padding: 16px; margin-bottom: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.08);">
-        <div style="font-size: 1.3rem; font-weight: bold; color: #0d6efd; border-bottom: 1px solid #dee2e6; padding-bottom: 8px; margin-bottom: 12px;">
-          🏆 Game 2
-        </div>
-        <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px;">
-          <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
-            <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p1} & ${p3}</div>
-            <input type="number" min="0" max="${typeof MAX_GAME_SCORE !== 'undefined' ? MAX_GAME_SCORE : 30}" inputmode="numeric" id="sc2_p1" placeholder="Score" value="${g2_a}"
-                   oninput="validateGameScoreInput(this)"
-                   style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
-          </div>
-
-          <div style="font-size: 1.3rem; font-weight: bold; color: #6c757d;">VS</div>
-
-          <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
-            <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p2} & ${p4}</div>
-            <input type="number" min="0" max="${typeof MAX_GAME_SCORE !== 'undefined' ? MAX_GAME_SCORE : 30}" inputmode="numeric" id="sc2_p2" placeholder="Score" value="${g2_b}"
-                   oninput="validateGameScoreInput(this)"
-                   style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
-          </div>
-        </div>
-        <button type="button" onclick="submitSingleGameScore(2, this)" ${hasG2 ? 'disabled' : ''}
-                style="width: 100%; background: ${hasG2 ? '#198754' : '#0d6efd'}; color: #ffffff; border: none; padding: 12px; font-size: 1.15rem; font-weight: bold; border-radius: 8px; cursor: pointer;">
-          ${hasG2 ? '✅ G2 Submitted' : '📤 Submit G2'}
-        </button>
-      </div>
-
-      <!-- GAME 3 CARD -->
-      <div style="background: #ffffff; border: 2px solid #0d6efd; border-radius: 10px; padding: 16px; margin-bottom: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.08);">
-        <div style="font-size: 1.3rem; font-weight: bold; color: #0d6efd; border-bottom: 1px solid #dee2e6; padding-bottom: 8px; margin-bottom: 12px;">
-          🏆 Game 3
-        </div>
-        <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px;">
-          <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
-            <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p1} & ${p2}</div>
-            <input type="number" min="0" max="${typeof MAX_GAME_SCORE !== 'undefined' ? MAX_GAME_SCORE : 30}" inputmode="numeric" id="sc3_p1" placeholder="Score" value="${g3_a}"
-                   oninput="validateGameScoreInput(this)"
-                   style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
-          </div>
-
-          <div style="font-size: 1.3rem; font-weight: bold; color: #6c757d;">VS</div>
-
-          <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
-            <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${p3} & ${p4}</div>
-            <input type="number" min="0" max="${typeof MAX_GAME_SCORE !== 'undefined' ? MAX_GAME_SCORE : 30}" inputmode="numeric" id="sc3_p2" placeholder="Score" value="${g3_b}"
-                   oninput="validateGameScoreInput(this)"
-                   style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
-          </div>
-        </div>
-        <button type="button" onclick="submitSingleGameScore(3, this)" ${hasG3 ? 'disabled' : ''}
-                style="width: 100%; background: ${hasG3 ? '#198754' : '#0d6efd'}; color: #ffffff; border: none; padding: 12px; font-size: 1.15rem; font-weight: bold; border-radius: 8px; cursor: pointer;">
-          ${hasG3 ? '✅ G3 Submitted' : '📤 Submit G3'}
-        </button>
-      </div>
-    `;
-  } else {
-    scoreContainer.innerHTML = `
-      <div style="background-color: #fff3cd; color: #664d03; border: 1px solid #ffe69c; font-size: 1.15rem; padding: 15px; border-radius: 8px; margin-top: 1rem;">
-        ⚠️ No active 4-player court match assignment found.
-      </div>
-    `;
-  }
-}
-
-
-
-/**
- * Frontend handler for submitting individual game scores.
- * Attaches callbacks directly inside the payload object to guarantee api.js execution.
- */
-function submitSingleGameScore(gameNum, btnElement) {
-  const btn = btnElement || (typeof event !== 'undefined' ? event.target : null);
-
-  if (!activeLookupFoursome || activeLookupFoursome.length !== 4) {
-    showFeedback("⚠️ Active 4-player court match assignment required.", "warning");
-    return;
-  }
-
-  const scAInput = document.getElementById(`sc${gameNum}_p1`);
-  const scBInput = document.getElementById(`sc${gameNum}_p2`);
-
-  if (!scAInput || !scBInput) return;
-
-  const scoreAVal = scAInput.value.trim();
-  const scoreBVal = scBInput.value.trim();
-
-  if (scoreAVal === "" || scoreBVal === "") {
-    showFeedback(`⚠️ Please enter scores for both teams in Game ${gameNum}.`, "warning");
-    return;
-  }
-
-  const scoreA = parseInt(scoreAVal, 10);
-  const scoreB = parseInt(scoreBVal, 10);
-
-  if (isNaN(scoreA) || isNaN(scoreB)) {
-    showFeedback("⚠️ Scores must be valid numbers.", "warning");
-    return;
-  }
-
-  const getPName = p => (typeof p === 'object' && p !== null ? (p.name || `${p.first || ''} ${p.last || ''}`.trim()) : String(p || ''));
-  const p1 = getPName(activeLookupFoursome[0]);
-  const p2 = getPName(activeLookupFoursome[1]);
-  const p3 = getPName(activeLookupFoursome[2]);
-  const p4 = getPName(activeLookupFoursome[3]);
-
-  let scoresPayload = [];
-  if (gameNum === 1) {
-    scoresPayload = [
-      { name: p1, g1: scoreA },
-      { name: p4, g1: scoreA },
-      { name: p2, g1: scoreB },
-      { name: p3, g1: scoreB }
-    ];
-  } else if (gameNum === 2) {
-    scoresPayload = [
-      { name: p1, g2: scoreA },
-      { name: p3, g2: scoreA },
-      { name: p2, g2: scoreB },
-      { name: p4, g2: scoreB }
-    ];
-  } else if (gameNum === 3) {
-    scoresPayload = [
-      { name: p1, g3: scoreA },
-      { name: p2, g3: scoreA },
-      { name: p3, g3: scoreB },
-      { name: p4, g3: scoreB }
-    ];
-  }
-
-  const groupName = (activeLookupPlayer && activeLookupPlayer.group) || 
-                    (typeof getSavedGroup === 'function' ? getSavedGroup() : '');
-  
-  const submitterName = getPName(activeLookupPlayer) || 
-                        (activeLookupPlayer && activeLookupPlayer.phone) || '';
-
-  // Button visual lock
-  const originalText = btn ? btn.innerText : `📤 Submit G${gameNum}`;
-  const originalBg = btn ? btn.style.background : "#0d6efd";
-
-  if (btn) {
-    btn.innerText = "⏳ Submitting...";
-    btn.disabled = true;
-    btn.style.background = "#6c757d";
-  }
-
-  let handled = false;
-
-  const handleResponse = (rawRes) => {
-    if (handled) return; // Prevent duplicate execution
-    handled = true;
-
-    try {
-      logDebug(`[Submit G${gameNum} Response Received]`, rawRes);
-
-      // Unwrap response payload (handles top-level, res.result, or res.data)
-      const res = (rawRes && rawRes.result) ? rawRes.result : ((rawRes && rawRes.data) ? rawRes.data : rawRes);
-
-      let isSuccess = false;
-      let msg = "";
-
-      if (typeof res === 'string') {
-        isSuccess = res.includes("Successfully") || res.includes("✅");
-        msg = res;
-      } else if (res && typeof res === 'object') {
-        isSuccess = Boolean(res.success);
-        msg = res.message || (isSuccess ? `✅ Game ${gameNum} scores saved!` : "Error submitting scores.");
-      }
-
-      showFeedback(msg, isSuccess ? "success" : "danger");
-
-if (btn) {
-        if (isSuccess) {
-          // Permanently set to Submitted state
-          btn.innerText = `✅ G${gameNum} Submitted`;
-          btn.style.background = "#198754"; // Solid green
-          btn.style.color = "#ffffff";
-          btn.disabled = true; // Lock button to prevent accidental duplicate clicks
-        } else {
-          btn.innerText = originalText;
-          btn.style.background = originalBg;
-          btn.disabled = false;
-        }
-      }        
-
-    } catch (err) {
-      console.error("Response handling error:", err);
-      if (btn) {
-        btn.innerText = originalText;
-        btn.style.background = originalBg;
-        btn.disabled = false;
-      }
-    }
-  };
-
-  // Construct payload with embedded callback references for api.js
-  const payload = {
-    group: groupName,
-    submittedByName: submitterName,
-    scores: scoresPayload,
-    callback: handleResponse,
-    onSuccess: handleResponse,
-    success: handleResponse
-  };
-
-  // Safety fallback timeout: If api.js completes without triggering callback within 5 seconds
-  setTimeout(() => {
-    if (!handled) {
-      console.warn("API response callback timeout - executing safety response handler");
-      handleResponse({ success: true, message: `✅ Game ${gameNum} scores submitted!` });
-    }
-  }, 5000);
-
-  // Dispatch API Call
-  try {
-    if (typeof apiCall === 'function') {
-      const promiseOrResult = apiCall('submitCourtScores', payload, handleResponse);
-      if (promiseOrResult && typeof promiseOrResult.then === 'function') {
-        promiseOrResult
-          .then(handleResponse)
-          .catch(err => handleResponse({ success: false, message: (err && err.message) || String(err) }));
-      }
-    } else if (typeof google !== 'undefined' && google.script && google.script.run) {
-      google.script.run
-        .withSuccessHandler(handleResponse)
-        .withFailureHandler(err => handleResponse({ success: false, message: (err && err.message) || String(err) }))
-        .submitCourtScores(payload);
-    } else {
-      handleResponse({ success: false, message: "Backend communication interface unavailable." });
-    }
-  } catch (err) {
-    handleResponse({ success: false, message: "Execution error: " + err.message });
-  }
-}
 
 /**
  * Automatically re-enables the game submit button if a score input is changed.
@@ -1523,92 +927,7 @@ async function retryCheckinProcess() {
 
 
 
-function renderRankingsAndSchedule(data) {
-  const viewerContent = document.getElementById('viewerContent');
-  if (!viewerContent) return;
 
-  // Handles raw HTML string returned by backend
-  if (typeof data === 'string') {
-    viewerContent.innerHTML = data;
-    return;
-  }
-
-  if (data.html) {
-    viewerContent.innerHTML = data.html;
-    return;
-  }
-
-  // Handles JSON object with rankings/schedule arrays
-  let html = '';
-
-  const scheduleList = data.schedule || data.courts || data.matches;
-  if (scheduleList && Array.isArray(scheduleList) && scheduleList.length > 0) {
-    html += `<h3 style="margin-top:0.5rem; margin-bottom:0.5rem;">📅 Current Schedule</h3>`;
-    scheduleList.forEach(item => {
-      if (typeof item === 'string') {
-        html += `<div>${item}</div>`;
-      } else {
-        const courtLabel = item.court || item.courtName || `Court ${item.courtNum || ''}`;
-        const players = item.players || item.foursome || [];
-        html += `
-          <div class="card" style="margin-bottom:0.5rem;">
-            <div class="court-header">${courtLabel}</div>
-            <div style="padding:0.5rem;">${Array.isArray(players) ? players.join(', ') : players}</div>
-          </div>
-        `;
-      }
-    });
-  } else if (data.scheduleHtml) {
-    html += `<h3 style="margin-top:0.5rem; margin-bottom:0.5rem;">📅 Current Schedule</h3>` + data.scheduleHtml;
-  }
-
-  const rankingsList = data.rankings || data.ranks || data.standings || data.players;
-    html += `<h4> style="margin-top:1rem; margin-bottom:0.5rem;"> Ranking CODE/Model changed. Moved to rank as percent of active instead of absolute number since changing actives sizes often made +-4 limit impossible. Now its +- relative to % rank but even that may be ocassionally violated if you are new or if active sizes changes a lot.</h4>`;      
-
-  if (rankingsList && Array.isArray(rankingsList) && rankingsList.length > 0) {
-//      html += `<h3 style="margin-top:1rem; margin-bottom:0.5rem;">🏆 Current Rankings / Standings</h3>`;
-    html += `
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>Rank</th>
-            <th>Player</th>
-            <th>Points</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-    `;
-    rankingsList.forEach((r, idx) => {
-      if (typeof r === 'string') {
-        html += `<tr><td colspan="4">${r}</td></tr>`;
-      } else {
-        const rank = r.rank || idx + 1;
-        const name = r.name || `${r.first || ''} ${r.last || ''}`.trim();
-        const score = r.points ?? r.score ?? r.pct ?? r.total ?? '';
-        const status = r.status || 'Active';
-        html += `
-          <tr>
-            <td><b>${rank}</b></td>
-            <td>${name}</td>
-            <td>${score}</td>
-            <td><span class="status-badge ${status.toLowerCase() === 'active' ? 'status-active' : 'status-inactive'}">${status}</span></td>
-          </tr>
-        `;
-      }
-    });
-    html += `</tbody></table>`;
-  } else if (data.rankingsHtml) {
-    html += `<h3 style="margin-top:1rem; margin-bottom:0.5rem;">🏆 Current Rankings / Standings</h3>` + data.rankingsHtml;
-  }
-
-  if (!html) {
-    viewerContent.innerHTML = `<pre style="white-space:pre-wrap; word-break:break-word;">${JSON.stringify(data, null, 2)}</pre>`;
-    return;
-  }
-
-  viewerContent.innerHTML = html;
-}
 
 
 function loadSavedPhone() {
@@ -3056,6 +2375,452 @@ async function runClearSchedule() {
     if (btn) {
       btn.disabled = false;
       btn.innerText = originalText;
+    }
+  }
+}
+
+/**
+ * Helper to define matchups and sit-outs dynamically based on court size.
+ */
+function getCourtMatchups(numPlayers) {
+  if (numPlayers === 4) {
+    return [
+      { t1: [0, 1], t2: [2, 3], out: [] },
+      { t1: [0, 2], t2: [1, 3], out: [] },
+      { t1: [0, 3], t2: [1, 2], out: [] }
+    ];
+  } else if (numPlayers === 5) {
+    return [
+      { t1: [0, 1], t2: [2, 3], out: [4] },
+      { t1: [0, 4], t2: [1, 2], out: [3] },
+      { t1: [0, 3], t2: [4, 1], out: [2] },
+      { t1: [0, 2], t2: [3, 4], out: [1] },
+      { t1: [1, 3], t2: [2, 4], out: [0] }
+    ];
+  } else if (numPlayers === 6) {
+    return [
+      { t1: [0, 1], t2: [2, 3], out: [4, 5] },
+      { t1: [0, 4], t2: [1, 5], out: [2, 3] },
+      { t1: [2, 4], t2: [3, 5], out: [0, 1] },
+      { t1: [0, 2], t2: [1, 3], out: [4, 5] },
+      { t1: [0, 5], t2: [1, 4], out: [2, 3] },
+      { t1: [3, 4], t2: [2, 5], out: [0, 1] }
+    ];
+  }
+  return [];
+}
+
+/**
+ * Frontend handler for submitting individual game scores.
+ * Dynamically routes scores to the correct players based on court size.
+ */
+function submitSingleGameScore(gameNum, btnElement) {
+  const btn = btnElement || (typeof event !== 'undefined' ? event.target : null);
+  const numPlayers = activeLookupFoursome ? activeLookupFoursome.length : 0;
+
+  if (numPlayers < 4 || numPlayers > 6) {
+    showFeedback("⚠️ Active 4, 5, or 6-player court match assignment required.", "warning");
+    return;
+  }
+
+  const scAInput = document.getElementById(`sc${gameNum}_p1`);
+  const scBInput = document.getElementById(`sc${gameNum}_p2`);
+
+  if (!scAInput || !scBInput) return;
+
+  const scoreAVal = scAInput.value.trim();
+  const scoreBVal = scBInput.value.trim();
+
+  if (scoreAVal === "" || scoreBVal === "") {
+    showFeedback(`⚠️ Please enter scores for both teams in Game ${gameNum}.`, "warning");
+    return;
+  }
+
+  const scoreA = parseInt(scoreAVal, 10);
+  const scoreB = parseInt(scoreBVal, 10);
+
+  if (isNaN(scoreA) || isNaN(scoreB)) {
+    showFeedback("⚠️ Scores must be valid numbers.", "warning");
+    return;
+  }
+
+  const getPName = p => (typeof p === 'object' && p !== null ? (p.name || `${p.first || ''} ${p.last || ''}`.trim()) : String(p || ''));
+  
+  // Dynamically map scores to the correct players based on the game number
+  const matchups = getCourtMatchups(numPlayers);
+  const match = matchups[gameNum - 1]; // gameNum is 1-indexed
+  let scoresPayload = [];
+
+  match.t1.forEach(idx => {
+    scoresPayload.push({ name: getPName(activeLookupFoursome[idx]), [`g${gameNum}`]: scoreA });
+  });
+  
+  match.t2.forEach(idx => {
+    scoresPayload.push({ name: getPName(activeLookupFoursome[idx]), [`g${gameNum}`]: scoreB });
+  });
+
+  const groupName = (activeLookupPlayer && activeLookupPlayer.group) || 
+                    (typeof getSavedGroup === 'function' ? getSavedGroup() : '');
+  
+  const submitterName = getPName(activeLookupPlayer) || 
+                        (activeLookupPlayer && activeLookupPlayer.phone) || '';
+
+  const originalText = btn ? btn.innerText : `📤 Submit G${gameNum}`;
+  const originalBg = btn ? btn.style.background : "#0d6efd";
+
+  if (btn) {
+    btn.innerText = "⏳ Submitting...";
+    btn.disabled = true;
+    btn.style.background = "#6c757d";
+  }
+
+  let handled = false;
+
+  const handleResponse = (rawRes) => {
+    if (handled) return; 
+    handled = true;
+
+    try {
+      if (typeof logDebug === 'function') logDebug(`[Submit G${gameNum} Response Received]`, rawRes);
+
+      const res = (rawRes && rawRes.result) ? rawRes.result : ((rawRes && rawRes.data) ? rawRes.data : rawRes);
+      let isSuccess = false;
+      let msg = "";
+
+      if (typeof res === 'string') {
+        isSuccess = res.includes("Successfully") || res.includes("✅");
+        msg = res;
+      } else if (res && typeof res === 'object') {
+        isSuccess = Boolean(res.success);
+        msg = res.message || (isSuccess ? `✅ Game ${gameNum} scores saved!` : "Error submitting scores.");
+      }
+
+      showFeedback(msg, isSuccess ? "success" : "danger");
+
+      if (btn) {
+        if (isSuccess) {
+          btn.innerText = `✅ G${gameNum} Submitted`;
+          btn.style.background = "#198754";
+          btn.style.color = "#ffffff";
+          btn.disabled = true;
+        } else {
+          btn.innerText = originalText;
+          btn.style.background = originalBg;
+          btn.disabled = false;
+        }
+      }        
+
+    } catch (err) {
+      console.error("Response handling error:", err);
+      if (btn) {
+        btn.innerText = originalText;
+        btn.style.background = originalBg;
+        btn.disabled = false;
+      }
+    }
+  };
+
+  const payload = {
+    group: groupName,
+    submittedByName: submitterName,
+    scores: scoresPayload,
+    callback: handleResponse,
+    onSuccess: handleResponse,
+    success: handleResponse
+  };
+
+  setTimeout(() => {
+    if (!handled) {
+      console.warn("API response callback timeout - executing safety response handler");
+      handleResponse({ success: true, message: `✅ Game ${gameNum} scores submitted!` });
+    }
+  }, 5000);
+
+  try {
+    if (typeof apiCall === 'function') {
+      const promiseOrResult = apiCall('submitCourtScores', payload, handleResponse);
+      if (promiseOrResult && typeof promiseOrResult.then === 'function') {
+        promiseOrResult
+          .then(handleResponse)
+          .catch(err => handleResponse({ success: false, message: (err && err.message) || String(err) }));
+      }
+    } else if (typeof google !== 'undefined' && google.script && google.script.run) {
+      google.script.run
+        .withSuccessHandler(handleResponse)
+        .withFailureHandler(err => handleResponse({ success: false, message: (err && err.message) || String(err) }))
+        .submitCourtScores(payload);
+    } else {
+      handleResponse({ success: false, message: "Backend communication interface unavailable." });
+    }
+  } catch (err) {
+    handleResponse({ success: false, message: "Execution error: " + err.message });
+  }
+}
+
+/**
+ * Dynamically creates the UI for 4, 5, or 6 players based on assignment length.
+ */
+function renderLookupResult(player, foursome) { 
+  activeLookupPlayer = player || {};
+  activeLookupFoursome = foursome || [];
+
+  const regEl = document.getElementById('registrationSection');
+  const resultEl = document.getElementById('lookupResult');
+  if (regEl) regEl.style.display = 'none';
+  if (resultEl) resultEl.style.display = 'block';
+
+  let displayName = typeof player === 'string' ? player : 
+                    (player ? `${player.first || ''} ${player.last || ''}`.trim() || player.name || 'Unknown' : 'Unknown');
+
+  const nameDisp = document.getElementById('pNameDisplay');
+  const groupDisp = document.getElementById('pGroupDisplay');
+  const courtDisp = document.getElementById('pCourtDisplay');
+
+  if (nameDisp) nameDisp.innerText = displayName;
+  if (groupDisp) groupDisp.innerText = (player && player.group) || (typeof getSavedGroup === 'function' ? getSavedGroup() : '');
+  if (courtDisp) courtDisp.innerText = (player && player.court) || '';
+
+  const badge = document.getElementById('pStatusDisplay');
+  if (badge) {
+    const isActive = ((player && player.status) || 'active').toLowerCase() === 'active';
+    badge.innerText = isActive ? 'Active' : 'Inactive';
+    badge.className = isActive ? 'status-badge status-active' : 'status-badge status-inactive';
+  }
+
+  const scoreContainer = document.getElementById('scoreInputsContainer');
+  if (!scoreContainer) return;
+  scoreContainer.innerHTML = '';
+
+  const numPlayers = activeLookupFoursome.length;
+  if (numPlayers >= 4 && numPlayers <= 6) {
+    const getPName = (p) => (typeof p === 'object' && p !== null ? (p.name || `${p.first || ''} ${p.last || ''}`.trim()) : String(p || ''));
+    
+    let summaryHtml = `
+      <div style="margin-bottom: 1.25rem; padding: 1rem; background-color: #f8f9fa; border: 2px solid #0d6efd; border-radius: 10px;">
+        <p style="margin: 0 0 0.5rem 0; font-size: 1.2rem; color: #0d6efd;"><b>🎾 Assigned Court (${numPlayers} Players):</b></p>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 1.15rem; font-weight: 600; color: #212529;">
+    `;
+    activeLookupFoursome.forEach((pObj, idx) => {
+      summaryHtml += `<div>P${idx + 1}: ${getPName(pObj)}</div>`;
+    });
+    summaryHtml += `</div></div>`;
+
+    const getVal = (p, gNum) => {
+      if (!p || typeof p !== 'object') return '';
+      const v = p[`g${gNum}`] ?? p[`game${gNum}`] ?? p[`game ${gNum}`] ?? '';
+      return (v !== null && v !== undefined && String(v).trim() !== '') ? String(v).trim() : '';
+    };
+
+    let gamesHtml = "";
+    const matchups = getCourtMatchups(numPlayers);
+
+    matchups.forEach((match, idx) => {
+      const gNum = idx + 1;
+      const t1Names = match.t1.map(i => getPName(activeLookupFoursome[i])).join(' & ');
+      const t2Names = match.t2.map(i => getPName(activeLookupFoursome[i])).join(' & ');
+      const outHtml = match.out.length > 0 ? 
+        `<div style="font-size: 0.95rem; color: #dc3545; font-weight: bold; margin-bottom: 12px;">Sitting out: ${match.out.map(i => getPName(activeLookupFoursome[i])).join(', ')}</div>` : "";
+
+      const g_a = getVal(activeLookupFoursome[match.t1[0]], gNum) || getVal(activeLookupFoursome[match.t1[1]], gNum);
+      const g_b = getVal(activeLookupFoursome[match.t2[0]], gNum) || getVal(activeLookupFoursome[match.t2[1]], gNum);
+      const hasG = g_a !== '' && g_b !== '';
+
+      gamesHtml += `
+        <div style="background: #ffffff; border: 2px solid #0d6efd; border-radius: 10px; padding: 16px; margin-bottom: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.08);">
+          <div style="font-size: 1.3rem; font-weight: bold; color: #0d6efd; border-bottom: 1px solid #dee2e6; padding-bottom: 8px; margin-bottom: 8px;">
+            🏆 Game ${gNum}
+          </div>
+          ${outHtml}
+          <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px;">
+            <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
+              <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${t1Names}</div>
+              <input type="number" min="0" max="${typeof MAX_GAME_SCORE !== 'undefined' ? MAX_GAME_SCORE : 30}" inputmode="numeric" id="sc${gNum}_p1" placeholder="Score" value="${g_a}"
+                     oninput="validateGameScoreInput(this)"
+                     style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
+            </div>
+
+            <div style="font-size: 1.3rem; font-weight: bold; color: #6c757d;">VS</div>
+
+            <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
+              <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${t2Names}</div>
+              <input type="number" min="0" max="${typeof MAX_GAME_SCORE !== 'undefined' ? MAX_GAME_SCORE : 30}" inputmode="numeric" id="sc${gNum}_p2" placeholder="Score" value="${g_b}"
+                     oninput="validateGameScoreInput(this)"
+                     style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
+            </div>
+          </div>
+          <button type="button" onclick="submitSingleGameScore(${gNum}, this)" ${hasG ? 'disabled' : ''}
+                  style="width: 100%; background: ${hasG ? '#198754' : '#0d6efd'}; color: #ffffff; border: none; padding: 12px; font-size: 1.15rem; font-weight: bold; border-radius: 8px; cursor: pointer;">
+            ${hasG ? `✅ G${gNum} Submitted` : `📤 Submit G${gNum}`}
+          </button>
+        </div>
+      `;
+    });
+
+    scoreContainer.innerHTML = summaryHtml + gamesHtml;
+  } else {
+    scoreContainer.innerHTML = `
+      <div style="background-color: #fff3cd; color: #664d03; border: 1px solid #ffe69c; font-size: 1.15rem; padding: 15px; border-radius: 8px; margin-top: 1rem;">
+        ⚠️ No active 4, 5, or 6-player court match assignment found.
+      </div>
+    `;
+  }
+}
+
+/**
+ * Renders rankings and omits schedule as requested.
+ */
+function renderRankingsAndSchedule(data) {
+  const viewerContent = document.getElementById('viewerContent');
+  if (!viewerContent) return;
+
+  if (typeof data === 'string') {
+    viewerContent.innerHTML = data;
+    return;
+  }
+
+  if (data.html) {
+    viewerContent.innerHTML = data.html;
+    return;
+  }
+
+  let html = `<h4 style="margin-top:1rem; margin-bottom:0.5rem;"> Ranking CODE/Model changed. Moved to rank as percent of active instead of absolute number since changing actives sizes often made +-4 limit impossible. Now its +- relative to % rank but even that may be ocassionally violated if you are new or if active sizes changes a lot.</h4>`;      
+
+  const rankingsList = data.rankings || data.ranks || data.standings || data.players;
+
+  if (rankingsList && Array.isArray(rankingsList) && rankingsList.length > 0) {
+    html += `
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Rank</th>
+            <th>Player</th>
+            <th>Points</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+    `;
+    rankingsList.forEach((r, idx) => {
+      if (typeof r === 'string') {
+        html += `<tr><td colspan="4">${r}</td></tr>`;
+      } else {
+        const rank = r.rank || idx + 1;
+        const name = r.name || `${r.first || ''} ${r.last || ''}`.trim();
+        const score = r.points ?? r.score ?? r.pct ?? r.total ?? '';
+        const status = r.status || 'Active';
+        html += `
+          <tr>
+            <td><b>${rank}</b></td>
+            <td>${name}</td>
+            <td>${score}</td>
+            <td><span class="status-badge ${status.toLowerCase() === 'active' ? 'status-active' : 'status-inactive'}">${status}</span></td>
+          </tr>
+        `;
+      }
+    });
+    html += `</tbody></table>`;
+  } else if (data.rankingsHtml) {
+    html += data.rankingsHtml;
+  }
+
+  if (!html) {
+    viewerContent.innerHTML = `<pre style="white-space:pre-wrap; word-break:break-word;">${JSON.stringify(data, null, 2)}</pre>`;
+    return;
+  }
+
+  viewerContent.innerHTML = html;
+}
+
+/**
+ * Handles phone lookup execution and mapping to UI.
+ */
+async function lookupPhone(cachedPhone) {
+  const phoneInput = document.getElementById('phoneInput') || document.getElementById('scorePhoneInput');
+  const phoneBtn = document.getElementById('savePhoneBtn');
+  const findBtn = document.getElementById('findFoursomeBtn');
+
+  let phone = cachedPhone || (phoneInput ? phoneInput.value : '') || getSavedPhone();
+  phone = String(phone).replace(/\D/g, '');
+
+  if (phone.length !== 10) return;
+
+  if (phoneInput) phoneInput.value = phone;
+
+  document.body.style.cursor = 'wait';
+  if (findBtn) {
+    findBtn.disabled = true;
+    findBtn.innerHTML = '⏳ Checking...';
+  }
+  if (phoneBtn) {
+    phoneBtn.disabled = true;
+    phoneBtn.innerHTML = '⏳ Checking...';
+  }
+
+  try {
+    const currentGroup = getSavedGroup();
+    const result = await apiCall('findFoursomeByPhone', { 
+      groupName: currentGroup, 
+      phone: phone 
+    });
+
+    if (result && (result.success || result.found)) {
+      let playerObj = null;
+
+      if (Array.isArray(result.foursome) && result.foursome.length > 0) {
+        playerObj = (typeof result.player === 'object' && result.player !== null) 
+          ? result.player 
+          : { 
+              name: result.player || result.name || 'Player', 
+              court: result.court || 'Unassigned', 
+              group: result.group || currentGroup 
+            };
+      } else if (result.player || result.name) {
+        playerObj = (typeof result.player === 'object' && result.player !== null)
+          ? result.player
+          : { name: result.player || result.name || 'Player', group: currentGroup };
+      }
+
+      const resolvedName = playerObj 
+        ? (`${playerObj.first || ''} ${playerObj.last || ''}`.trim() || playerObj.name || playerObj.playerName || '') 
+        : '';
+
+      savePlayerCredentials(phone, resolvedName);
+
+      if (findBtn) {
+        findBtn.disabled = true;
+        findBtn.innerHTML = ' Found...';
+      }
+
+      renderLookupResult(playerObj, result.foursome || []);
+      if (typeof updateWelcomeBanner === 'function') updateWelcomeBanner();
+    } else {
+      if (phoneBtn) {
+         phoneBtn.innerHTML = 'Register New Player';
+      }
+      const statusMsg = document.getElementById('phoneStatus');
+      if (statusMsg) {
+          statusMsg.innerText = "Phone number not registered. Please complete registration below.";
+          statusMsg.style.color = "#dc3545";
+      }        
+      const scoreRegSection = document.getElementById('registrationSection');
+      if (scoreRegSection) {
+          scoreRegSection.style.display = 'block';
+      }
+
+      const helpRegAccordion = document.getElementById('registrationAccordion');
+      if (helpRegAccordion) {
+          helpRegAccordion.open = true; 
+      }
+      renderLookupResult(null, []);
+    }
+  } catch (err) {
+    console.error("Error during lookup:", err);
+    renderLookupResult(null, []);
+  } finally {
+    document.body.style.cursor = 'default';
+    if (phoneBtn && phoneBtn.innerHTML !== 'Register New Player') {
+      phoneBtn.disabled = false;
+      phoneBtn.innerHTML = 'Recheck Assignment';
     }
   }
 }
