@@ -2410,10 +2410,6 @@ function getCourtMatchups(numPlayers) {
   return [];
 }
 
-/**
- * Frontend handler for submitting individual game scores.
- * Dynamically routes scores to the correct players based on court size.
- */
 function submitSingleGameScore(gameNum, btnElement) {
   const btn = btnElement || (typeof event !== 'undefined' ? event.target : null);
   const numPlayers = activeLookupFoursome ? activeLookupFoursome.length : 0;
@@ -2445,10 +2441,8 @@ function submitSingleGameScore(gameNum, btnElement) {
   }
 
   const getPName = p => (typeof p === 'object' && p !== null ? (p.name || `${p.first || ''} ${p.last || ''}`.trim()) : String(p || ''));
-  
-  // Dynamically map scores to the correct players based on the game number
   const matchups = getCourtMatchups(numPlayers);
-  const match = matchups[gameNum - 1]; // gameNum is 1-indexed
+  const match = matchups[gameNum - 1];
   let scoresPayload = [];
 
   match.t1.forEach(idx => {
@@ -2481,8 +2475,6 @@ function submitSingleGameScore(gameNum, btnElement) {
     handled = true;
 
     try {
-      if (typeof logDebug === 'function') logDebug(`[Submit G${gameNum} Response Received]`, rawRes);
-
       const res = (rawRes && rawRes.result) ? rawRes.result : ((rawRes && rawRes.data) ? rawRes.data : rawRes);
       let isSuccess = false;
       let msg = "";
@@ -2531,7 +2523,6 @@ function submitSingleGameScore(gameNum, btnElement) {
 
   setTimeout(() => {
     if (!handled) {
-      console.warn("API response callback timeout - executing safety response handler");
       handleResponse({ success: true, message: `✅ Game ${gameNum} scores submitted!` });
     }
   }, 5000);
@@ -2556,6 +2547,7 @@ function submitSingleGameScore(gameNum, btnElement) {
     handleResponse({ success: false, message: "Execution error: " + err.message });
   }
 }
+
 
 /**
  * Dynamically creates the UI for 4, 5, or 6 players based on assignment length.
