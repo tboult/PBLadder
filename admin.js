@@ -19,6 +19,7 @@ function filterAdminPlayers() {
 
   if (!Array.isArray(adminPlayersCache) || adminPlayersCache.length === 0) {
     container.innerHTML = '<i style="color:#666;">No player data loaded for this group. Select a group above.</i>';
+    updateAdminDashboard(); // Update dashboard to 0
     return;
   }
 
@@ -30,6 +31,7 @@ function filterAdminPlayers() {
 
   if (filtered.length === 0) {
     container.innerHTML = '<i style="color:#666;">No matching players found.</i>';
+    updateAdminDashboard(); // Ensure dashboard still shows totals even if search yields 0
     return;
   }
 
@@ -40,12 +42,10 @@ function filterAdminPlayers() {
     const attrName = escapeHtmlAttr(rawName);
     const attrPhone = escapeHtmlAttr(cleanPhone);
 
-    // Active status evaluation
     const isActive = player.active === true 
       || String(player.active).toLowerCase() === 'true' 
       || String(player.status).toLowerCase() === 'active';
 
-    // Comprehensive Check-In evaluation (handles 'X', true, timestamps, and multiple property names)
     const checkInVal = player.checkedIn ?? player.isCheckedIn ?? player.checked ?? player.checkIn;
     const isCheckedIn = checkInVal === true 
       || String(checkInVal).toLowerCase() === 'true' 
@@ -60,31 +60,26 @@ function filterAdminPlayers() {
 
     return `
 <div style="display:flex; justify-content:space-between; align-items:center; padding:0.6rem; border-bottom:1px solid #eee; gap:0.75rem; flex-wrap:wrap;">
-  <!-- Player Details (Left) -->
   <div style="font-weight:bold; font-size:0.95rem; text-overflow:ellipsis; overflow:hidden; white-space:nowrap; flex:1; min-width:180px;">
     ${attrName}${player.court ? `, ${escapeHtmlAttr(player.court)}` : ''}, ${cleanPhone || 'No phone'}
   </div>
-
-  <!-- Controls (Right) -->
   <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; margin-left:auto;">
-    <!-- Score Input -->
     <div style="display:flex; align-items:center; gap:0.3rem; white-space:nowrap;">
       <span style="font-size:0.85rem; font-weight:bold;">Total:</span>
       <input type="number" id="admin_score_${attrPhone}" value="${playerScore}" placeholder="--" style="width: 55px; padding: 0.2rem; border: 1px solid #ccc; border-radius: 4px;">
     </div>
-
-    <!-- Check-In Button -->
     <button type="button" class="btn-main" style="padding:0.35rem 0.6rem; font-size:0.8rem; background-color:${isCheckedIn ? '#2e7d32' : '#757575'}; color:white; white-space:nowrap;" onclick="toggleAdminCheckIn(this, '${attrName}', '${attrPhone}', ${isCheckedIn})">
       ${isCheckedIn ? '✅ Checked In' : '⬜ Check In'}
     </button>
-
-    <!-- Active/Inactive Button -->
     <button type="button" class="btn-sub" style="padding:0.35rem 0.6rem; font-size:0.8rem; background-color:${isActive ? '#1976d2' : '#d32f2f'}; color:white; white-space:nowrap;" onclick="toggleAdminPlayerActive(this, '${attrName}', '${attrPhone}', ${isActive})">
       ${isActive ? 'Active' : 'Inactive'}
     </button>
   </div>
 </div>    `;
   }).join('');
+
+  // Call the dashboard update after rendering
+  updateAdminDashboard();
 }
 
 
@@ -1113,6 +1108,30 @@ async function runSkipWeek(weekTarget = 'current') {
 
 
 
+function updateAdminDashboard() {
+  if (!Array.isArray(adminPlayersCache)) return;
 
+  // 1. Calculate checked in count
+  const checkedInCount = adminPlayersCache.filter(player => {
+    const checkInVal = player.checkedIn ?? player.isCheckedIn ?? player.checked ?? player.checkIn;
+    return checkInVal === true 
+      || String(checkInVal).toLowerCase() === 'true' 
+      || String(checkInVal).toUpperCase() === 'X' 
+      || (typeof checkInVal === 'string' && checkInVal.trim().length > 0 && checkInVal.trim().toLowerCase() !== 'false')
+      || String(player.status).toLowerCase() === 'checked in';
+  }).length;
 
+  // 2. Calculate projected byes (players remaining beyond standard 4-player courts)
+  const projectedByes = checkedInCount % 4;
 
+  // 3. Target the exact IDs present in your HTML
+  const liveCountElem = document.getElementById('live-player-count');
+  if (liveCountElem) {
+    liveCountElem.textContent = checkedInCount;
+  }
+
+  const byesElem = document.getElementById('projected-byes');
+  if (byesElem) {
+    byesElem.textContent = projectedByes;
+  }
+}
