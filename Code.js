@@ -4349,6 +4349,9 @@ function findFoursomeByPhone(params, groupNameArg) {
 }
 
 
+// Header array structure across schedule generators:
+let headers = ["Player Name", "Court", "Check-In", "Game 1", "Game 2", "Game 3", "Game 4", "Game 5", "Game 6", "Total", "Entered", "", "Phone"];
+
 /**
  * Submits court scores for Game 1 through Game 6 and calculates normalized totals.
  */
