@@ -2731,3 +2731,42 @@ function validateGameScoreInput(input, options = {}) {
 
   return isValid;
 }
+
+
+function forceRefreshData(groupName) {
+  let cleanGroup = String(groupName).replace(/^(Score|Sched|Rankings)\s*/i, "").trim().toUpperCase();
+  const cache = CacheService.getScriptCache();
+  
+  try {
+    cache.remove("UNIFIED_ROSTER_CACHE_" + cleanGroup);
+    if (typeof getCheckInCacheKey === 'function') {
+      cache.remove(getCheckInCacheKey("Sched " + cleanGroup));
+    }
+  } catch (e) {}
+
+  // Assuming getUnifiedRoster is your primary data fetcher. 
+  // Replace with getRankingsAndSchedData if that feeds your UI instead.
+  return getUnifiedRoster(groupName); 
+}
+
+function handleManualRefresh() {
+  const btn = document.getElementById("refreshDataBtn");
+  const originalText = btn.innerHTML;
+  btn.innerHTML = "⏳ Refreshing...";
+  btn.disabled = true;
+
+  // Assumes 'currentGroup' is stored globally in your front-end JS
+  google.script.run
+    .withSuccessHandler(function(freshData) {
+      btn.innerHTML = originalText;
+      btn.disabled = false;
+      // Call your existing front-end render function here
+      // renderRosterUI(freshData); 
+    })
+    .withFailureHandler(function(err) {
+      btn.innerHTML = originalText;
+      btn.disabled = false;
+      alert("Failed to refresh: " + err.message);
+    })
+    .forceRefreshData(currentGroup);
+}
