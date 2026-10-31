@@ -3728,32 +3728,42 @@ function submitCourtScores(payload) {
 }
 
 
-
 /**
  * Reschedules checked-in players into courts.
- * Safely parses boolean string payloads ("false" vs false) and allocates 
- * 5/6-player courts to bottom-ranked (weakest) players when enabled.
+ * Flexibly parses payload objects across argument 1, 2, or 3 to correctly read optimizeByes.
  */
-function rescheduleFromCheckIns(reschedTarget, courts) {
+function rescheduleFromCheckIns(reschedTarget, courts, optParam) {
   return executeWithLock(function() {
-    let payloadByeFlag = undefined;
-    let integrateByes = false; // Default to strict 4-player courts
-    
-    // Helper to safely parse string "false" / "true" from API requests
     const isTruthy = (val) => val === true || String(val).toLowerCase() === 'true';
 
+    // Flexible payload object detection across any argument position
+    let payloadObj = null;
     if (typeof reschedTarget === 'object' && reschedTarget !== null) {
-      courts = reschedTarget.courts || courts;
-      payloadByeFlag = reschedTarget.alwaysByeBottom !== undefined ? reschedTarget.alwaysByeBottom : reschedTarget.ALWAYS_BYE_BOTTOM;
+      payloadObj = reschedTarget;
+    } else if (typeof courts === 'object' && courts !== null && !Array.isArray(courts)) {
+      payloadObj = courts;
+    } else if (typeof optParam === 'object' && optParam !== null) {
+      payloadObj = optParam;
+    }
+
+    let integrateByes = false; // Default to strict 4-player courts with BYEs
+    let payloadByeFlag = undefined;
+
+    if (payloadObj) {
+      courts = payloadObj.courts || (Array.isArray(courts) ? courts : undefined);
+      payloadByeFlag = payloadObj.alwaysByeBottom !== undefined ? payloadObj.alwaysByeBottom : payloadObj.ALWAYS_BYE_BOTTOM;
       
-      let byeVal = reschedTarget.optimizeByes !== undefined ? reschedTarget.optimizeByes :
-                   (reschedTarget.integrateByes !== undefined ? reschedTarget.integrateByes : reschedTarget.distributeByes);
+      let byeVal = payloadObj.optimizeByes !== undefined ? payloadObj.optimizeByes :
+                   (payloadObj.integrateByes !== undefined ? payloadObj.integrateByes : payloadObj.distributeByes);
       
       if (byeVal !== undefined) {
         integrateByes = isTruthy(byeVal);
       }
       
-      reschedTarget = reschedTarget.reschedTarget || reschedTarget.group || reschedTarget.target || reschedTarget.groupName;
+      reschedTarget = payloadObj.reschedTarget || payloadObj.group || payloadObj.target || payloadObj.groupName || payloadObj.sheet || reschedTarget;
+    } else {
+      if (typeof courts === 'boolean') integrateByes = courts;
+      else if (typeof optParam === 'boolean') integrateByes = optParam;
     }
 
     const alwaysByeBottom = (payloadByeFlag !== undefined) ? isTruthy(payloadByeFlag) : (typeof ALWAYS_BYE_BOTTOM !== 'undefined' ? isTruthy(ALWAYS_BYE_BOTTOM) : true);
@@ -3888,7 +3898,6 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
       playersCopy.forEach(p => { p.assignedCourt = "BYE"; playersForBye.push(p); });
 
     } else {
-      // Strict 4-Player Court Sizing
       let maxFullCourts = Math.min(Math.floor(playersCopy.length / 4), availableCourts.length);
       let totalPlayingAllowed = maxFullCourts * 4;
       let playersToAssign = [];
@@ -3985,29 +3994,39 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
   });
 }
 
-
 /**
- * Generates schedule tabs on Sched sheet with strict boolean payload parsing.
+ * Generates schedule tabs on Sched sheet with flexible argument parameter parsing.
  */
-function ScheduleAll(genTarget, courts) {
+function ScheduleAll(genTarget, courts, optParam) {
   return executeWithLock(function() {
-    let targetGroup = genTarget;
-    let payloadByeFlag = undefined;
-    let integrateByes = false; // Default to strict 4-player courts
-
     const isTruthy = (val) => val === true || String(val).toLowerCase() === 'true';
 
+    let payloadObj = null;
     if (typeof genTarget === 'object' && genTarget !== null) {
-      courts = genTarget.courts || courts;
-      payloadByeFlag = genTarget.alwaysByeBottom !== undefined ? genTarget.alwaysByeBottom : genTarget.ALWAYS_BYE_BOTTOM;
+      payloadObj = genTarget;
+    } else if (typeof courts === 'object' && courts !== null && !Array.isArray(courts)) {
+      payloadObj = courts;
+    } else if (typeof optParam === 'object' && optParam !== null) {
+      payloadObj = optParam;
+    }
+
+    let integrateByes = false; // Default to strict 4-player courts
+    let payloadByeFlag = undefined;
+
+    if (payloadObj) {
+      courts = payloadObj.courts || (Array.isArray(courts) ? courts : undefined);
+      payloadByeFlag = payloadObj.alwaysByeBottom !== undefined ? payloadObj.alwaysByeBottom : payloadObj.ALWAYS_BYE_BOTTOM;
       
-      let byeVal = genTarget.optimizeByes !== undefined ? genTarget.optimizeByes :
-                   (genTarget.integrateByes !== undefined ? genTarget.integrateByes : genTarget.distributeByes);
+      let byeVal = payloadObj.optimizeByes !== undefined ? payloadObj.optimizeByes :
+                   (payloadObj.integrateByes !== undefined ? payloadObj.integrateByes : payloadObj.distributeByes);
       
       if (byeVal !== undefined) {
         integrateByes = isTruthy(byeVal);
       }
-      targetGroup = genTarget.group || genTarget.sheet || genTarget.schedSheetName || genTarget.genTarget || genTarget.target || "";
+      genTarget = payloadObj.group || payloadObj.sheet || payloadObj.schedSheetName || payloadObj.genTarget || payloadObj.target || genTarget || "";
+    } else {
+      if (typeof courts === 'boolean') integrateByes = courts;
+      else if (typeof optParam === 'boolean') integrateByes = optParam;
     }
 
     const alwaysByeBottom = (payloadByeFlag !== undefined) ? isTruthy(payloadByeFlag) : (typeof ALWAYS_BYE_BOTTOM !== 'undefined' ? isTruthy(ALWAYS_BYE_BOTTOM) : true);
@@ -4019,8 +4038,8 @@ function ScheduleAll(genTarget, courts) {
     let groupsToProcess = [];
     const currentWeek = calculateCurrentWeekNumber();
 
-    if (targetGroup) {
-      let cleanGroup = String(targetGroup).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
+    if (genTarget && typeof genTarget === 'string') {
+      let cleanGroup = genTarget.replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
       groupsToProcess = [cleanGroup];
     } else {
       groupsToProcess = (typeof GROUPS !== 'undefined' && GROUPS.length > 0) ? GROUPS : [getTargetGroup()];
@@ -4245,10 +4264,6 @@ function ScheduleAll(genTarget, courts) {
   });
 }
 
-/**
- * Wrapper for API requests targeting generateScheduleTabs.
- * Forwards full payload object so optimizeByes/integrateByes are preserved.
- */
-function generateScheduleTabs(payload, courts) {
-  return ScheduleAll(payload, courts);
+function generateScheduleTabs(payload, courts, optParam) {
+  return ScheduleAll(payload, courts, optParam);
 }
