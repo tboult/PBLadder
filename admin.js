@@ -859,3 +859,39 @@ async function runRescheduleActive() {
     if (statusEl) statusEl.innerText = '❌ Error performing reschedule: ' + (err.message || String(err));
   }
 }
+
+/**
+ * Global handler for the Distribute Byes checkbox toggle.
+ */
+window.onByeCheckboxToggle = function(el) {
+  const checkbox = el || document.getElementById('optimize-byes-checkbox');
+  const isChecked = Boolean(checkbox && checkbox.checked);
+  const debugEl = document.getElementById('debug-bye-status');
+  
+  if (debugEl) {
+    debugEl.innerHTML = isChecked
+      ? `🔍 Checkbox Detected: <b style="color:green;">CHECKED (True)</b> | Mode: <b>5/6-Player Integration Active</b>`
+      : `🔍 Checkbox Detected: <b style="color:red;">UNCHECKED (False)</b> | Mode: <b>Strict 4-Player Courts Only</b>`;
+  }
+  
+  console.log(`[DEBUG] Checkbox Toggled -> checked: ${isChecked} (${typeof isChecked})`);
+  
+  if (typeof updateAdminDashboard === 'function') {
+    updateAdminDashboard();
+  }
+};
+
+// Delegated Event Listener: Works even if HTML is loaded or modified dynamically
+document.addEventListener('change', function(e) {
+  if (e.target && (e.target.id === 'optimize-byes-checkbox' || e.target.name === 'optimizeByes')) {
+    window.onByeCheckboxToggle(e.target);
+  }
+});
+
+// Initializer: Run once DOM is ready to sync initial state
+document.addEventListener('DOMContentLoaded', function() {
+  const optCb = document.getElementById('optimize-byes-checkbox');
+  if (optCb) {
+    window.onByeCheckboxToggle(optCb);
+  }
+});

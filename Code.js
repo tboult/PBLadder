@@ -3727,47 +3727,65 @@ function submitCourtScores(payload) {
   });
 }
 
+/**
+ * Master parameter resolver for Apps Script functions.
+ * Safely extracts group, courts, and bye optimization flags regardless of argument positioning.
+ */
+function parseRescheduleParams(args) {
+  let group = "";
+  let courts = null;
+  let integrateByes = false;
+  let alwaysByeBottom = true;
+
+  const isTruthy = (val) => val === true || String(val).toLowerCase() === 'true';
+
+  for (let i = 0; i < args.length; i++) {
+    let arg = args[i];
+    if (arg === undefined || arg === null) continue;
+
+    if (typeof arg === 'object' && !Array.isArray(arg)) {
+      // Extract from payload object
+      if (arg.group) group = arg.group;
+      else if (arg.groupName) group = arg.groupName;
+      else if (arg.reschedTarget) group = arg.reschedTarget;
+      else if (arg.genTarget) group = arg.genTarget;
+      else if (arg.target) group = arg.target;
+      else if (arg.sheet) group = arg.sheet;
+
+      if (arg.courts) courts = arg.courts;
+
+      let byeVal = arg.optimizeByes !== undefined ? arg.optimizeByes :
+                   (arg.integrateByes !== undefined ? arg.integrateByes : arg.distributeByes);
+      if (byeVal !== undefined) integrateByes = isTruthy(byeVal);
+
+      if (arg.alwaysByeBottom !== undefined) alwaysByeBottom = isTruthy(arg.alwaysByeBottom);
+      else if (arg.ALWAYS_BYE_BOTTOM !== undefined) alwaysByeBottom = isTruthy(arg.ALWAYS_BYE_BOTTOM);
+
+    } else if (Array.isArray(arg)) {
+      courts = arg;
+    } else if (typeof arg === 'boolean') {
+      integrateByes = arg;
+    } else if (typeof arg === 'string') {
+      let lower = arg.trim().toLowerCase();
+      if (lower === 'true') integrateByes = true;
+      else if (lower === 'false') integrateByes = false;
+      else if (!group) group = arg;
+    }
+  }
+
+  return { group, courts, integrateByes, alwaysByeBottom };
+}
 
 /**
  * Reschedules checked-in players into courts.
- * Flexibly parses payload objects across argument 1, 2, or 3 to correctly read optimizeByes.
  */
 function rescheduleFromCheckIns(reschedTarget, courts, optParam) {
   return executeWithLock(function() {
-    const isTruthy = (val) => val === true || String(val).toLowerCase() === 'true';
-
-    // Flexible payload object detection across any argument position
-    let payloadObj = null;
-    if (typeof reschedTarget === 'object' && reschedTarget !== null) {
-      payloadObj = reschedTarget;
-    } else if (typeof courts === 'object' && courts !== null && !Array.isArray(courts)) {
-      payloadObj = courts;
-    } else if (typeof optParam === 'object' && optParam !== null) {
-      payloadObj = optParam;
-    }
-
-    let integrateByes = false; // Default to strict 4-player courts with BYEs
-    let payloadByeFlag = undefined;
-
-    if (payloadObj) {
-      courts = payloadObj.courts || (Array.isArray(courts) ? courts : undefined);
-      payloadByeFlag = payloadObj.alwaysByeBottom !== undefined ? payloadObj.alwaysByeBottom : payloadObj.ALWAYS_BYE_BOTTOM;
-      
-      let byeVal = payloadObj.optimizeByes !== undefined ? payloadObj.optimizeByes :
-                   (payloadObj.integrateByes !== undefined ? payloadObj.integrateByes : payloadObj.distributeByes);
-      
-      if (byeVal !== undefined) {
-        integrateByes = isTruthy(byeVal);
-      }
-      
-      reschedTarget = payloadObj.reschedTarget || payloadObj.group || payloadObj.target || payloadObj.groupName || payloadObj.sheet || reschedTarget;
-    } else {
-      if (typeof courts === 'boolean') integrateByes = courts;
-      else if (typeof optParam === 'boolean') integrateByes = optParam;
-    }
-
-    const alwaysByeBottom = (payloadByeFlag !== undefined) ? isTruthy(payloadByeFlag) : (typeof ALWAYS_BYE_BOTTOM !== 'undefined' ? isTruthy(ALWAYS_BYE_BOTTOM) : true);
+    const params = parseRescheduleParams(arguments);
+    const integrateByes = params.integrateByes;
+    const alwaysByeBottom = params.alwaysByeBottom;
     const ss = getDb();
+    
     const cleanP = (p) => String(p || '').replace(/\D/g, '');
     const cleanCourtLabel = (c) => {
       if (!c) return ""; let str = String(c).trim();
@@ -3780,9 +3798,8 @@ function rescheduleFromCheckIns(reschedTarget, courts, optParam) {
       return str.replace(/\s+/g, " ");
     };
 
-    let targetName = reschedTarget ? String(reschedTarget).replace(/^Score\s*/i, "Sched ").trim() : "Sched Womens";
-    if (!targetName.startsWith("Sched ")) targetName = "Sched " + targetName;
-    let groupName = targetName.replace(/^Sched\s*/i, "").trim();
+    let groupName = params.group ? String(params.group).replace(/^(Score|Sched)\s*/i, "").trim() : "Womens";
+    let targetName = "Sched " + groupName;
 
     let sheet = ss.getSheetByName(targetName);
     if (!sheet) return `⚠️ Error: Schedule tab '${targetName}' not found.`;
@@ -3851,7 +3868,7 @@ function rescheduleFromCheckIns(reschedTarget, courts, optParam) {
       return rA.origIdx - rB.origIdx;
     });
 
-    let rawCourts = courts ? parseAndSortCourts(courts) : getCourtsForGroup(groupName);
+    let rawCourts = params.courts ? parseAndSortCourts(params.courts) : getCourtsForGroup(groupName);
     let availableCourts = rawCourts.map(cleanCourtLabel).filter(c => c !== "BYE" && c !== "");
     
     let courtAssignments = {};
@@ -3864,7 +3881,6 @@ function rescheduleFromCheckIns(reschedTarget, courts, optParam) {
       let chunkSizes = [];
       let len = playersCopy.length;
 
-      // Fill top-ranked courts with 4 players first; push 5/6-player courts to weakest players at the bottom
       if (len === 6) {
         chunkSizes = [6];
       } else if (len === 11) {
@@ -3990,46 +4006,18 @@ function rescheduleFromCheckIns(reschedTarget, courts, optParam) {
 
     let activeCourtsCount = Object.keys(courtAssignments).filter(c => courtAssignments[c].length >= 4).length;
     let totalByes = rows.filter(r => r[1] === "BYE").length;
-    return `✅ Rescheduled '${targetName}'. Assigned ${activeCourtsCount} courts, ${totalByes} BYEs.`;
+    return `✅ Rescheduled '${targetName}' (optimizeByes=${integrateByes}). Assigned ${activeCourtsCount} courts, ${totalByes} BYEs.`;
   });
 }
 
 /**
- * Generates schedule tabs on Sched sheet with flexible argument parameter parsing.
+ * Generates schedule tabs on Sched sheet.
  */
 function ScheduleAll(genTarget, courts, optParam) {
   return executeWithLock(function() {
-    const isTruthy = (val) => val === true || String(val).toLowerCase() === 'true';
-
-    let payloadObj = null;
-    if (typeof genTarget === 'object' && genTarget !== null) {
-      payloadObj = genTarget;
-    } else if (typeof courts === 'object' && courts !== null && !Array.isArray(courts)) {
-      payloadObj = courts;
-    } else if (typeof optParam === 'object' && optParam !== null) {
-      payloadObj = optParam;
-    }
-
-    let integrateByes = false; // Default to strict 4-player courts
-    let payloadByeFlag = undefined;
-
-    if (payloadObj) {
-      courts = payloadObj.courts || (Array.isArray(courts) ? courts : undefined);
-      payloadByeFlag = payloadObj.alwaysByeBottom !== undefined ? payloadObj.alwaysByeBottom : payloadObj.ALWAYS_BYE_BOTTOM;
-      
-      let byeVal = payloadObj.optimizeByes !== undefined ? payloadObj.optimizeByes :
-                   (payloadObj.integrateByes !== undefined ? payloadObj.integrateByes : payloadObj.distributeByes);
-      
-      if (byeVal !== undefined) {
-        integrateByes = isTruthy(byeVal);
-      }
-      genTarget = payloadObj.group || payloadObj.sheet || payloadObj.schedSheetName || payloadObj.genTarget || payloadObj.target || genTarget || "";
-    } else {
-      if (typeof courts === 'boolean') integrateByes = courts;
-      else if (typeof optParam === 'boolean') integrateByes = optParam;
-    }
-
-    const alwaysByeBottom = (payloadByeFlag !== undefined) ? isTruthy(payloadByeFlag) : (typeof ALWAYS_BYE_BOTTOM !== 'undefined' ? isTruthy(ALWAYS_BYE_BOTTOM) : true);
+    const params = parseRescheduleParams(arguments);
+    const integrateByes = params.integrateByes;
+    const alwaysByeBottom = params.alwaysByeBottom;
 
     const ss = getDb();
     const cleanP = (p) => String(p || '').replace(/\D/g, '');
@@ -4038,8 +4026,8 @@ function ScheduleAll(genTarget, courts, optParam) {
     let groupsToProcess = [];
     const currentWeek = calculateCurrentWeekNumber();
 
-    if (genTarget && typeof genTarget === 'string') {
-      let cleanGroup = genTarget.replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
+    if (params.group) {
+      let cleanGroup = String(params.group).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
       groupsToProcess = [cleanGroup];
     } else {
       groupsToProcess = (typeof GROUPS !== 'undefined' && GROUPS.length > 0) ? GROUPS : [getTargetGroup()];
@@ -4084,7 +4072,7 @@ function ScheduleAll(genTarget, courts, optParam) {
         }
       }
 
-      let availableCourts = courts ? parseAndSortCourts(courts) : getCourtsForGroup(groupName);
+      let availableCourts = params.courts ? parseAndSortCourts(params.courts) : getCourtsForGroup(groupName);
       let schedSheetName = "Sched " + groupName;
       let schedSheet = ss.getSheetByName(schedSheetName) || ss.insertSheet(schedSheetName);
 
@@ -4257,7 +4245,7 @@ function ScheduleAll(genTarget, courts, optParam) {
       if (typeof clearUnifiedCache === 'function') clearUnifiedCache(schedSheetName);
       if (typeof CacheService !== 'undefined') CacheService.getScriptCache().remove("UNIFIED_ROSTER_CACHE_" + groupName.toUpperCase());
 
-      summary.push(`Generated schedule for '${groupName}'.${courtWarning}`);
+      summary.push(`Generated schedule for '${groupName}' (optimizeByes=${integrateByes}).${courtWarning}`);
     });
 
     return "✅ " + summary.join("\n");
