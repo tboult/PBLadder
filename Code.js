@@ -3260,6 +3260,10 @@ function ScheduleAllOptimized(payload, courts) {
 // ==========================================
 // CORE WORKER IMPLEMENTATIONS
 // ==========================================
+// ==========================================
+// CORE WORKER IMPLEMENTATIONS
+// ==========================================
+
 function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes) {
   return executeWithLock(function() {
     let groupName = "";
@@ -3284,7 +3288,7 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
     const cleanCourtLabel = (c) => {
       if (!c) return ""; let str = String(c).trim();
       if (str.toUpperCase() === "BYE") return "BYE";
-      let match = str.match(/\d+/); return match ? match[0] : (str.replace(/^(court|crt|score)\s*#?\s*/i, "").trim() || str);
+      let match = str.match(/\d+/); return match ? String(match[0]) : (str.replace(/^(court|crt|score)\s*#?\s*/i, "").trim() || str);
     };
     const normalizeName = (s) => {
       if (!s) return ""; let str = String(s).trim().toLowerCase();
@@ -3468,11 +3472,13 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
     uncheckedPlayers.forEach(writeRow);
 
     sheet.clearContents();
+    
+    // Set Plain Text format for Court (Col B) & Phone (Col M) BEFORE writing values
+    sheet.getRange(1, 2, rows.length, 1).setNumberFormat("@");
+    sheet.getRange(1, 13, rows.length, 1).setNumberFormat("@");      
+
     sheet.getRange(1, 1, rows.length, headers.length).setValues(rows);
     sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
-
-    // Format Phone column (Column 13 / M) as Text to prevent scientific notation
-    sheet.getRange(1, 13, rows.length, 1).setNumberFormat("@");
 
     sheet.getRange("N1").setValue("SCHEDULE_WEEK").setFontWeight("bold");
     sheet.getRange("N2").setValue(currentWeek).setHorizontalAlignment("center");
@@ -3502,7 +3508,12 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
           }
           courtValues.push([cleanCourtLabel(assignedCourt)]);
         }
-        scoreSheet.getRange(2, courtIdx + 1, courtValues.length, 1).setValues(courtValues);
+
+        if (courtValues.length > 0) {
+          // Format Score Sheet Court column as Plain Text BEFORE writing values
+          scoreSheet.getRange(2, courtIdx + 1, courtValues.length, 1).setNumberFormat("@");
+          scoreSheet.getRange(2, courtIdx + 1, courtValues.length, 1).setValues(courtValues);
+        }
       }
     }
 
@@ -3529,11 +3540,12 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
   return executeWithLock(function() {
     let targetGroup = "";
     let courts = courtsParam;
-      // 1. Resolve and prioritize courts (5-12 first, then spillover)
-      let availableCourts = Array.isArray(courts) && courts.length > 0 
-          ? courts 
-          : [5, 6, 7, 8, 9, 10, 11, 12, 3, 4, 13, 14, 15, 16];
-      courts = prioritizeCourts(availableCourts);
+    
+    // Resolve and prioritize courts safely
+    let availableCourts = Array.isArray(courts) && courts.length > 0 
+        ? courts 
+        : [5, 6, 7, 8, 9, 10, 11, 12, 3, 4, 13, 14, 15, 16];
+    courts = (typeof prioritizeCourts === 'function') ? prioritizeCourts(availableCourts) : availableCourts;
       
     if (typeof targetParam === 'object' && targetParam !== null) {
       targetGroup = targetParam.group || targetParam.groupName || targetParam.genTarget || targetParam.target || targetParam.sheet || targetParam.tab || targetParam.arg || "";
@@ -3653,7 +3665,7 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
            if (courtNum < availableCourts.length && indicesCopy.length >= size) {
               let chunk = indicesCopy.splice(0, size);
               let cName = availableCourts[courtNum++];
-              chunk.forEach(idx => playerCourtMap[idx] = cName);
+              chunk.forEach(idx => playerCourtMap[idx] = String(cName));
            } else break;
         }
         indicesCopy.forEach(idx => byeIndices.add(idx));
@@ -3663,14 +3675,13 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
         
         let assignedCourtsCount = Math.min(foursomesCount, availableCourts.length);
         let totalPlayingCount = assignedCourtsCount * 4;
-        let byeCount = numPlayers - totalPlayingCount;
 
         for (let i = 0; i < totalPlayingCount; i++) playingIndices.push(i);
         for (let i = totalPlayingCount; i < numPlayers; i++) byeIndices.add(i);
 
         playingIndices.forEach((playerIdx, orderIdx) => {
           let courtNumIdx = Math.floor(orderIdx / 4);
-          playerCourtMap[playerIdx] = availableCourts[courtNumIdx];
+          playerCourtMap[playerIdx] = String(availableCourts[courtNumIdx]);
         });
       }
 
@@ -3701,11 +3712,13 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
       }
 
       schedSheet.clearContents();
+
+      // Format Court (Col B) & Phone (Col M) as Plain Text BEFORE writing values
+      schedSheet.getRange(1, 2, rows.length, 1).setNumberFormat("@");        
+      schedSheet.getRange(1, 13, rows.length, 1).setNumberFormat("@");
+
       schedSheet.getRange(1, 1, rows.length, headers.length).setValues(rows);
       schedSheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
-
-      // Format Phone column (Column 13 / M) as Text to prevent scientific notation
-      schedSheet.getRange(1, 13, rows.length, 1).setNumberFormat("@");
 
       schedSheet.getRange("N1").setValue("SCHEDULE_WEEK").setFontWeight("bold");
       schedSheet.getRange("N2").setValue(currentWeek).setHorizontalAlignment("center");
@@ -3759,9 +3772,13 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
         scoreCourtValues.push([matchedCourt]);
       }
 
-      if (scoreCourtValues.length > 0) scoreSheet.getRange(2, courtIdx + 1, scoreCourtValues.length, 1).setValues(scoreCourtValues);
+      if (scoreCourtValues.length > 0) {
+        // Set Court column on Score sheet to Plain Text BEFORE writing values
+        scoreSheet.getRange(2, courtIdx + 1, scoreCourtValues.length, 1).setNumberFormat("@");
+        scoreSheet.getRange(2, courtIdx + 1, scoreCourtValues.length, 1).setValues(scoreCourtValues);
+      }
 
-      const cacheKey = getCheckInCacheKey(schedSheetName);
+      const cacheKey = typeof getCheckInCacheKey === 'function' ? getCheckInCacheKey(schedSheetName) : null;
       if (typeof CacheService !== 'undefined' && cacheKey) CacheService.getScriptCache().remove(cacheKey);
       if (typeof clearUnifiedCache === 'function') clearUnifiedCache(schedSheetName);
       if (typeof CacheService !== 'undefined') CacheService.getScriptCache().remove("UNIFIED_ROSTER_CACHE_" + groupName.toUpperCase());
