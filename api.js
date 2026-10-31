@@ -3,6 +3,10 @@
 // Initialize group-specific cache dictionary
 window.groupRosterCache = window.groupRosterCache || {};
 
+
+// Add at top of your JS file
+window.inFlightRosterRequests = {}; 
+
 async function apiCall(action, payload = {}) {
   if (!action) {
     console.error("❌ [API Error] Action cannot be empty.");
@@ -13,25 +17,28 @@ async function apiCall(action, payload = {}) {
   if (action === 'getUnifiedRoster') {
     const targetGroup = payload?.group;
     const isForceRefresh = Boolean(payload?.forceRefresh);
-    const groupCache = (targetGroup && window.groupRosterCache[targetGroup]) || null;
+    const groupCache = (targetGroup && window.groupRosterCache && window.groupRosterCache[targetGroup]) || null;
 
-    // Check if an identical request for this group is already queued in apiQueue
-    const isDuplicateQueued = typeof apiQueue !== 'undefined' && 
-      apiQueue.some(q => q.action === 'getUnifiedRoster' && q.payload?.group === targetGroup);
-
-    if (!isForceRefresh && Array.isArray(groupCache) && groupCache.length > 0 && !isDuplicateQueued) {
+    // 1. Return memory cache immediately if available and not forcing a refresh
+    if (!isForceRefresh && Array.isArray(groupCache) && groupCache.length > 0) {
       logDebug(`⚡ [API Cache Hit] Returning cached roster for group: "${targetGroup}"`);
       return Promise.resolve({ success: true, registered: true, players: groupCache, source: 'memory_cache' });
     }
+
+    // 2. IF ALREADY IN-FLIGHT: Attach to the existing promise instead of returning empty players []
+    if (window.inFlightRosterRequests[targetGroup]) {
+      console.warn(`⏳ [API Request In-Flight] Reusing existing promise for group: "${targetGroup}"`);
+      return window.inFlightRosterRequests[targetGroup];
+    }
   }
-  // ---------------------------------------------------
 
   logDebug(`🚀 [API Call Initiated] "${action}"`, {
     payload,
     time: new Date().toLocaleTimeString()
   });
 
-  const result = await new Promise((resolve, reject) => {
+  // Create the request promise
+  const requestPromise = new Promise((resolve, reject) => {
     if (typeof apiQueue !== 'undefined') {
       apiQueue.push({ action, payload, resolve, reject });
       if (typeof isProcessingQueue !== 'undefined' && !isProcessingQueue && typeof processApiQueue === 'function') {
@@ -42,8 +49,21 @@ async function apiCall(action, payload = {}) {
     }
   });
 
-  // Store successful roster responses in group-specific cache
+  // Store in-flight promise if it's a roster fetch
+  if (action === 'getUnifiedRoster' && payload?.group) {
+    window.inFlightRosterRequests[payload.group] = requestPromise;
+  }
+
+  const result = await requestPromise;
+
+  // Clean up in-flight promise tracker
+  if (action === 'getUnifiedRoster' && payload?.group) {
+    delete window.inFlightRosterRequests[payload.group];
+  }
+
+  // Store successful roster responses in memory cache
   if (action === 'getUnifiedRoster' && result && result.success && Array.isArray(result.players) && payload?.group) {
+    if (!window.groupRosterCache) window.groupRosterCache = {};
     window.groupRosterCache[payload.group] = result.players;
   }
 
@@ -54,6 +74,8 @@ async function apiCall(action, payload = {}) {
 
   return result;
 }
+
+
 
 let currentRosterFetchPromise = null;
 let lastFetchedGroup = null;
@@ -811,7 +833,6 @@ async function toggleStatus() {
 
 
 function cancelRegistration() {
-  // --- Tab 3 (Enter Scores) Form ---
   const scoreRegSection = document.getElementById('registrationSection');
   if (scoreRegSection) scoreRegSection.style.display = 'none';
 
@@ -2422,114 +2443,7 @@ function submitSingleGameScore(gameNum, btnElement) {
 }
 
 
-/**
- * Dynamically creates the UI for 4, 5, or 6 players based on assignment length.
- */
-function renderLookupResult(player, foursome) { 
-  activeLookupPlayer = player || {};
-  activeLookupFoursome = foursome || [];
 
-  const regEl = document.getElementById('registrationSection');
-  const resultEl = document.getElementById('lookupResult');
-  if (regEl) regEl.style.display = 'none';
-  if (resultEl) resultEl.style.display = 'block';
-
-  let displayName = typeof player === 'string' ? player : 
-                    (player ? `${player.first || ''} ${player.last || ''}`.trim() || player.name || 'Unknown' : 'Unknown');
-
-  const nameDisp = document.getElementById('pNameDisplay');
-  const groupDisp = document.getElementById('pGroupDisplay');
-  const courtDisp = document.getElementById('pCourtDisplay');
-
-  if (nameDisp) nameDisp.innerText = displayName;
-  if (groupDisp) groupDisp.innerText = (player && player.group) || (typeof getSavedGroup === 'function' ? getSavedGroup() : '');
-  if (courtDisp) courtDisp.innerText = (player && player.court) || '';
-
-  const badge = document.getElementById('pStatusDisplay');
-  if (badge) {
-    const isActive = ((player && player.status) || 'active').toLowerCase() === 'active';
-    badge.innerText = isActive ? 'Active' : 'Inactive';
-    badge.className = isActive ? 'status-badge status-active' : 'status-badge status-inactive';
-  }
-
-  const scoreContainer = document.getElementById('scoreInputsContainer');
-  if (!scoreContainer) return;
-  scoreContainer.innerHTML = '';
-
-  const numPlayers = activeLookupFoursome.length;
-  if (numPlayers >= 4 && numPlayers <= 6) {
-    const getPName = (p) => (typeof p === 'object' && p !== null ? (p.name || `${p.first || ''} ${p.last || ''}`.trim()) : String(p || ''));
-    
-    let summaryHtml = `
-      <div style="margin-bottom: 1.25rem; padding: 1rem; background-color: #f8f9fa; border: 2px solid #0d6efd; border-radius: 10px;">
-        <p style="margin: 0 0 0.5rem 0; font-size: 1.2rem; color: #0d6efd;"><b>🎾 Assigned Court (${numPlayers} Players):</b></p>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 1.15rem; font-weight: 600; color: #212529;">
-    `;
-    activeLookupFoursome.forEach((pObj, idx) => {
-      summaryHtml += `<div>P${idx + 1}: ${getPName(pObj)}</div>`;
-    });
-    summaryHtml += `</div></div>`;
-
-    const getVal = (p, gNum) => {
-      if (!p || typeof p !== 'object') return '';
-      const v = p[`g${gNum}`] ?? p[`game${gNum}`] ?? p[`game ${gNum}`] ?? '';
-      return (v !== null && v !== undefined && String(v).trim() !== '') ? String(v).trim() : '';
-    };
-
-    let gamesHtml = "";
-    const matchups = getCourtMatchups(numPlayers);
-
-    matchups.forEach((match, idx) => {
-      const gNum = idx + 1;
-      const t1Names = match.t1.map(i => getPName(activeLookupFoursome[i])).join(' & ');
-      const t2Names = match.t2.map(i => getPName(activeLookupFoursome[i])).join(' & ');
-      const outHtml = match.out.length > 0 ? 
-        `<div style="font-size: 0.95rem; color: #dc3545; font-weight: bold; margin-bottom: 12px;">Sitting out: ${match.out.map(i => getPName(activeLookupFoursome[i])).join(', ')}</div>` : "";
-
-      const g_a = getVal(activeLookupFoursome[match.t1[0]], gNum) || getVal(activeLookupFoursome[match.t1[1]], gNum);
-      const g_b = getVal(activeLookupFoursome[match.t2[0]], gNum) || getVal(activeLookupFoursome[match.t2[1]], gNum);
-      const hasG = g_a !== '' && g_b !== '';
-
-      gamesHtml += `
-        <div style="background: #ffffff; border: 2px solid #0d6efd; border-radius: 10px; padding: 16px; margin-bottom: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.08);">
-          <div style="font-size: 1.3rem; font-weight: bold; color: #0d6efd; border-bottom: 1px solid #dee2e6; padding-bottom: 8px; margin-bottom: 8px;">
-            🏆 Game ${gNum}
-          </div>
-          ${outHtml}
-          <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px;">
-            <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
-              <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${t1Names}</div>
-              <input type="number" min="0" max="${typeof MAX_GAME_SCORE !== 'undefined' ? MAX_GAME_SCORE : 30}" inputmode="numeric" id="sc${gNum}_p1" placeholder="Score" value="${g_a}"
-                     oninput="validateGameScoreInput(this)"
-                     style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
-            </div>
-
-            <div style="font-size: 1.3rem; font-weight: bold; color: #6c757d;">VS</div>
-
-            <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
-              <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${t2Names}</div>
-              <input type="number" min="0" max="${typeof MAX_GAME_SCORE !== 'undefined' ? MAX_GAME_SCORE : 30}" inputmode="numeric" id="sc${gNum}_p2" placeholder="Score" value="${g_b}"
-                     oninput="validateGameScoreInput(this)"
-                     style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
-            </div>
-          </div>
-          <button type="button" onclick="submitSingleGameScore(${gNum}, this)" ${hasG ? 'disabled' : ''}
-                  style="width: 100%; background: ${hasG ? '#198754' : '#0d6efd'}; color: #ffffff; border: none; padding: 12px; font-size: 1.15rem; font-weight: bold; border-radius: 8px; cursor: pointer;">
-            ${hasG ? `✅ G${gNum} Submitted` : `📤 Submit G${gNum}`}
-          </button>
-        </div>
-      `;
-    });
-
-    scoreContainer.innerHTML = summaryHtml + gamesHtml;
-  } else {
-    scoreContainer.innerHTML = `
-      <div style="background-color: #fff3cd; color: #664d03; border: 1px solid #ffe69c; font-size: 1.15rem; padding: 15px; border-radius: 8px; margin-top: 1rem;">
-        ⚠️ No active 4, 5, or 6-player court match assignment found.
-      </div>
-    `;
-  }
-}
 
 /**
  * Renders rankings and omits schedule as requested.
@@ -2595,103 +2509,12 @@ function renderRankingsAndSchedule(data) {
 
   viewerContent.innerHTML = html;
 }
-/**
- * Handles phone lookup execution and mapping to UI.
- * Unwraps apiCall response containers and maps backend court & teammate data.
- */
-async function lookupPhone(cachedPhone) {
-  const phoneInput = document.getElementById('phoneInput') || document.getElementById('scorePhoneInput');
-  const phoneBtn = document.getElementById('savePhoneBtn');
-  const findBtn = document.getElementById('findFoursomeBtn');
 
-  let phone = cachedPhone || (phoneInput ? phoneInput.value : '') || getSavedPhone();
-  phone = String(phone).replace(/\D/g, '');
 
-  if (phone.length !== 10) return;
 
-  if (phoneInput) phoneInput.value = phone;
 
-  document.body.style.cursor = 'wait';
-  if (findBtn) {
-    findBtn.disabled = true;
-    findBtn.innerHTML = '⏳ Checking...';
-  }
-  if (phoneBtn) {
-    phoneBtn.disabled = true;
-    phoneBtn.innerHTML = '⏳ Checking...';
-  }
 
-  try {
-    const currentGroup = getSavedGroup();
-    const rawResponse = await apiCall('findFoursomeByPhone', { 
-      groupName: currentGroup, 
-      group: currentGroup,
-      phone: phone 
-    });
 
-    // Safe unwrap of apiCall response wrappers (.result / .payload / .data)
-    const result = rawResponse?.result || rawResponse?.payload || rawResponse?.data || rawResponse;
-
-    if (result && (result.success || result.found || result.playerName)) {
-      // Extract court group/teammates list (supports 4, 5, and 6-player courts)
-      const foursomeList = Array.isArray(result.teammates) ? result.teammates : (Array.isArray(result.foursome) ? result.foursome : []);
-
-      let playerObj = null;
-      if (typeof result.player === 'object' && result.player !== null) {
-        playerObj = result.player;
-      } else {
-        playerObj = {
-          name: result.playerName || result.name || (typeof result.player === 'string' ? result.player : 'Player'),
-          court: result.court || 'Unassigned',
-          group: result.group || currentGroup,
-          isBye: result.isBye === true
-        };
-      }
-
-      const resolvedName = playerObj 
-        ? (`${playerObj.first || ''} ${playerObj.last || ''}`.trim() || playerObj.name || playerObj.playerName || '') 
-        : '';
-
-      savePlayerCredentials(phone, resolvedName);
-
-      if (findBtn) {
-        findBtn.disabled = true;
-        findBtn.innerHTML = '✅ Found!';
-      }
-
-      renderLookupResult(playerObj, foursomeList);
-      if (typeof updateWelcomeBanner === 'function') updateWelcomeBanner();
-    } else {
-      if (phoneBtn) {
-         phoneBtn.innerHTML = 'Register New Player';
-      }
-      const statusMsg = document.getElementById('phoneStatus');
-      if (statusMsg) {
-          statusMsg.innerText = "Phone number not registered. Please complete registration below.";
-          statusMsg.style.color = "#dc3545";
-      }        
-      const scoreRegSection = document.getElementById('registrationSection');
-      if (scoreRegSection) {
-          scoreRegSection.style.display = 'block';
-      }
-
-      const helpRegAccordion = document.getElementById('registrationAccordion');
-      if (helpRegAccordion) {
-          helpRegAccordion.open = true; 
-      }
-      renderLookupResult(null, []);
-    }
-  } catch (err) {
-    console.error("Error during lookup:", err);
-    renderLookupResult(null, []);
-  } finally {
-    document.body.style.cursor = 'default';
-    if (phoneBtn && phoneBtn.innerHTML !== 'Register New Player') {
-      phoneBtn.disabled = false;
-      phoneBtn.innerHTML = 'Recheck Assignment';
-    }
-  }
-}
 
 
 /**
@@ -2769,4 +2592,260 @@ function handleManualRefresh() {
       alert("Failed to refresh: " + err.message);
     })
     .forceRefreshData(currentGroup);
+}
+/**
+ * Handles phone lookup execution and mapping to UI.
+ * Supports passing either boolean (forceRefresh) or string (phone number).
+ */
+async function lookupPhone(param1, param2) {
+  const phoneInput = document.getElementById('phoneInput') || document.getElementById('scorePhoneInput');
+  const phoneBtn = document.getElementById('savePhoneBtn');
+  const findBtn = document.getElementById('findFoursomeBtn');
+  const refreshBtn = document.getElementById('refreshScoresBtn');
+
+  let forceRefresh = false;
+  let targetPhone = "";
+
+  // Differentiate boolean flag from phone string
+  if (typeof param1 === 'boolean') {
+    forceRefresh = param1;
+  } else if (typeof param1 === 'string' && param1.replace(/\D/g, '').length >= 7) {
+    targetPhone = param1;
+    if (typeof param2 === 'boolean') forceRefresh = param2;
+  }
+
+  if (!targetPhone) {
+    targetPhone = (phoneInput ? phoneInput.value : '') || getSavedPhone();
+  }
+
+  const phone = String(targetPhone).replace(/\D/g, '');
+
+  if (phone.length !== 10) {
+    if (refreshBtn) {
+      refreshBtn.disabled = false;
+      refreshBtn.innerHTML = '🔄 Refresh Scores & Schedule';
+    }
+    return;
+  }
+
+  if (phoneInput) phoneInput.value = phone;
+
+  document.body.style.cursor = 'wait';
+  if (findBtn) {
+    findBtn.disabled = true;
+    findBtn.innerHTML = '⏳ Checking...';
+  }
+  if (phoneBtn) {
+    phoneBtn.disabled = true;
+    phoneBtn.innerHTML = '⏳ Checking...';
+  }
+  if (refreshBtn) {
+    refreshBtn.disabled = true;
+    refreshBtn.innerHTML = '⏳ Refreshing...';
+  }
+
+  try {
+    const currentGroup = getSavedGroup();
+
+    // If force refresh requested (e.g., from Refresh button), force-load fresh sheet data first
+    if (forceRefresh && typeof loadUnifiedRosterData === 'function') {
+      await loadUnifiedRosterData(currentGroup, true);
+    }
+
+    const rawResponse = await apiCall('findFoursomeByPhone', { 
+      groupName: currentGroup, 
+      group: currentGroup,
+      phone: phone,
+      forceRefresh: forceRefresh
+    });
+
+    const result = rawResponse?.result || rawResponse?.payload || rawResponse?.data || rawResponse;
+
+    if (result && (result.success || result.found || result.playerName)) {
+      const foursomeList = Array.isArray(result.teammates) ? result.teammates : (Array.isArray(result.foursome) ? result.foursome : []);
+      const courtScores = result.scores || result.courtScores || result.gameScores || null;
+
+      let playerObj = null;
+      if (typeof result.player === 'object' && result.player !== null) {
+        playerObj = result.player;
+      } else {
+        playerObj = {
+          name: result.playerName || result.name || (typeof result.player === 'string' ? result.player : 'Player'),
+          court: result.court || 'Unassigned',
+          group: result.group || currentGroup,
+          isBye: result.isBye === true
+        };
+      }
+
+      const resolvedName = playerObj 
+        ? (`${playerObj.first || ''} ${playerObj.last || ''}`.trim() || playerObj.name || playerObj.playerName || '') 
+        : '';
+
+      savePlayerCredentials(phone, resolvedName);
+
+      if (findBtn) {
+        findBtn.disabled = true;
+        findBtn.innerHTML = '✅ Found!';
+      }
+
+      renderLookupResult(playerObj, foursomeList, courtScores);
+      if (typeof updateWelcomeBanner === 'function') updateWelcomeBanner();
+    } else {
+      if (phoneBtn) {
+         phoneBtn.innerHTML = 'Register New Player';
+      }
+      const statusMsg = document.getElementById('phoneStatus');
+      if (statusMsg) {
+          statusMsg.innerText = "Phone number not registered. Please complete registration below.";
+          statusMsg.style.color = "#dc3545";
+      }        
+      const scoreRegSection = document.getElementById('registrationSection');
+      if (scoreRegSection) {
+          scoreRegSection.style.display = 'block';
+      }
+
+      const helpRegAccordion = document.getElementById('registrationAccordion');
+      if (helpRegAccordion) {
+          helpRegAccordion.open = true; 
+      }
+      renderLookupResult(null, [], null);
+    }
+  } catch (err) {
+    console.error("Error during lookup:", err);
+    renderLookupResult(null, [], null);
+  } finally {
+    document.body.style.cursor = 'default';
+    if (phoneBtn && phoneBtn.innerHTML !== 'Register New Player') {
+      phoneBtn.disabled = false;
+      phoneBtn.innerHTML = 'Recheck Assignment';
+    }
+    if (refreshBtn) {
+      refreshBtn.disabled = false;
+      refreshBtn.innerHTML = '🔄 Refresh Scores & Schedule';
+    }
+  }
+}
+
+/**
+ * Dynamically creates the UI for 4, 5, or 6 players based on assignment length and score data.
+ */
+function renderLookupResult(player, foursome, courtScores) { 
+  activeLookupPlayer = player || {};
+  activeLookupFoursome = foursome || [];
+
+  const regEl = document.getElementById('registrationSection');
+  const resultEl = document.getElementById('lookupResult');
+  if (regEl) regEl.style.display = 'none';
+  if (resultEl) resultEl.style.display = 'block';
+
+  let displayName = typeof player === 'string' ? player : 
+                    (player ? `${player.first || ''} ${player.last || ''}`.trim() || player.name || 'Unknown' : 'Unknown');
+
+  const nameDisp = document.getElementById('pNameDisplay');
+  const groupDisp = document.getElementById('pGroupDisplay');
+  const courtDisp = document.getElementById('pCourtDisplay');
+
+  if (nameDisp) nameDisp.innerText = displayName;
+  if (groupDisp) groupDisp.innerText = (player && player.group) || (typeof getSavedGroup === 'function' ? getSavedGroup() : '');
+  if (courtDisp) courtDisp.innerText = (player && player.court) || '';
+
+  const badge = document.getElementById('pStatusDisplay');
+  if (badge) {
+    const isActive = ((player && player.status) || 'active').toLowerCase() === 'active';
+    badge.innerText = isActive ? 'Active' : 'Inactive';
+    badge.className = isActive ? 'status-badge status-active' : 'status-badge status-inactive';
+  }
+
+  const scoreContainer = document.getElementById('scoreInputsContainer');
+  if (!scoreContainer) return;
+  scoreContainer.innerHTML = '';
+
+  const numPlayers = activeLookupFoursome.length;
+  if (numPlayers >= 4 && numPlayers <= 6) {
+    const getPName = (p) => (typeof p === 'object' && p !== null ? (p.name || `${p.first || ''} ${p.last || ''}`.trim()) : String(p || ''));
+    
+    let summaryHtml = `
+      <div style="margin-bottom: 1.25rem; padding: 1rem; background-color: #f8f9fa; border: 2px solid #0d6efd; border-radius: 10px;">
+        <p style="margin: 0 0 0.5rem 0; font-size: 1.2rem; color: #0d6efd;"><b>🎾 Assigned Court (${numPlayers} Players):</b></p>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 1.15rem; font-weight: 600; color: #212529;">
+    `;
+    activeLookupFoursome.forEach((pObj, idx) => {
+      summaryHtml += `<div>P${idx + 1}: ${getPName(pObj)}</div>`;
+    });
+    summaryHtml += `</div></div>`;
+
+    const getVal = (p, gNum) => {
+      if (!p || typeof p !== 'object') return '';
+      const v = p[`g${gNum}`] ?? p[`game${gNum}`] ?? p[`game ${gNum}`] ?? p[`G${gNum}`] ?? p[`Game${gNum}`] ?? p[`Game ${gNum}`] ?? p[`score${gNum}`] ?? p[`s${gNum}`] ?? '';
+      if (v !== null && v !== undefined && String(v).trim() !== '') return String(v).trim();
+      if (Array.isArray(p.scores) && p.scores[gNum - 1] !== undefined && p.scores[gNum - 1] !== null) return String(p.scores[gNum - 1]).trim();
+      if (Array.isArray(p.games) && p.games[gNum - 1] !== undefined && p.games[gNum - 1] !== null) return String(p.games[gNum - 1]).trim();
+      return '';
+    };
+
+    let gamesHtml = "";
+    const matchups = getCourtMatchups(numPlayers);
+
+    matchups.forEach((match, idx) => {
+      const gNum = idx + 1;
+      const t1Names = match.t1.map(i => getPName(activeLookupFoursome[i])).join(' & ');
+      const t2Names = match.t2.map(i => getPName(activeLookupFoursome[i])).join(' & ');
+      const outHtml = match.out.length > 0 ? 
+        `<div style="font-size: 0.95rem; color: #dc3545; font-weight: bold; margin-bottom: 12px;">Sitting out: ${match.out.map(i => getPName(activeLookupFoursome[i])).join(', ')}</div>` : "";
+
+      let g_a = getVal(activeLookupFoursome[match.t1[0]], gNum) || getVal(activeLookupFoursome[match.t1[1]], gNum);
+      let g_b = getVal(activeLookupFoursome[match.t2[0]], gNum) || getVal(activeLookupFoursome[match.t2[1]], gNum);
+
+      if ((g_a === '' || g_b === '') && courtScores) {
+        if (Array.isArray(courtScores) && courtScores[idx]) {
+          const cs = courtScores[idx];
+          g_a = g_a || String(cs.teamA ?? cs.scoreA ?? cs.t1 ?? cs.score1 ?? cs[0] ?? '').trim();
+          g_b = g_b || String(cs.teamB ?? cs.scoreB ?? cs.t2 ?? cs.score2 ?? cs[1] ?? '').trim();
+        } else if (typeof courtScores === 'object') {
+          g_a = g_a || String(courtScores[`g${gNum}_t1`] ?? courtScores[`g${gNum}_a`] ?? courtScores[`game${gNum}_t1`] ?? '').trim();
+          g_b = g_b || String(courtScores[`g${gNum}_t2`] ?? courtScores[`g${gNum}_b`] ?? courtScores[`game${gNum}_t2`] ?? '').trim();
+        }
+      }
+
+      const hasG = g_a !== '' && g_b !== '';
+
+      gamesHtml += `
+        <div style="background: #ffffff; border: 2px solid #0d6efd; border-radius: 10px; padding: 16px; margin-bottom: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.08);">
+          <div style="font-size: 1.3rem; font-weight: bold; color: #0d6efd; border-bottom: 1px solid #dee2e6; padding-bottom: 8px; margin-bottom: 8px;">
+            🏆 Game ${gNum}
+          </div>
+          ${outHtml}
+          <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px;">
+            <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
+              <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${t1Names}</div>
+              <input type="number" min="0" max="${typeof MAX_GAME_SCORE !== 'undefined' ? MAX_GAME_SCORE : 30}" inputmode="numeric" id="sc${gNum}_p1" placeholder="Score" value="${g_a}"
+                     oninput="validateGameScoreInput(this)"
+                     style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
+            </div>
+
+            <div style="font-size: 1.3rem; font-weight: bold; color: #6c757d;">VS</div>
+
+            <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
+              <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${t2Names}</div>
+              <input type="number" min="0" max="${typeof MAX_GAME_SCORE !== 'undefined' ? MAX_GAME_SCORE : 30}" inputmode="numeric" id="sc${gNum}_p2" placeholder="Score" value="${g_b}"
+                     oninput="validateGameScoreInput(this)"
+                     style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
+            </div>
+          </div>
+          <button type="button" onclick="submitSingleGameScore(${gNum}, this)" ${hasG ? 'disabled' : ''}
+                  style="width: 100%; background: ${hasG ? '#198754' : '#0d6efd'}; color: #ffffff; border: none; padding: 12px; font-size: 1.15rem; font-weight: bold; border-radius: 8px; cursor: pointer;">
+            ${hasG ? `✅ G${gNum} Submitted` : `📤 Submit G${gNum}`}
+          </button>
+        </div>
+      `;
+    });
+
+    scoreContainer.innerHTML = summaryHtml + gamesHtml;
+  } else {
+    scoreContainer.innerHTML = `
+      <div style="background-color: #fff3cd; color: #664d03; border: 1px solid #ffe69c; font-size: 1.15rem; padding: 15px; border-radius: 8px; margin-top: 1rem;">
+        ⚠️ No active 4, 5, or 6-player court match assignment found.
+      </div>
+    `;
+  }
 }
