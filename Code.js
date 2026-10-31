@@ -3711,3 +3711,509 @@ function submitCourtScores(payload) {
     }
   });
 }
+
+
+/**
+ * Reschedules checked-in players into courts.
+ * Preserves Game 1 through Game 6 by writing week metadata to Column N.
+ */
+function rescheduleFromCheckIns(reschedTarget, courts) {
+  return executeWithLock(function() {
+    let payloadByeFlag = undefined;
+    let integrateByes = true;
+    
+    if (typeof reschedTarget === 'object' && reschedTarget !== null) {
+      courts = reschedTarget.courts || courts;
+      payloadByeFlag = reschedTarget.alwaysByeBottom !== undefined ? reschedTarget.alwaysByeBottom : reschedTarget.ALWAYS_BYE_BOTTOM;
+      if (reschedTarget.integrateByes !== undefined) integrateByes = Boolean(reschedTarget.integrateByes);
+      reschedTarget = reschedTarget.reschedTarget || reschedTarget.group || reschedTarget.target || reschedTarget.groupName;
+    }
+
+    const alwaysByeBottom = (payloadByeFlag !== undefined) ? Boolean(payloadByeFlag) : (typeof ALWAYS_BYE_BOTTOM !== 'undefined' ? Boolean(ALWAYS_BYE_BOTTOM) : true);
+    const ss = getDb();
+    const cleanP = (p) => String(p || '').replace(/\D/g, '');
+    const cleanCourtLabel = (c) => {
+      if (!c) return ""; let str = String(c).trim();
+      if (str.toUpperCase() === "BYE") return "BYE";
+      let match = str.match(/\d+/); return match ? match[0] : (str.replace(/^(court|crt|score)\s*#?\s*/i, "").trim() || str);
+    };
+    const normalizeName = (s) => {
+      if (!s) return ""; let str = String(s).trim().toLowerCase();
+      if (str.includes(",")) { let parts = str.split(",").map(p => p.trim()).filter(Boolean); if (parts.length === 2) str = parts[1] + " " + parts[0]; }
+      return str.replace(/\s+/g, " ");
+    };
+
+    let targetName = reschedTarget ? String(reschedTarget).replace(/^Score\s*/i, "Sched ").trim() : "Sched Womens";
+    if (!targetName.startsWith("Sched ")) targetName = "Sched " + targetName;
+    let groupName = targetName.replace(/^Sched\s*/i, "").trim();
+
+    let sheet = ss.getSheetByName(targetName);
+    if (!sheet) return `⚠️ Error: Schedule tab '${targetName}' not found.`;
+
+    const currentWeek = typeof calculateCurrentWeekNumber === 'function' ? calculateCurrentWeekNumber() : 1;
+    let existingData = sheet.getDataRange().getValues();
+    let existingMap = {};
+
+    if (existingData.length > 1) {
+      let exHead = existingData[0].map(h => String(h).toLowerCase().trim());
+      let g1I = exHead.indexOf("game 1"); let g2I = exHead.indexOf("game 2"); 
+      let g3I = exHead.indexOf("game 3"); let g4I = exHead.indexOf("game 4");
+      let g5I = exHead.indexOf("game 5"); let g6I = exHead.indexOf("game 6");
+      let totI = exHead.indexOf("total"); let entI = exHead.findIndex(h => h.includes("entered"));
+      let phI = exHead.findIndex(h => h.includes("phone"));
+      
+      for (let r = 1; r < existingData.length; r++) {
+        let pName = existingData[r][0] ? String(existingData[r][0]).trim() : "";
+        if (pName) {
+          let checkInVal = existingData[r][2] !== undefined ? existingData[r][2] : "";
+          existingMap[normalizeName(pName)] = {
+            checkIn: (checkInVal !== null && String(checkInVal).trim() !== "") ? checkInVal : "",
+            g1: g1I !== -1 ? existingData[r][g1I] : "", g2: g2I !== -1 ? existingData[r][g2I] : "", 
+            g3: g3I !== -1 ? existingData[r][g3I] : "", g4: g4I !== -1 ? existingData[r][g4I] : "",
+            g5: g5I !== -1 ? existingData[r][g5I] : "", g6: g6I !== -1 ? existingData[r][g6I] : "",
+            total: totI !== -1 ? existingData[r][totI] : "", 
+            entered: entI !== -1 ? existingData[r][entI] : "", 
+            phone: phI !== -1 ? existingData[r][phI] : ""
+          };
+        }
+      }
+    }
+
+    let players = fetchPlayersFromSheet(targetName);
+    let checkedInPlayers = [];
+    let uncheckedPlayers = [];
+
+    players.forEach(p => {
+      let prev = existingMap[normalizeName(p.name)] || { checkIn: "", g1: "", g2: "", g3: "", g4: "", g5: "", g6: "", total: "", entered: "", phone: "" };
+      let isChecked = Boolean(p.checkedIn || p.checked || (prev.checkIn && String(prev.checkIn).trim() !== ""));
+      p.prev = prev; p.isChecked = isChecked; if (!p.phone) p.phone = prev.phone;
+      if (isChecked) checkedInPlayers.push(p); else uncheckedPlayers.push(p);
+    });
+
+    let scoreSheetName = "Score " + groupName;
+    let scoreSheet = ss.getSheetByName(scoreSheetName);
+    let rankLookup = {};
+    if (scoreSheet) {
+      let scoreData = scoreSheet.getDataRange().getValues();
+      let scoreCol = buildColMap(scoreData[0]);
+      for (let r = 1; r < scoreData.length; r++) {
+        let row = scoreData[r];
+        let pName = scoreCol.name !== undefined ? row[scoreCol.name] : ((row[scoreCol.first] || "") + " " + (row[scoreCol.last] || "")).trim();
+        if (pName) {
+           let recent = getMostRecentRank(row, scoreCol, 10);
+           rankLookup[normalizeName(pName)] = { rank: recent.rank, numPeople: recent.numPeople, origIdx: r };
+        }
+      }
+    }
+
+    checkedInPlayers.sort((a, b) => {
+      let rA = rankLookup[normalizeName(a.name)] || { rank: 999, numPeople: 0, origIdx: 999 };
+      let rB = rankLookup[normalizeName(b.name)] || { rank: 999, numPeople: 0, origIdx: 999 };
+      if (rA.rank !== rB.rank) return rA.rank - rB.rank;
+      if (rB.numPeople !== rA.numPeople) return rB.numPeople - rA.numPeople; 
+      return rA.origIdx - rB.origIdx;
+    });
+
+    let rawCourts = courts ? parseAndSortCourts(courts) : getCourtsForGroup(groupName);
+    let availableCourts = rawCourts.map(cleanCourtLabel).filter(c => c !== "BYE" && c !== "");
+    
+    let courtAssignments = {};
+    availableCourts.forEach(c => courtAssignments[c] = []);
+    let playersCopy = [...checkedInPlayers];
+    let playersForBye = [];
+    let courtNumber = 0;
+
+    if (integrateByes && playersCopy.length >= 4) {
+      let chunkSizes = [];
+      let len = playersCopy.length;
+
+      if (len === 6) chunkSizes = [6];
+      else if (len === 11) chunkSizes = [6, 5];
+      else {
+        let remainder = len % 4;
+        if (remainder === 0) {
+          for (let i = 0; i < len / 4; i++) chunkSizes.push(4);
+        } else if (remainder === 1) {
+          chunkSizes.push(5);
+          for (let i = 0; i < (len - 5) / 4; i++) chunkSizes.push(4);
+        } else if (remainder === 2) {
+          chunkSizes.push(5, 5);
+          for (let i = 0; i < (len - 10) / 4; i++) chunkSizes.push(4);
+        } else if (remainder === 3) {
+          if (len === 7) chunkSizes.push(4);
+          else {
+            chunkSizes.push(5, 5, 5);
+            for (let i = 0; i < (len - 15) / 4; i++) chunkSizes.push(4);
+          }
+        }
+      }
+
+      for (let size of chunkSizes) {
+         if (courtNumber < availableCourts.length && playersCopy.length >= size) {
+            let chunk = playersCopy.splice(0, size);
+            let cName = availableCourts[courtNumber++];
+            chunk.forEach(p => { p.assignedCourt = cName; courtAssignments[cName].push(p); });
+         } else break;
+      }
+      playersCopy.forEach(p => { p.assignedCourt = "BYE"; playersForBye.push(p); });
+
+    } else {
+      let maxFullCourts = Math.min(Math.floor(playersCopy.length / 4), availableCourts.length);
+      let totalPlayingAllowed = maxFullCourts * 4;
+      let playersToAssign = [];
+      
+      if (playersCopy.length > totalPlayingAllowed) {
+        if (alwaysByeBottom) {
+          playersToAssign = playersCopy.slice(0, totalPlayingAllowed);
+          playersForBye = playersCopy.slice(totalPlayingAllowed);
+        } else {
+          let copyForRandom = [...playersCopy];
+          let chosenByeSet = new Set();
+          let numByes = playersCopy.length - totalPlayingAllowed;
+          while (chosenByeSet.size < numByes && copyForRandom.length > 0) {
+            chosenByeSet.add(copyForRandom.splice(Math.floor(Math.random() * copyForRandom.length), 1)[0]);
+          }
+          playersCopy.forEach(p => { if (chosenByeSet.has(p)) playersForBye.push(p); else playersToAssign.push(p); });
+        }
+      } else playersToAssign = [...playersCopy];
+
+      playersToAssign.forEach((p, idx) => {
+        let assignedCrt = availableCourts[Math.floor(idx / 4)];
+        p.assignedCourt = assignedCrt;
+        courtAssignments[assignedCrt].push(p);
+      });
+    }
+
+    playersForBye.forEach(p => p.assignedCourt = "BYE");
+    uncheckedPlayers.forEach(p => p.assignedCourt = "");
+
+    // 13 Data Columns (A - M)
+    let headers = ["Player Name", "Court", "Check-In", "Game 1", "Game 2", "Game 3", "Game 4", "Game 5", "Game 6", "Total", "Entered", "", "Phone"];
+    let rows = [headers];
+    let playerCourtLookup = {};
+    const now = new Date();
+
+    const writeRow = (p) => {
+      let finalCourt = cleanCourtLabel(p.assignedCourt || (p.isChecked ? "BYE" : ""));
+      let checkInVal = p.isChecked ? (p.prev.checkIn || now) : "";
+      let normName = normalizeName(p.name);
+      if (normName) playerCourtLookup[normName] = finalCourt;
+      let pPhone = cleanP(p.phone || p.cell || p.mobile || p.prev.phone);
+      if (pPhone && pPhone.length >= 7) playerCourtLookup[pPhone.slice(-7)] = finalCourt;
+      rows.push([p.name, finalCourt, checkInVal, p.prev.g1, p.prev.g2, p.prev.g3, p.prev.g4, p.prev.g5, p.prev.g6, p.prev.total, p.prev.entered, "", pPhone]);
+    };
+
+    checkedInPlayers.forEach(writeRow);
+    uncheckedPlayers.forEach(writeRow);
+
+    sheet.clearContents();
+    sheet.getRange(1, 1, rows.length, headers.length).setValues(rows);
+    sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
+
+    // Write Week Metadata safely to Column N (Column 14)
+    sheet.getRange("N1").setValue("SCHEDULE_WEEK").setFontWeight("bold");
+    sheet.getRange("N2").setValue(currentWeek).setHorizontalAlignment("center");
+    sheet.getRange("N3").setValue("Week " + currentWeek).setHorizontalAlignment("center");
+    sheet.getRange("N4").setValue(Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "yyyy-MM-dd")).setHorizontalAlignment("center");
+
+    if (scoreSheet) {
+      let scoreData = scoreSheet.getDataRange().getValues();
+      if (scoreData.length > 1) {
+        const col = typeof buildColMap === 'function' ? buildColMap(scoreData[0]) : {};
+        let courtIdx = col.court !== undefined ? col.court : scoreData[0].map(h => String(h || '').trim().toLowerCase()).findIndex(h => /court|crt/i.test(h));
+        let statusIdx = col.status !== undefined ? col.status : scoreData[0].map(h => String(h || '').trim().toLowerCase()).findIndex(h => /status/i.test(h));
+        if (courtIdx === -1) courtIdx = 3;
+
+        let courtValues = [];
+        for (let r = 1; r < scoreData.length; r++) {
+          let row = scoreData[r];
+          let rowName = col.name !== undefined ? row[col.name] : `${row[col.first] || ''} ${row[col.last] || ''}`.trim();
+          let rowPhone = col.phone !== undefined ? cleanP(row[col.phone]) : "";
+          let assignedCourt = "";
+
+          if (rowPhone && rowPhone.length >= 7 && playerCourtLookup[rowPhone.slice(-7)] !== undefined) assignedCourt = playerCourtLookup[rowPhone.slice(-7)];
+          else if (normalizeName(rowName) && playerCourtLookup[normalizeName(rowName)] !== undefined) assignedCourt = playerCourtLookup[normalizeName(rowName)];
+
+          if (assignedCourt && statusIdx !== -1 && String(row[statusIdx]).toUpperCase().trim() !== "ACTIVE") {
+            scoreSheet.getRange(r + 1, statusIdx + 1).setValue("Active");
+          }
+          courtValues.push([cleanCourtLabel(assignedCourt)]);
+        }
+        scoreSheet.getRange(2, courtIdx + 1, courtValues.length, 1).setValues(courtValues);
+      }
+    }
+
+    if (typeof CacheService !== 'undefined') {
+      try {
+        CacheService.getScriptCache().remove(typeof getCheckInCacheKey === 'function' ? getCheckInCacheKey(targetName) : null);
+        CacheService.getScriptCache().remove("UNIFIED_ROSTER_CACHE_" + groupName.toUpperCase());
+      } catch(e) {}
+    }
+
+    let activeCourtsCount = Object.keys(courtAssignments).filter(c => courtAssignments[c].length >= 4).length;
+    let totalByes = rows.filter(r => r[1] === "BYE").length;
+    return `✅ Rescheduled '${targetName}'. Assigned ${activeCourtsCount} courts, ${totalByes} BYEs.`;
+  });
+}
+
+/**
+ * Generates schedule tabs on Sched sheet, supports 4, 5, and 6 player groups, clears previous weekly scores.
+ * Uses 13 data columns (A-M) including Game 1 through Game 6, and places week metadata safely in Column N.
+ */
+function ScheduleAll(genTarget, courts) {
+  return executeWithLock(function() {
+    let targetGroup = genTarget;
+    let payloadByeFlag = undefined;
+    let integrateByes = true;
+
+    if (typeof genTarget === 'object' && genTarget !== null) {
+      courts = genTarget.courts || courts;
+      payloadByeFlag = genTarget.alwaysByeBottom !== undefined ? genTarget.alwaysByeBottom : genTarget.ALWAYS_BYE_BOTTOM;
+      if (genTarget.integrateByes !== undefined) integrateByes = Boolean(genTarget.integrateByes);
+      targetGroup = genTarget.group || genTarget.sheet || genTarget.schedSheetName || genTarget.genTarget || genTarget.target || "";
+    }
+
+    const alwaysByeBottom = (payloadByeFlag !== undefined) 
+      ? Boolean(payloadByeFlag) : (typeof ALWAYS_BYE_BOTTOM !== 'undefined' ? Boolean(ALWAYS_BYE_BOTTOM) : true);
+
+    logDebug("ScheduleAll", "Generating schedule tabs and clearing active scores", { genTarget: targetGroup, courts, alwaysByeBottom, integrateByes });
+
+    const ss = getDb();
+    const cleanP = (p) => String(p || '').replace(/\D/g, '');
+    const cleanStr = (s) => String(s || '').trim().toLowerCase();
+
+    let groupsToProcess = [];
+    const currentWeek = calculateCurrentWeekNumber();
+
+    if (targetGroup) {
+      let cleanGroup = String(targetGroup).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
+      groupsToProcess = [cleanGroup];
+    } else {
+      groupsToProcess = (typeof GROUPS !== 'undefined' && GROUPS.length > 0) ? GROUPS : [getTargetGroup()];
+    }
+
+    let summary = [];
+
+    groupsToProcess.forEach(groupName => {
+      let scoreSheet = getScoreSheetByGroup(groupName);
+      if (!scoreSheet) {
+        summary.push(`⚠ Score tab for '${groupName}' not found.`);
+        return;
+      }
+
+      sortActivePlayersForSheet(scoreSheet);
+      const data = scoreSheet.getDataRange().getValues();
+      if (data.length <= 1) return;
+
+      const col = buildColMap(data[0]);
+      let activePlayers = [];
+      let activePlayerObjects = [];
+      let inactivePlayers = [];
+      let inactivePlayerObjects = [];
+
+      for (let r = 1; r < data.length; r++) {
+        let row = data[r];
+        let status = (col.status !== undefined && row[col.status]) ? String(row[col.status]).toUpperCase().trim() : "ACTIVE";
+        
+        let firstVal = (col.first !== undefined && row[col.first]) ? String(row[col.first]).trim() : '';
+        let lastVal = (col.last !== undefined && row[col.last]) ? String(row[col.last]).trim() : '';
+        let name = (firstVal || lastVal) ? `${firstVal} ${lastVal}`.trim() : (col.name !== undefined ? String(row[col.name]).trim() : '');
+        
+        let rawPhone = col.phone !== undefined ? row[col.phone] : (col.cell !== undefined ? row[col.cell] : (col.mobile !== undefined ? row[col.mobile] : ""));
+
+        if (name) {
+          let pObj = { name: name, phone: cleanP(rawPhone) };
+          if (status === "ACTIVE") {
+            activePlayers.push(name); activePlayerObjects.push(pObj);
+          } else {
+            inactivePlayers.push(name); inactivePlayerObjects.push(pObj);
+          }
+        }
+      }
+
+      let availableCourts = courts ? parseAndSortCourts(courts) : getCourtsForGroup(groupName);
+      let schedSheetName = "Sched " + groupName;
+      let schedSheet = ss.getSheetByName(schedSheetName) || ss.insertSheet(schedSheetName);
+
+      schedSheet.clear();
+
+      // 13 Data Columns (A - M) matching rescheduleFromCheckIns
+      let headers = ["Player Name", "Court", "Check-In", "Game 1", "Game 2", "Game 3", "Game 4", "Game 5", "Game 6", "Total", "Entered", "", "Phone"];
+      let rows = [headers];
+
+      let numPlayers = activePlayers.length;
+      let courtWarning = "";
+      
+      let playingIndices = [];
+      let byeIndices = new Set();
+      let playerCourtMap = {};
+
+      if (integrateByes && numPlayers >= 4) {
+        let indicesCopy = Array.from({ length: numPlayers }, (_, i) => i);
+        let chunkSizes = [];
+        let len = numPlayers;
+
+        if (len === 6) {
+          chunkSizes = [6];
+        } else if (len === 11) {
+          chunkSizes = [6, 5];
+        } else {
+          let remainder = len % 4;
+          if (remainder === 0) {
+            for (let i = 0; i < len / 4; i++) chunkSizes.push(4);
+          } else if (remainder === 1) { // 5, 9, 13, 17... -> One 5, rest 4s
+            chunkSizes.push(5);
+            for (let i = 0; i < (len - 5) / 4; i++) chunkSizes.push(4);
+          } else if (remainder === 2) { // 10, 14, 18... -> Two 5s, rest 4s
+            chunkSizes.push(5, 5);
+            for (let i = 0; i < (len - 10) / 4; i++) chunkSizes.push(4);
+          } else if (remainder === 3) { // 15, 19... -> Three 5s, rest 4s
+            if (len === 7) {
+              chunkSizes.push(4);
+            } else {
+              chunkSizes.push(5, 5, 5);
+              for (let i = 0; i < (len - 15) / 4; i++) chunkSizes.push(4);
+            }
+          }
+        }
+
+        if (chunkSizes.length > availableCourts.length) courtWarning = " ⚠️ Error: Insufficient courts!";
+
+        let courtNum = 0;
+        for (let size of chunkSizes) {
+           if (courtNum < availableCourts.length && indicesCopy.length >= size) {
+              let chunk = indicesCopy.splice(0, size);
+              let cName = availableCourts[courtNum++];
+              chunk.forEach(idx => playerCourtMap[idx] = cName);
+           } else {
+              break;
+           }
+        }
+        indicesCopy.forEach(idx => byeIndices.add(idx));
+      } else {
+        // Standard 4-player Assignment
+        let foursomesCount = Math.floor(numPlayers / 4);
+        if (foursomesCount > availableCourts.length) courtWarning = " ⚠️ Error: Insufficient courts!";
+        
+        let assignedCourtsCount = Math.min(foursomesCount, availableCourts.length);
+        let totalPlayingCount = assignedCourtsCount * 4;
+        let byeCount = numPlayers - totalPlayingCount;
+
+        if (byeCount > 0) {
+          if (alwaysByeBottom) {
+            for (let i = 0; i < totalPlayingCount; i++) playingIndices.push(i);
+            for (let i = totalPlayingCount; i < numPlayers; i++) byeIndices.add(i);
+          } else {
+            let availableIndices = Array.from({ length: numPlayers }, (_, idx) => idx);
+            while (byeIndices.size < byeCount) {
+              byeIndices.add(availableIndices.splice(Math.floor(Math.random() * availableIndices.length), 1)[0]);
+            }
+            playingIndices = availableIndices;
+          }
+        } else {
+          for (let i = 0; i < numPlayers; i++) playingIndices.push(i);
+        }
+
+        playingIndices.forEach((playerIdx, orderIdx) => {
+          let courtNumIdx = Math.floor(orderIdx / 4);
+          playerCourtMap[playerIdx] = availableCourts[courtNumIdx];
+        });
+      }
+
+      const courtLookup = {};
+      const registerLookupKey = (pName, pPhone, assignedCourt) => {
+        if (!pName) return;
+        const cleanFull = cleanStr(pName);
+        courtLookup[cleanFull] = assignedCourt;
+        const tokens = cleanFull.match(/[a-z0-9]+/g) || [];
+        if (tokens.length > 0) courtLookup[tokens.sort().join(" ")] = assignedCourt;
+        if (pPhone) courtLookup[pPhone] = assignedCourt;
+      };
+
+      for (let i = 0; i < numPlayers; i++) {
+        let pName = activePlayers[i];
+        let pPhone = activePlayerObjects[i] ? activePlayerObjects[i].phone : "";
+        let assignedCourt = byeIndices.has(i) ? "BYE" : (playerCourtMap[i] || "BYE");
+
+        registerLookupKey(pName, pPhone, assignedCourt);
+        rows.push([pName, assignedCourt, "", "", "", "", "", "", "", "", "", "", pPhone]);
+      }
+
+      for (let i = 0; i < inactivePlayers.length; i++) {
+        let pName = inactivePlayers[i];
+        let pPhone = inactivePlayerObjects[i] ? inactivePlayerObjects[i].phone : "";
+        registerLookupKey(pName, pPhone, "");
+        rows.push([pName, "", "", "", "", "", "", "", "", "", "", "", pPhone]);
+      }
+
+      sheet.clearContents();
+      sheet.getRange(1, 1, rows.length, headers.length).setValues(rows);
+      sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
+
+      // Write Week Metadata safely to Column N (Column 14)
+      sheet.getRange("N1").setValue("SCHEDULE_WEEK").setFontWeight("bold");
+      sheet.getRange("N2").setValue(currentWeek).setHorizontalAlignment("center");
+      sheet.getRange("N3").setValue("Week " + currentWeek).setHorizontalAlignment("center");
+      sheet.getRange("N4").setValue(Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "yyyy-MM-dd")).setHorizontalAlignment("center");
+
+      // Score Sheet Sync
+      let scoreHeaders = data[0].map(h => String(h || '').trim().toLowerCase());
+      let phoneIdx = scoreHeaders.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
+      let firstIdx = scoreHeaders.findIndex(h => /first|fname|f_name/i.test(h));
+      let lastIdx = scoreHeaders.findIndex(h => /last|lname|l_name/i.test(h));
+      let nameIdx = scoreHeaders.findIndex(h => /player|full\s*name|^name$/i.test(h));
+      let courtIdx = scoreHeaders.findIndex(h => /court|crt/i.test(h));
+      if (courtIdx === -1) courtIdx = 3; 
+
+      let ptsIdx = scoreHeaders.findIndex(h => /^pts$|^points$|^total$/i.test(h));
+      if (ptsIdx === -1) ptsIdx = 4;
+
+      if (data.length > 1) scoreSheet.getRange(2, ptsIdx + 1, data.length - 1, 1).clearContent();
+
+      let scoreCourtValues = [];
+      for (let r = 1; r < data.length; r++) {
+        let row = data[r];
+        let rowPhone = phoneIdx !== -1 ? cleanP(row[phoneIdx]) : "";
+        let rowFirst = firstIdx !== -1 ? String(row[firstIdx] || '').trim() : '';
+        let rowLast = lastIdx !== -1 ? String(row[lastIdx] || '').trim() : '';
+        let rowFullName = (rowFirst || rowLast) ? `${rowFirst} ${rowLast}`.trim() : (nameIdx !== -1 ? String(row[nameIdx] || '').trim() : '');
+        let cleanRowName = cleanStr(rowFullName);
+        let tokensKey = (cleanRowName.match(/[a-z0-9]+/g) || []).sort().join(" ");
+        let rowStatus = (col.status !== undefined && row[col.status]) ? String(row[col.status]).toUpperCase().trim() : "ACTIVE";
+
+        let matchedCourt = "";
+        let foundInLookup = false;
+
+        if (rowPhone) {
+          for (let k in courtLookup) {
+            if (k.length >= 7 && rowPhone.endsWith(k.slice(-7))) {
+              matchedCourt = courtLookup[k]; foundInLookup = true; break;
+            }
+          }
+        }
+        if (!foundInLookup) {
+          if (cleanRowName && courtLookup[cleanRowName] !== undefined) {
+            matchedCourt = courtLookup[cleanRowName]; foundInLookup = true;
+          } else if (tokensKey && courtLookup[tokensKey] !== undefined) {
+            matchedCourt = courtLookup[tokensKey]; foundInLookup = true;
+          }
+        }
+        if (rowStatus !== "ACTIVE") matchedCourt = "";
+        else if (!matchedCourt) matchedCourt = "BYE";
+
+        scoreCourtValues.push([matchedCourt]);
+      }
+
+      if (scoreCourtValues.length > 0) scoreSheet.getRange(2, courtIdx + 1, scoreCourtValues.length, 1).setValues(scoreCourtValues);
+
+      const cacheKey = getCheckInCacheKey(schedSheetName);
+      if (typeof CacheService !== 'undefined' && cacheKey) CacheService.getScriptCache().remove(cacheKey);
+      if (typeof clearUnifiedCache === 'function') clearUnifiedCache(schedSheetName);
+      if (typeof CacheService !== 'undefined') CacheService.getScriptCache().remove("UNIFIED_ROSTER_CACHE_" + groupName.toUpperCase());
+
+      summary.push(`Generated schedule for '${groupName}'.${courtWarning}`);
+    });
+
+    return "✅ " + summary.join("\n");
+  });
+}
