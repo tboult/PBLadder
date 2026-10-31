@@ -603,6 +603,7 @@ function checkAndUnlockAdmin(phone) {
 async function runRescheduleCheckedIn() {
   const groupName = document.getElementById('adminGlobalGroupSelect')?.value || getSavedGroup();
   const selectedCourts = getSelectedCourts();
+  const optimizeByes = Boolean(document.getElementById('optimize-byes-checkbox')?.checked);
 
   if (!groupName) {
     alert('Please select a target group.');
@@ -623,7 +624,9 @@ async function runRescheduleCheckedIn() {
       group: groupName,
       sheet: "Sched " + groupName,
       courts: selectedCourts,
-      checkedInOnly: true
+      checkedInOnly: true,
+      optimizeByes: optimizeByes,
+      integrateByes: optimizeByes
     });
     if (res && (res.success || !res.error)) {
       if (statusEl) statusEl.innerText = '✅ Rescheduled checked-in players successfully!';
@@ -639,6 +642,7 @@ async function runRescheduleCheckedIn() {
 async function runRescheduleActive() {
   const groupName = document.getElementById('adminGlobalGroupSelect')?.value || getSavedGroup();
   const selectedCourts = getSelectedCourts();
+  const optimizeByes = Boolean(document.getElementById('optimize-byes-checkbox')?.checked);
 
   if (!groupName) {
     alert('Please select a target group.');
@@ -654,12 +658,14 @@ async function runRescheduleActive() {
   if (statusEl) statusEl.innerText = 'Rescheduling all active players...';
 
   try {
-    const res = await apiCall('generateScheduleTabs', {
+    const res = await apiCall('ScheduleAll', {
       groupName: groupName,
       group: groupName,
       sheet: "Sched " + groupName,
       courts: selectedCourts,
-      checkedInOnly: false
+      checkedInOnly: false,
+      optimizeByes: optimizeByes,
+      integrateByes: optimizeByes
     });
     if (res && (res.success || !res.error)) {
       if (statusEl) statusEl.innerText = '✅ Rescheduled all active players successfully!';
@@ -671,6 +677,7 @@ async function runRescheduleActive() {
     if (statusEl) statusEl.innerText = '❌ Error performing reschedule.';
   }
 }
+
 
 
 /**

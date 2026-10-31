@@ -3345,6 +3345,21 @@ function ScheduleAll(genTarget, courts) {
     let payloadByeFlag = undefined;
     let integrateByes = true;
 
+      // Replace the top payload parsing block in BOTH rescheduleFromCheckIns and ScheduleAll:
+      
+      if (typeof reschedTarget === 'object' && reschedTarget !== null) {
+          courts = reschedTarget.courts || courts;
+          payloadByeFlag = reschedTarget.alwaysByeBottom !== undefined ? reschedTarget.alwaysByeBottom : reschedTarget.ALWAYS_BYE_BOTTOM;
+  
+          // Check for either integrateByes or optimizeByes from frontend payload
+          if (reschedTarget.integrateByes !== undefined) {
+              integrateByes = Boolean(reschedTarget.integrateByes);
+          } else if (reschedTarget.optimizeByes !== undefined) {
+              integrateByes = Boolean(reschedTarget.optimizeByes);
+          }
+          reschedTarget = reschedTarget.reschedTarget || reschedTarget.group || reschedTarget.target || reschedTarget.groupName;
+      }      
+
     if (typeof genTarget === 'object' && genTarget !== null) {
       courts = genTarget.courts || courts;
       payloadByeFlag = genTarget.alwaysByeBottom !== undefined ? genTarget.alwaysByeBottom : genTarget.ALWAYS_BYE_BOTTOM;
