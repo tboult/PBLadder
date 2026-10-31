@@ -3727,10 +3727,9 @@ function submitCourtScores(payload) {
   });
 }
 
-
 /**
  * Reschedules checked-in players into courts.
- * Preserves Game 1 through Game 6 by writing week metadata to Column N.
+ * Pushes 5-player and 6-player court sizes to bottom-ranked courts (weakest players).
  */
 function rescheduleFromCheckIns(reschedTarget, courts) {
   return executeWithLock(function() {
@@ -3741,6 +3740,7 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
       courts = reschedTarget.courts || courts;
       payloadByeFlag = reschedTarget.alwaysByeBottom !== undefined ? reschedTarget.alwaysByeBottom : reschedTarget.ALWAYS_BYE_BOTTOM;
       if (reschedTarget.integrateByes !== undefined) integrateByes = Boolean(reschedTarget.integrateByes);
+      else if (reschedTarget.optimizeByes !== undefined) integrateByes = Boolean(reschedTarget.optimizeByes);
       reschedTarget = reschedTarget.reschedTarget || reschedTarget.group || reschedTarget.target || reschedTarget.groupName;
     }
 
@@ -3842,23 +3842,26 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
       let chunkSizes = [];
       let len = playersCopy.length;
 
-      if (len === 6) chunkSizes = [6];
-      else if (len === 11) chunkSizes = [6, 5];
-      else {
+      // 4-player courts assigned to top ranks first; 5/6-player courts pushed to weakest players at the bottom
+      if (len === 6) {
+        chunkSizes = [6];
+      } else if (len === 11) {
+        chunkSizes = [5, 6];
+      } else {
         let remainder = len % 4;
         if (remainder === 0) {
           for (let i = 0; i < len / 4; i++) chunkSizes.push(4);
-        } else if (remainder === 1) {
-          chunkSizes.push(5);
+        } else if (remainder === 1) { // e.g. 9 -> [4, 5], 13 -> [4, 4, 5]
           for (let i = 0; i < (len - 5) / 4; i++) chunkSizes.push(4);
-        } else if (remainder === 2) {
-          chunkSizes.push(5, 5);
+          chunkSizes.push(5);
+        } else if (remainder === 2) { // e.g. 10 -> [5, 5], 14 -> [4, 5, 5]
           for (let i = 0; i < (len - 10) / 4; i++) chunkSizes.push(4);
-        } else if (remainder === 3) {
+          chunkSizes.push(5, 5);
+        } else if (remainder === 3) { // e.g. 15 -> [5, 5, 5], 19 -> [4, 5, 5, 5]
           if (len === 7) chunkSizes.push(4);
           else {
-            chunkSizes.push(5, 5, 5);
             for (let i = 0; i < (len - 15) / 4; i++) chunkSizes.push(4);
+            chunkSizes.push(5, 5, 5);
           }
         }
       }
@@ -3902,7 +3905,6 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
     playersForBye.forEach(p => p.assignedCourt = "BYE");
     uncheckedPlayers.forEach(p => p.assignedCourt = "");
 
-    // 13 Data Columns (A - M)
     let headers = ["Player Name", "Court", "Check-In", "Game 1", "Game 2", "Game 3", "Game 4", "Game 5", "Game 6", "Total", "Entered", "", "Phone"];
     let rows = [headers];
     let playerCourtLookup = {};
@@ -3925,7 +3927,6 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
     sheet.getRange(1, 1, rows.length, headers.length).setValues(rows);
     sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
 
-    // Write Week Metadata safely to Column N (Column 14)
     sheet.getRange("N1").setValue("SCHEDULE_WEEK").setFontWeight("bold");
     sheet.getRange("N2").setValue(currentWeek).setHorizontalAlignment("center");
     sheet.getRange("N3").setValue("Week " + currentWeek).setHorizontalAlignment("center");
@@ -3972,8 +3973,8 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
 }
 
 /**
- * Generates schedule tabs on Sched sheet, supports 4, 5, and 6 player groups, clears previous weekly scores.
- * Uses 13 data columns (A-M) including Game 1 through Game 6, and places week metadata safely in Column N.
+ * Generates schedule tabs on Sched sheet, supports 4, 5, and 6 player groups.
+ * Pushes 5-player and 6-player court sizes to bottom-ranked courts (weakest players).
  */
 function ScheduleAll(genTarget, courts) {
   return executeWithLock(function() {
@@ -3985,6 +3986,7 @@ function ScheduleAll(genTarget, courts) {
       courts = genTarget.courts || courts;
       payloadByeFlag = genTarget.alwaysByeBottom !== undefined ? genTarget.alwaysByeBottom : genTarget.ALWAYS_BYE_BOTTOM;
       if (genTarget.integrateByes !== undefined) integrateByes = Boolean(genTarget.integrateByes);
+      else if (genTarget.optimizeByes !== undefined) integrateByes = Boolean(genTarget.optimizeByes);
       targetGroup = genTarget.group || genTarget.sheet || genTarget.schedSheetName || genTarget.genTarget || genTarget.target || "";
     }
 
@@ -4052,7 +4054,6 @@ function ScheduleAll(genTarget, courts) {
 
       schedSheet.clear();
 
-      // 13 Data Columns (A - M) matching rescheduleFromCheckIns
       let headers = ["Player Name", "Court", "Check-In", "Game 1", "Game 2", "Game 3", "Game 4", "Game 5", "Game 6", "Total", "Entered", "", "Phone"];
       let rows = [headers];
 
@@ -4071,23 +4072,23 @@ function ScheduleAll(genTarget, courts) {
         if (len === 6) {
           chunkSizes = [6];
         } else if (len === 11) {
-          chunkSizes = [6, 5];
+          chunkSizes = [5, 6];
         } else {
           let remainder = len % 4;
           if (remainder === 0) {
             for (let i = 0; i < len / 4; i++) chunkSizes.push(4);
-          } else if (remainder === 1) { // 5, 9, 13, 17... -> One 5, rest 4s
-            chunkSizes.push(5);
+          } else if (remainder === 1) { // 9 -> [4, 5], 13 -> [4, 4, 5]
             for (let i = 0; i < (len - 5) / 4; i++) chunkSizes.push(4);
-          } else if (remainder === 2) { // 10, 14, 18... -> Two 5s, rest 4s
-            chunkSizes.push(5, 5);
+            chunkSizes.push(5);
+          } else if (remainder === 2) { // 10 -> [5, 5], 14 -> [4, 5, 5]
             for (let i = 0; i < (len - 10) / 4; i++) chunkSizes.push(4);
-          } else if (remainder === 3) { // 15, 19... -> Three 5s, rest 4s
+            chunkSizes.push(5, 5);
+          } else if (remainder === 3) { // 15 -> [5, 5, 5], 19 -> [4, 5, 5, 5]
             if (len === 7) {
               chunkSizes.push(4);
             } else {
-              chunkSizes.push(5, 5, 5);
               for (let i = 0; i < (len - 15) / 4; i++) chunkSizes.push(4);
+              chunkSizes.push(5, 5, 5);
             }
           }
         }
@@ -4106,7 +4107,6 @@ function ScheduleAll(genTarget, courts) {
         }
         indicesCopy.forEach(idx => byeIndices.add(idx));
       } else {
-        // Standard 4-player Assignment
         let foursomesCount = Math.floor(numPlayers / 4);
         if (foursomesCount > availableCourts.length) courtWarning = " ⚠️ Error: Insufficient courts!";
         
@@ -4161,17 +4161,15 @@ function ScheduleAll(genTarget, courts) {
         rows.push([pName, "", "", "", "", "", "", "", "", "", "", "", pPhone]);
       }
 
-      sheet.clearContents();
-      sheet.getRange(1, 1, rows.length, headers.length).setValues(rows);
-      sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
+      schedSheet.clearContents();
+      schedSheet.getRange(1, 1, rows.length, headers.length).setValues(rows);
+      schedSheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
 
-      // Write Week Metadata safely to Column N (Column 14)
-      sheet.getRange("N1").setValue("SCHEDULE_WEEK").setFontWeight("bold");
-      sheet.getRange("N2").setValue(currentWeek).setHorizontalAlignment("center");
-      sheet.getRange("N3").setValue("Week " + currentWeek).setHorizontalAlignment("center");
-      sheet.getRange("N4").setValue(Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "yyyy-MM-dd")).setHorizontalAlignment("center");
+      schedSheet.getRange("N1").setValue("SCHEDULE_WEEK").setFontWeight("bold");
+      schedSheet.getRange("N2").setValue(currentWeek).setHorizontalAlignment("center");
+      schedSheet.getRange("N3").setValue("Week " + currentWeek).setHorizontalAlignment("center");
+      schedSheet.getRange("N4").setValue(Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "yyyy-MM-dd")).setHorizontalAlignment("center");
 
-      // Score Sheet Sync
       let scoreHeaders = data[0].map(h => String(h || '').trim().toLowerCase());
       let phoneIdx = scoreHeaders.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
       let firstIdx = scoreHeaders.findIndex(h => /first|fname|f_name/i.test(h));
