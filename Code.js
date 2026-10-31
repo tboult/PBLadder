@@ -4216,16 +4216,16 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
   });
 }
 
-
 /**
  * Finds court assignment, status, and teammates/foursome for a player by phone number.
- * Supports flexible payload object passing as well as positional parameters.
- *
- * @param {string|object} phoneOrPayload - Phone string or API payload object.
- * @param {string} [groupNameParam] - Target group name (e.g. "Womens", "Mens", "TG").
- * @return {object} Foursome/court details and list of court teammates.
+ * Includes deep Logger.log tracing to debug missing player lookups.
  */
 function findFoursomeByPhone(phoneOrPayload, groupNameParam) {
+  Logger.log("==================================================");
+  Logger.log("🔍 [DEBUG findFoursomeByPhone STARTED]");
+  Logger.log(`- Raw phoneOrPayload Input: ${JSON.stringify(phoneOrPayload)}`);
+  Logger.log(`- Raw groupNameParam Input: ${String(groupNameParam)}`);
+
   let rawPhone = "";
   let groupName = "";
 
@@ -4238,47 +4238,80 @@ function findFoursomeByPhone(phoneOrPayload, groupNameParam) {
     groupName = String(groupNameParam || "");
   }
 
-  const cleanP = (p) => String(p || '').replace(/\D/g, '');
+  const cleanP = (p) => {
+    if (p === null || p === undefined) return "";
+    // If phone is stored as a number in scientific notation (e.g. 7.19E+09), format it cleanly
+    if (typeof p === 'number') p = p.toFixed(0);
+    return String(p).replace(/\D/g, '');
+  };
+
   const cleanPhone = cleanP(rawPhone);
+  const cleanSuffix = cleanPhone.length >= 7 ? cleanPhone.slice(-7) : cleanPhone;
+
+  Logger.log(`- Parsed Phone: "${rawPhone}" -> Cleaned: "${cleanPhone}" -> Target Suffix (last 7): "${cleanSuffix}"`);
 
   if (!cleanPhone || cleanPhone.length < 7) {
+    Logger.log("❌ [DEBUG FAIL] Phone number has fewer than 7 digits.");
     return { success: false, error: "A valid 7+ digit phone number is required." };
   }
 
-  const cleanSuffix = cleanPhone.slice(-7);
   const ss = getDb();
-  
   let cleanGroup = String(groupName || (typeof getTargetGroup === 'function' ? getTargetGroup() : "Womens"))
     .replace(/^(Score|Sched)\s*/i, "").trim();
   let schedSheetName = "Sched " + cleanGroup;
+
+  Logger.log(`- Target Group: "${cleanGroup}" | Sheet Tab Target: "${schedSheetName}"`);
+
   let sheet = ss.getSheetByName(schedSheetName);
 
   if (!sheet) {
+    Logger.log(`❌ [DEBUG FAIL] Sheet tab '${schedSheetName}' not found in Google Sheets.`);
     return { success: false, error: `Schedule sheet '${schedSheetName}' not found.` };
   }
 
   const data = sheet.getDataRange().getValues();
+  Logger.log(`- Total Rows Found in '${schedSheetName}': ${data.length}`);
+
   if (data.length <= 1) {
+    Logger.log(`❌ [DEBUG FAIL] Tab '${schedSheetName}' contains no player rows.`);
     return { success: false, error: `No schedule data found on tab '${schedSheetName}'.` };
   }
 
   const headers = data[0].map(h => String(h || '').toLowerCase().trim());
+  Logger.log(`- Detected Row 1 Headers: ${JSON.stringify(headers)}`);
+
   const nameIdx = headers.findIndex(h => /player|name/i.test(h)) !== -1 ? headers.findIndex(h => /player|name/i.test(h)) : 0;
   const courtIdx = headers.findIndex(h => /court|crt/i.test(h)) !== -1 ? headers.findIndex(h => /court|crt/i.test(h)) : 1;
   const checkInIdx = headers.findIndex(h => /check/i.test(h)) !== -1 ? headers.findIndex(h => /check/i.test(h)) : 2;
-  const phoneIdx = headers.findIndex(h => /phone|cell|mobile/i.test(h)) !== -1 ? headers.findIndex(h => /phone|cell|mobile/i.test(h)) : 12;
+  
+  let phoneIdx = headers.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
+  if (phoneIdx === -1) {
+    phoneIdx = 12; // Fallback to column 13 (index 12)
+    Logger.log(`⚠️ [DEBUG WARN] No 'Phone' header match found. Falling back to default index 12 (Column M).`);
+  }
+
+  Logger.log(`- Mapped Column Indices -> Name: Col ${nameIdx + 1}, Court: Col ${courtIdx + 1}, CheckIn: Col ${checkInIdx + 1}, Phone: Col ${phoneIdx + 1}`);
 
   let targetPlayer = null;
   let targetCourt = "";
   let allRows = [];
 
+  Logger.log("--- [START ROW SCAN] ---");
   for (let r = 1; r < data.length; r++) {
     let row = data[r];
     let pName = String(row[nameIdx] || "").trim();
     let pCourt = String(row[courtIdx] || "").trim();
-    let pPhone = cleanP(row[phoneIdx] !== undefined ? row[phoneIdx] : "");
+    let rawRowPhone = row[phoneIdx] !== undefined ? row[phoneIdx] : "";
+    let pPhone = cleanP(rawRowPhone);
 
-    if (!pName) continue;
+    if (!pName) {
+      Logger.log(`Row ${r + 1}: Empty Name -> Skipped`);
+      continue;
+    }
+
+    let isMatch = pPhone.length >= 7 && pPhone.endsWith(cleanSuffix);
+
+    Logger.log(`Row ${r + 1}: Name="${pName}" | Court="${pCourt}" | Raw Phone Cell="${rawRowPhone}" | Cleaned="${pPhone}" | Match Suffix "${cleanSuffix}"? ${isMatch ? "✅ YES" : "❌ No"}`);
 
     let rowObj = {
       name: pName,
@@ -4289,22 +4322,27 @@ function findFoursomeByPhone(phoneOrPayload, groupNameParam) {
 
     allRows.push(rowObj);
 
-    if (pPhone.length >= 7 && pPhone.endsWith(cleanSuffix)) {
+    if (isMatch) {
       targetPlayer = rowObj;
       targetCourt = pCourt;
     }
   }
+  Logger.log("--- [END ROW SCAN] ---");
 
   if (!targetPlayer) {
+    Logger.log(`❌ [DEBUG FAIL] Target player ending in '...${cleanSuffix}' not matched in any row.`);
     return { 
       success: false, 
       error: `No player found matching phone ending in ...${cleanSuffix} in group '${cleanGroup}'.` 
     };
   }
 
+  Logger.log(`✅ [DEBUG SUCCESS] Found Player: "${targetPlayer.name}" on Court: "${targetCourt}"`);
+
   const normCourt = String(targetCourt || "").toUpperCase().trim();
 
   if (!targetCourt || normCourt === "BYE" || normCourt === "") {
+    Logger.log(`Player "${targetPlayer.name}" is assigned to BYE.`);
     return {
       success: true,
       found: true,
@@ -4317,10 +4355,12 @@ function findFoursomeByPhone(phoneOrPayload, groupNameParam) {
     };
   }
 
-  // Collect all players sharing the same assigned court (supports 4, 5, or 6 players)
   let teammates = allRows
     .filter(r => String(r.court).trim().toLowerCase() === String(targetCourt).trim().toLowerCase())
     .map(r => ({ name: r.name, phone: r.phone }));
+
+  Logger.log(`Teammates on Court ${targetCourt} (${teammates.length} total): ${JSON.stringify(teammates)}`);
+  Logger.log("==================================================");
 
   return {
     success: true,
@@ -4334,3 +4374,4 @@ function findFoursomeByPhone(phoneOrPayload, groupNameParam) {
     message: `Found ${targetPlayer.name} on Court ${targetCourt} (${teammates.length} players).`
   };
 }
+
