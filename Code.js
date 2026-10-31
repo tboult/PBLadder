@@ -3751,18 +3751,21 @@ function ScheduleAllOptimized(payload, courts) {
 }
 
 
+
 // ==========================================
 // CORE WORKER IMPLEMENTATIONS
 // ==========================================
-
+/**
+ * Core worker for rescheduling checked-in players into courts.
+ * Ensures player phone numbers are looked up from master Score tab if missing on Sched tab.
+ */
 function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes) {
   return executeWithLock(function() {
     let groupName = "";
     let courts = courtsParam;
 
     if (typeof targetParam === 'object' && targetParam !== null) {
-        // Replace this line inside rescheduleFromCheckInsCore & scheduleAllCore:
-        groupName = targetParam.group || targetParam.groupName || targetParam.reschedTarget || targetParam.genTarget || targetParam.target || targetParam.sheet || targetParam.tab || targetParam.arg || "";
+      groupName = targetParam.group || targetParam.groupName || targetParam.reschedTarget || targetParam.target || targetParam.sheet || targetParam.tab || targetParam.arg || "";
       courts = targetParam.courts || courts;
     } else if (typeof targetParam === 'string') {
       groupName = targetParam;
@@ -3772,7 +3775,11 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
     let targetName = "Sched " + groupName;
 
     const ss = getDb();
-    const cleanP = (p) => String(p || '').replace(/\D/g, '');
+    const cleanP = (p) => {
+      if (p === null || p === undefined) return "";
+      if (typeof p === 'number') p = p.toFixed(0);
+      return String(p).replace(/\D/g, '');
+    };
     const cleanCourtLabel = (c) => {
       if (!c) return ""; let str = String(c).trim();
       if (str.toUpperCase() === "BYE") return "BYE";
@@ -3797,7 +3804,8 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
       let g3I = exHead.indexOf("game 3"); let g4I = exHead.indexOf("game 4");
       let g5I = exHead.indexOf("game 5"); let g6I = exHead.indexOf("game 6");
       let totI = exHead.indexOf("total"); let entI = exHead.findIndex(h => h.includes("entered"));
-      let phI = exHead.findIndex(h => h.includes("phone"));
+      let phI = exHead.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
+      if (phI === -1) phI = 12; // Default to Column M (index 12)
       
       for (let r = 1; r < existingData.length; r++) {
         let pName = existingData[r][0] ? String(existingData[r][0]).trim() : "";
@@ -3810,8 +3818,44 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
             g5: g5I !== -1 ? existingData[r][g5I] : "", g6: g6I !== -1 ? existingData[r][g6I] : "",
             total: totI !== -1 ? existingData[r][totI] : "", 
             entered: entI !== -1 ? existingData[r][entI] : "", 
-            phone: phI !== -1 ? existingData[r][phI] : ""
+            phone: phI < existingData[r].length ? cleanP(existingData[r][phI]) : ""
           };
+        }
+      }
+    }
+
+    // Fetch master phone numbers and rankings from Score [Group] tab
+    let scoreSheetName = "Score " + groupName;
+    let scoreSheet = ss.getSheetByName(scoreSheetName);
+    let rankLookup = {};
+    let masterPhoneLookup = {};
+
+    if (scoreSheet) {
+      let scoreData = scoreSheet.getDataRange().getValues();
+      if (scoreData.length > 1) {
+        let scoreHead = scoreData[0].map(h => String(h || '').toLowerCase().trim());
+        let col = typeof buildColMap === 'function' ? buildColMap(scoreData[0]) : {};
+        let phoneColIdx = scoreHead.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
+
+        for (let r = 1; r < scoreData.length; r++) {
+          let row = scoreData[r];
+          let pName = col.name !== undefined && row[col.name] ? String(row[col.name]).trim() :
+                      ((row[col.first] || "") + " " + (row[col.last] || "")).trim();
+          
+          let rawPhone = phoneColIdx !== -1 ? row[phoneColIdx] : 
+                         (col.phone !== undefined ? row[col.phone] : (col.cell !== undefined ? row[col.cell] : (col.mobile !== undefined ? row[col.mobile] : "")));
+          
+          let cleanedPhone = cleanP(rawPhone);
+
+          if (pName) {
+            let normP = normalizeName(pName);
+            if (cleanedPhone) masterPhoneLookup[normP] = cleanedPhone;
+
+            if (typeof getMostRecentRank === 'function') {
+              let recent = getMostRecentRank(row, col, 10);
+              rankLookup[normP] = { rank: recent.rank, numPeople: recent.numPeople, origIdx: r };
+            }
+          }
         }
       }
     }
@@ -3821,27 +3865,17 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
     let uncheckedPlayers = [];
 
     players.forEach(p => {
-      let prev = existingMap[normalizeName(p.name)] || { checkIn: "", g1: "", g2: "", g3: "", g4: "", g5: "", g6: "", total: "", entered: "", phone: "" };
+      let normP = normalizeName(p.name);
+      let prev = existingMap[normP] || { checkIn: "", g1: "", g2: "", g3: "", g4: "", g5: "", g6: "", total: "", entered: "", phone: "" };
       let isChecked = Boolean(p.checkedIn || p.checked || (prev.checkIn && String(prev.checkIn).trim() !== ""));
-      p.prev = prev; p.isChecked = isChecked; if (!p.phone) p.phone = prev.phone;
+      p.prev = prev; 
+      p.isChecked = isChecked; 
+
+      // Fallback chain: Object payload -> Sched sheet -> Master Score sheet
+      p.phone = cleanP(p.phone || p.cell || p.mobile || prev.phone || masterPhoneLookup[normP]);
+
       if (isChecked) checkedInPlayers.push(p); else uncheckedPlayers.push(p);
     });
-
-    let scoreSheetName = "Score " + groupName;
-    let scoreSheet = ss.getSheetByName(scoreSheetName);
-    let rankLookup = {};
-    if (scoreSheet) {
-      let scoreData = scoreSheet.getDataRange().getValues();
-      let scoreCol = buildColMap(scoreData[0]);
-      for (let r = 1; r < scoreData.length; r++) {
-        let row = scoreData[r];
-        let pName = scoreCol.name !== undefined ? row[scoreCol.name] : ((row[scoreCol.first] || "") + " " + (row[scoreCol.last] || "")).trim();
-        if (pName) {
-           let recent = getMostRecentRank(row, scoreCol, 10);
-           rankLookup[normalizeName(pName)] = { rank: recent.rank, numPeople: recent.numPeople, origIdx: r };
-        }
-      }
-    }
 
     checkedInPlayers.sort((a, b) => {
       let rA = rankLookup[normalizeName(a.name)] || { rank: 999, numPeople: 0, origIdx: 999 };
@@ -3864,7 +3898,6 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
       let chunkSizes = [];
       let len = playersCopy.length;
 
-      // 4-player courts allocated to top-ranked courts first; 5/6-player courts pushed to weakest courts
       if (len === 6) {
         chunkSizes = [6];
       } else if (len === 11) {
@@ -3873,13 +3906,13 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
         let remainder = len % 4;
         if (remainder === 0) {
           for (let i = 0; i < len / 4; i++) chunkSizes.push(4);
-        } else if (remainder === 1) { // 9 -> [4, 5], 13 -> [4, 4, 5]
+        } else if (remainder === 1) {
           for (let i = 0; i < (len - 5) / 4; i++) chunkSizes.push(4);
           chunkSizes.push(5);
-        } else if (remainder === 2) { // 10 -> [5, 5], 14 -> [4, 5, 5]
+        } else if (remainder === 2) {
           for (let i = 0; i < (len - 10) / 4; i++) chunkSizes.push(4);
           chunkSizes.push(5, 5);
-        } else if (remainder === 3) { // 15 -> [5, 5, 5], 19 -> [4, 5, 5, 5]
+        } else if (remainder === 3) {
           if (len === 7) chunkSizes.push(4);
           else {
             for (let i = 0; i < (len - 15) / 4; i++) chunkSizes.push(4);
@@ -3922,9 +3955,11 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
       let finalCourt = cleanCourtLabel(p.assignedCourt || (p.isChecked ? "BYE" : ""));
       let checkInVal = p.isChecked ? (p.prev.checkIn || now) : "";
       let normName = normalizeName(p.name);
+      let pPhone = cleanP(p.phone || p.cell || p.mobile || p.prev.phone || masterPhoneLookup[normName]);
+
       if (normName) playerCourtLookup[normName] = finalCourt;
-      let pPhone = cleanP(p.phone || p.cell || p.mobile || p.prev.phone);
       if (pPhone && pPhone.length >= 7) playerCourtLookup[pPhone.slice(-7)] = finalCourt;
+
       rows.push([p.name, finalCourt, checkInVal, p.prev.g1, p.prev.g2, p.prev.g3, p.prev.g4, p.prev.g5, p.prev.g6, p.prev.total, p.prev.entered, "", pPhone]);
     };
 
@@ -3934,6 +3969,9 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
     sheet.clearContents();
     sheet.getRange(1, 1, rows.length, headers.length).setValues(rows);
     sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
+
+    // Format Phone column (Column 13 / M) as Text to prevent scientific notation
+    sheet.getRange(1, 13, rows.length, 1).setNumberFormat("@");
 
     sheet.getRange("N1").setValue("SCHEDULE_WEEK").setFontWeight("bold");
     sheet.getRange("N2").setValue(currentWeek).setHorizontalAlignment("center");
@@ -3963,7 +4001,7 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
           }
           courtValues.push([cleanCourtLabel(assignedCourt)]);
         }
-        scoreSheet.getRange(2, courtIdx + 1, courtValues.length, 1).setValues(courtValues);
+        scoreSheet.getRange(2, courtIdx + 1, courtValues.length, 1).setValues(scoreCourtValues);
       }
     }
 
@@ -3977,25 +4015,32 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
     let activeCourtsCount = Object.keys(courtAssignments).filter(c => courtAssignments[c].length >= 4).length;
     let totalByes = rows.filter(r => r[1] === "BYE").length;
     let modeText = forceIntegrateByes ? "Optimized 5/6s" : "Strict 4s";
-    return `✅ Rescheduled '${targetName}' [${modeText}]. Assigned ${activeCourtsCount} courts, ${totalByes} BYEs.`;
+    return `✅ Rescheduled '${targetName}' [${modeText}]. Assigned ${activeCourtsCount} courts, ${totalByes} BYEs. Phones written to Col M.`;
   });
 }
 
+/**
+ * Core worker for scheduling all active players.
+ * Copies phones from Score master sheet into Column M of Sched sheet with text formatting.
+ */
 function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
   return executeWithLock(function() {
     let targetGroup = "";
     let courts = courtsParam;
 
     if (typeof targetParam === 'object' && targetParam !== null) {
-        groupName = targetParam.group || targetParam.groupName || targetParam.reschedTarget || targetParam.genTarget || targetParam.target || targetParam.sheet || targetParam.tab || targetParam.arg || "";        
-        targetGroup = groupName;
+      targetGroup = targetParam.group || targetParam.groupName || targetParam.genTarget || targetParam.target || targetParam.sheet || targetParam.tab || targetParam.arg || "";
       courts = targetParam.courts || courts;
     } else if (typeof targetParam === 'string') {
       targetGroup = targetParam;
     }
 
     const ss = getDb();
-    const cleanP = (p) => String(p || '').replace(/\D/g, '');
+    const cleanP = (p) => {
+      if (p === null || p === undefined) return "";
+      if (typeof p === 'number') p = p.toFixed(0);
+      return String(p).replace(/\D/g, '');
+    };
     const cleanStr = (s) => String(s || '').trim().toLowerCase();
 
     let groupsToProcess = [];
@@ -4022,6 +4067,9 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
       if (data.length <= 1) return;
 
       const col = buildColMap(data[0]);
+      let scoreHeaders = data[0].map(h => String(h || '').trim().toLowerCase());
+      let phoneIdx = scoreHeaders.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
+
       let activePlayers = [];
       let activePlayerObjects = [];
       let inactivePlayers = [];
@@ -4035,7 +4083,7 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
         let lastVal = (col.last !== undefined && row[col.last]) ? String(row[col.last]).trim() : '';
         let name = (firstVal || lastVal) ? `${firstVal} ${lastVal}`.trim() : (col.name !== undefined ? String(row[col.name]).trim() : '');
         
-        let rawPhone = col.phone !== undefined ? row[col.phone] : (col.cell !== undefined ? row[col.cell] : (col.mobile !== undefined ? row[col.mobile] : ""));
+        let rawPhone = phoneIdx !== -1 ? row[phoneIdx] : (col.phone !== undefined ? row[col.phone] : (col.cell !== undefined ? row[col.cell] : (col.mobile !== undefined ? row[col.mobile] : "")));
 
         if (name) {
           let pObj = { name: name, phone: cleanP(rawPhone) };
@@ -4149,20 +4197,23 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
       schedSheet.getRange(1, 1, rows.length, headers.length).setValues(rows);
       schedSheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
 
+      // Format Phone column (Column 13 / M) as Text to prevent scientific notation
+      schedSheet.getRange(1, 13, rows.length, 1).setNumberFormat("@");
+
       schedSheet.getRange("N1").setValue("SCHEDULE_WEEK").setFontWeight("bold");
       schedSheet.getRange("N2").setValue(currentWeek).setHorizontalAlignment("center");
       schedSheet.getRange("N3").setValue("Week " + currentWeek).setHorizontalAlignment("center");
       schedSheet.getRange("N4").setValue(Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "yyyy-MM-dd")).setHorizontalAlignment("center");
 
-      let scoreHeaders = data[0].map(h => String(h || '').trim().toLowerCase());
-      let phoneIdx = scoreHeaders.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
-      let firstIdx = scoreHeaders.findIndex(h => /first|fname|f_name/i.test(h));
-      let lastIdx = scoreHeaders.findIndex(h => /last|lname|l_name/i.test(h));
-      let nameIdx = scoreHeaders.findIndex(h => /player|full\s*name|^name$/i.test(h));
-      let courtIdx = scoreHeaders.findIndex(h => /court|crt/i.test(h));
+      let scoreHeaders2 = data[0].map(h => String(h || '').trim().toLowerCase());
+      let phoneIdx2 = scoreHeaders2.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
+      let firstIdx = scoreHeaders2.findIndex(h => /first|fname|f_name/i.test(h));
+      let lastIdx = scoreHeaders2.findIndex(h => /last|lname|l_name/i.test(h));
+      let nameIdx = scoreHeaders2.findIndex(h => /player|full\s*name|^name$/i.test(h));
+      let courtIdx = scoreHeaders2.findIndex(h => /court|crt/i.test(h));
       if (courtIdx === -1) courtIdx = 3; 
 
-      let ptsIdx = scoreHeaders.findIndex(h => /^pts$|^points$|^total$/i.test(h));
+      let ptsIdx = scoreHeaders2.findIndex(h => /^pts$|^points$|^total$/i.test(h));
       if (ptsIdx === -1) ptsIdx = 4;
 
       if (data.length > 1) scoreSheet.getRange(2, ptsIdx + 1, data.length - 1, 1).clearContent();
@@ -4170,7 +4221,7 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
       let scoreCourtValues = [];
       for (let r = 1; r < data.length; r++) {
         let row = data[r];
-        let rowPhone = phoneIdx !== -1 ? cleanP(row[phoneIdx]) : "";
+        let rowPhone = phoneIdx2 !== -1 ? cleanP(row[phoneIdx2]) : "";
         let rowFirst = firstIdx !== -1 ? String(row[firstIdx] || '').trim() : '';
         let rowLast = lastIdx !== -1 ? String(row[lastIdx] || '').trim() : '';
         let rowFullName = (rowFirst || rowLast) ? `${rowFirst} ${rowLast}`.trim() : (nameIdx !== -1 ? String(row[nameIdx] || '').trim() : '');
@@ -4215,6 +4266,7 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
     return "✅ " + summary.join("\n");
   });
 }
+
 
 /**
  * Finds court assignment, status, and teammates/foursome for a player by phone number.
