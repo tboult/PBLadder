@@ -3506,7 +3506,7 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
           }
           courtValues.push([cleanCourtLabel(assignedCourt)]);
         }
-        scoreSheet.getRange(2, courtIdx + 1, courtValues.length, 1).setValues(scoreCourtValues);
+        scoreSheet.getRange(2, courtIdx + 1, courtValues.length, 1).setValues(CourtValues);
       }
     }
 
