@@ -55,8 +55,6 @@ async function apiCall(action, payload = {}) {
   return result;
 }
 
-// Initialize group-aware memory cache dictionary
-window.groupRosterCache = window.groupRosterCache || {};
 let currentRosterFetchPromise = null;
 let lastFetchedGroup = null;
 
@@ -1108,57 +1106,6 @@ async function switchTab(tabId, skipHashUpdate = false) {
 }
 
 
-/**
- * 2. REFRESH ROUTER (Required by switchTab)
- */
-async function refreshActiveTabData(forceRefresh = false) {
-  const activeTab = localStorage.getItem('activeTab') || 'help';
-  const currentGroup = getSavedGroup();
-
-  if (typeof renderHelpGroupRadios === 'function') {
-    renderHelpGroupRadios();
-  }
-
-  if (currentGroup) {
-    setSavedGroup(currentGroup);
-  }
-
-  if (typeof updateGlobalLoaderStatus === 'function') updateGlobalLoaderStatus();
-
-  try {
-    // FIX: Always ensure roster is fetched regardless of which tab is active
-    if (currentGroup && typeof loadUnifiedRosterData === 'function') {
-      await loadUnifiedRosterData(currentGroup, forceRefresh);
-    }
-
-    if (activeTab === 'checkin') {
-      if (typeof triggerAutoCheckIn === 'function') await triggerAutoCheckIn();
-    } else if (activeTab === 'admin') {
-      if (typeof triggerAutoCheckIn === 'function') await triggerAutoCheckIn();
-      if (typeof renderAdminCourts === 'function') await renderAdminCourts(currentGroup);
-      if (typeof loadAdminTabData === 'function') await loadAdminTabData(currentGroup);
-      if (typeof loadAdminPlayerStatusCache === 'function') await loadAdminPlayerStatusCache(currentGroup);
-    } else if (activeTab === 'ranksched' || activeTab === 'schedule') {
-      if (typeof loadRankingsAndSched === 'function') {
-        await loadRankingsAndSched(currentGroup);
-      }
-    } else if (activeTab === 'scoreTab' || activeTab === 'score' || activeTab === 'phone') {
-      if (typeof triggerAutoCheckIn === 'function') await triggerAutoCheckIn();
-      if (typeof lookupPhone === 'function') {
-        await lookupPhone();
-      }
-    } else if (activeTab === 'help') {
-      const savedPhone = typeof getSavedPhone === 'function' ? getSavedPhone() : '';
-      if (savedPhone && typeof loadPlayerStatusFromCache === 'function') {
-        await loadPlayerStatusFromCache(savedPhone);
-      }
-    }
-  } catch (err) {
-    console.error(`💥 [Tab Refresh Error] Failed rendering tab "${activeTab}":`, err);
-  } finally {
-    if (typeof updateGlobalLoaderStatus === 'function') updateGlobalLoaderStatus();
-  }
-}
 
 
 
@@ -2063,16 +2010,6 @@ function handleRadioClick(event) {
   }
 }
 
-// Function to determine and restore active tab on startup/refresh
-function restoreActiveTabOnLoad() {
-  const hashTab = window.location.hash.replace('#', '').trim();
-  const savedTab = localStorage.getItem('activeTab');
-
-  // Priorities: 1. URL Hash -> 2. Saved localStorage Tab -> 3. Default 'help'
-  const initialTab = hashTab || savedTab || 'help';
-
-  switchTab(initialTab, true);
-}
 
 
 // Listen for browser forward/back button navigation (if running in standard browser)
@@ -2313,71 +2250,7 @@ document.addEventListener('change', (e) => {
 
 
 
-async function runClearSchedule() {
-  // Retrieve currently selected group from saved state or localStorage
-  const currentGroup = (typeof getSavedGroup === 'function' ? getSavedGroup() : '') ||
-                       localStorage.getItem("scpb_saved_group") || 
-                       localStorage.getItem("scpb_selected_group");
 
-  if (!currentGroup) {
-    alert("⚠️ Please select a group first.");
-    return;
-  }
-
-  const confirmMsg = `Are you sure you want to clear the schedule for '${currentGroup}'?\n\nThis will reset all court assignments, check-ins, and game scores for this group.`;
-  if (!confirm(confirmMsg)) return;
-
-  // UI button loading feedback
-  const btn = document.getElementById('clearSchedBtn');
-  const originalText = btn ? btn.innerText : '';
-  if (btn) {
-    btn.disabled = true;
-    btn.innerText = '⌛ Clearing Schedule...';
-  }
-
-  try {
-    logDebug(`🗑️ [Clear Schedule] Calling API for group: "${currentGroup}"`);
-
-    // Build payload and invoke apiCall directly
-    const payload = { 
-      group: currentGroup, 
-      sheet: currentGroup, 
-      schedSheetName: `Sched ${currentGroup}` 
-    };
-
-    const res = await apiCall('clearScheduleForGroup', payload);
-
-    // Extract message from response
-    let resultMsg = '';
-    if (typeof res === 'string') {
-      resultMsg = res;
-    } else if (res && typeof res.result === 'string') {
-      resultMsg = res.result;
-    } else if (res && typeof res.message === 'string') {
-      resultMsg = res.message;
-    } else if (res && res.data && typeof res.data === 'string') {
-      resultMsg = res.data;
-    } else {
-      resultMsg = `✅ Schedule cleared for group "${currentGroup}".`;
-    }
-
-
-    // Refresh viewer DOM if active
-    if (typeof reloadAdminScores === 'function') {
-      reloadAdminScores();
-    }
-    alert(resultMsg);
-
-  } catch (e) {
-    console.error("💥 [Clear Schedule Error]:", e);
-    alert("⚠️ Failed to clear schedule: " + (e.message || "Network request failed."));
-  } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.innerText = originalText;
-    }
-  }
-}
 
 /**
  * Helper to define matchups and sit-outs dynamically based on court size.
@@ -2821,3 +2694,40 @@ async function lookupPhone(cachedPhone) {
 }
 
 
+/**
+ * Validates a single game score input (Game 1 through Game 6).
+ * Highlights invalid input fields in real time and strips invalid characters.
+ *
+ * @param {HTMLInputElement|string|number} input - The input DOM element or raw value.
+ * @param {object} [options] - Validation options (min, max, allowEmpty).
+ * @return {boolean} True if the score value is valid.
+ */
+function validateGameScoreInput(input, options = {}) {
+  const min = options.min !== undefined ? options.min : 0;
+  const max = options.max !== undefined ? options.max : 15; // Standard ladder en partial score entry is permitted
+  if (cleanVal === "") {
+    if (element) {
+      element.classList.remove('is-invalid', 'score-error');
+      element.style.borderColor = "";
+    }
+    return allowEmpty;
+  }
+
+  // Ensure numeric integer check
+  const parsedNum = Number(cleanVal);
+  const isValid = !isNaN(parsedNum) && Number.isInteger(parsedNum) && parsedNum >= min && parsedNum <= max;
+
+  if (element) {
+    if (!isValid) {
+      element.classList.add('is-invalid', 'score-error');
+      element.style.borderColor = "#dc3545";
+      element.style.backgroundColor = "#f8d7da";
+    } else {
+      element.classList.remove('is-invalid', 'score-error');
+      element.style.borderColor = "#28a745";
+      element.style.backgroundColor = "";
+    }
+  }
+
+  return isValid;
+}
