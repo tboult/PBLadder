@@ -2722,9 +2722,9 @@ function renderRankingsAndSchedule(data) {
 
   viewerContent.innerHTML = html;
 }
-
 /**
  * Handles phone lookup execution and mapping to UI.
+ * Unwraps apiCall response containers and maps backend court & teammate data.
  */
 async function lookupPhone(cachedPhone) {
   const phoneInput = document.getElementById('phoneInput') || document.getElementById('scorePhoneInput');
@@ -2750,26 +2750,29 @@ async function lookupPhone(cachedPhone) {
 
   try {
     const currentGroup = getSavedGroup();
-    const result = await apiCall('findFoursomeByPhone', { 
+    const rawResponse = await apiCall('findFoursomeByPhone', { 
       groupName: currentGroup, 
+      group: currentGroup,
       phone: phone 
     });
 
-    if (result && (result.success || result.found)) {
-      let playerObj = null;
+    // Safe unwrap of apiCall response wrappers (.result / .payload / .data)
+    const result = rawResponse?.result || rawResponse?.payload || rawResponse?.data || rawResponse;
 
-      if (Array.isArray(result.foursome) && result.foursome.length > 0) {
-        playerObj = (typeof result.player === 'object' && result.player !== null) 
-          ? result.player 
-          : { 
-              name: result.player || result.name || 'Player', 
-              court: result.court || 'Unassigned', 
-              group: result.group || currentGroup 
-            };
-      } else if (result.player || result.name) {
-        playerObj = (typeof result.player === 'object' && result.player !== null)
-          ? result.player
-          : { name: result.player || result.name || 'Player', group: currentGroup };
+    if (result && (result.success || result.found || result.playerName)) {
+      // Extract court group/teammates list (supports 4, 5, and 6-player courts)
+      const foursomeList = Array.isArray(result.teammates) ? result.teammates : (Array.isArray(result.foursome) ? result.foursome : []);
+
+      let playerObj = null;
+      if (typeof result.player === 'object' && result.player !== null) {
+        playerObj = result.player;
+      } else {
+        playerObj = {
+          name: result.playerName || result.name || (typeof result.player === 'string' ? result.player : 'Player'),
+          court: result.court || 'Unassigned',
+          group: result.group || currentGroup,
+          isBye: result.isBye === true
+        };
       }
 
       const resolvedName = playerObj 
@@ -2780,10 +2783,10 @@ async function lookupPhone(cachedPhone) {
 
       if (findBtn) {
         findBtn.disabled = true;
-        findBtn.innerHTML = ' Found...';
+        findBtn.innerHTML = '✅ Found!';
       }
 
-      renderLookupResult(playerObj, result.foursome || []);
+      renderLookupResult(playerObj, foursomeList);
       if (typeof updateWelcomeBanner === 'function') updateWelcomeBanner();
     } else {
       if (phoneBtn) {
@@ -2816,3 +2819,5 @@ async function lookupPhone(cachedPhone) {
     }
   }
 }
+
+
