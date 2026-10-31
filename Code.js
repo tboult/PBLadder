@@ -3144,13 +3144,13 @@ function rebuildSchedSheetOrder(ss, cleanGroupName, activePlayers, inactivePlaye
   let nextWeek = prevWeekNum + 1;
   if (nextWeek <= 10) {
     try {
-      schedSheet.getRange("I1").setValue("SCHEDULE_WEEK").setFontWeight("bold");
-      schedSheet.getRange("I2").setValue(nextWeek).setHorizontalAlignment("center");
-      schedSheet.getRange("I3").setValue("Week " + nextWeek).setHorizontalAlignment("center");
+      schedSheet.getRange("N1").setValue("SCHEDULE_WEEK").setFontWeight("bold");
+      schedSheet.getRange("N2").setValue(nextWeek).setHorizontalAlignment("center");
+      schedSheet.getRange("N3").setValue("Week " + nextWeek).setHorizontalAlignment("center");
       
       let tz = ss.getSpreadsheetTimeZone() || "America/Phoenix";
       let todayStr = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd");
-      schedSheet.getRange("I4").setValue(todayStr).setHorizontalAlignment("center");
+      schedSheet.getRange("N4").setValue(todayStr).setHorizontalAlignment("center");
     } catch (e) {
       Logger.log("Non-fatal header stamp warning: " + e.message);
     }
@@ -3685,10 +3685,10 @@ function ScheduleAll(genTarget, courts) {
       schedSheet.getRange(1, 1, rows.length, headers.length).setValues(rows);
       schedSheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
 
-      schedSheet.getRange("M1").setValue("SCHEDULE_WEEK").setFontWeight("bold");
-      schedSheet.getRange("M2").setValue(currentWeek).setHorizontalAlignment("center");
-      schedSheet.getRange("M3").setValue("Week " + currentWeek).setHorizontalAlignment("center");
-      schedSheet.getRange("M4").setValue(Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "yyyy-MM-dd")).setHorizontalAlignment("center");
+      schedSheet.getRange("N1").setValue("SCHEDULE_WEEK").setFontWeight("bold");
+      schedSheet.getRange("N2").setValue(currentWeek).setHorizontalAlignment("center");
+      schedSheet.getRange("N3").setValue("Week " + currentWeek).setHorizontalAlignment("center");
+      schedSheet.getRange("N4").setValue(Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "yyyy-MM-dd")).setHorizontalAlignment("center");
 
       // Score Sheet Sync
       let scoreHeaders = data[0].map(h => String(h || '').trim().toLowerCase());
