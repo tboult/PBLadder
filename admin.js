@@ -34,7 +34,7 @@ function getAdminSelectedGroup() {
  */
 function getSelectedCourts() {
   const container = document.getElementById('admin-court-list');
-  if (!container) return [1, 2, 3, 4]; // Fallback default
+  if (!container) return [1, 2, 3, 4];
   const checkboxes = container.querySelectorAll('input[type="checkbox"]:checked');
   const courts = Array.from(checkboxes).map(cb => parseInt(cb.value, 10)).filter(num => !isNaN(num));
   return courts.length > 0 ? courts : [1, 2, 3, 4];
@@ -87,7 +87,7 @@ function filterAdminPlayers() {
     const playerScore = (rawScore === 0) ? 0 : (rawScore || '');
 
     return `
-<div style="display:flex; justify-space-between; align-items:center; padding:0.6rem; border-bottom:1px solid #eee; gap:0.75rem; flex-wrap:wrap;">
+<div style="display:flex; justify-content:space-between; align-items:center; padding:0.6rem; border-bottom:1px solid #eee; gap:0.75rem; flex-wrap:wrap;">
   <div style="font-weight:bold; font-size:0.95rem; text-overflow:ellipsis; overflow:hidden; white-space:nowrap; flex:1; min-width:180px;">
     ${attrName}${player.court ? `, ${escapeHtmlAttr(player.court)}` : ''}, ${cleanPhone || 'No phone'}
   </div>
@@ -451,7 +451,8 @@ function renderAdminCourts(groupName) {
 async function runRescheduleCheckedIn() {
   const groupName = getAdminSelectedGroup();
   const selectedCourts = getSelectedCourts();
-  const optimizeByes = Boolean(document.getElementById('optimize-byes-checkbox')?.checked);
+  const optimizeCheckbox = document.getElementById('optimize-byes-checkbox');
+  const optimizeByes = optimizeCheckbox ? Boolean(optimizeCheckbox.checked) : false;
 
   if (!groupName) return alert('Please select a target group.');
   if (selectedCourts.length === 0) return alert('Please select at least one court checkbox.');
@@ -488,7 +489,8 @@ async function runRescheduleCheckedIn() {
 async function runRescheduleActive() {
   const groupName = getAdminSelectedGroup();
   const selectedCourts = getSelectedCourts();
-  const optimizeByes = Boolean(document.getElementById('optimize-byes-checkbox')?.checked);
+  const optimizeCheckbox = document.getElementById('optimize-byes-checkbox');
+  const optimizeByes = optimizeCheckbox ? Boolean(optimizeCheckbox.checked) : false;
 
   if (!groupName) return alert('Please select a target group.');
   if (selectedCourts.length === 0) return alert('Please select at least one court checkbox.');

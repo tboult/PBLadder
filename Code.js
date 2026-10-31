@@ -3727,24 +3727,36 @@ function submitCourtScores(payload) {
   });
 }
 
+
+
 /**
  * Reschedules checked-in players into courts.
- * Pushes 5-player and 6-player court sizes to bottom-ranked courts (weakest players).
+ * Safely parses boolean string payloads ("false" vs false) and allocates 
+ * 5/6-player courts to bottom-ranked (weakest) players when enabled.
  */
 function rescheduleFromCheckIns(reschedTarget, courts) {
   return executeWithLock(function() {
     let payloadByeFlag = undefined;
-    let integrateByes = true;
+    let integrateByes = false; // Default to strict 4-player courts
     
+    // Helper to safely parse string "false" / "true" from API requests
+    const isTruthy = (val) => val === true || String(val).toLowerCase() === 'true';
+
     if (typeof reschedTarget === 'object' && reschedTarget !== null) {
       courts = reschedTarget.courts || courts;
       payloadByeFlag = reschedTarget.alwaysByeBottom !== undefined ? reschedTarget.alwaysByeBottom : reschedTarget.ALWAYS_BYE_BOTTOM;
-      if (reschedTarget.integrateByes !== undefined) integrateByes = Boolean(reschedTarget.integrateByes);
-      else if (reschedTarget.optimizeByes !== undefined) integrateByes = Boolean(reschedTarget.optimizeByes);
+      
+      let byeVal = reschedTarget.optimizeByes !== undefined ? reschedTarget.optimizeByes :
+                   (reschedTarget.integrateByes !== undefined ? reschedTarget.integrateByes : reschedTarget.distributeByes);
+      
+      if (byeVal !== undefined) {
+        integrateByes = isTruthy(byeVal);
+      }
+      
       reschedTarget = reschedTarget.reschedTarget || reschedTarget.group || reschedTarget.target || reschedTarget.groupName;
     }
 
-    const alwaysByeBottom = (payloadByeFlag !== undefined) ? Boolean(payloadByeFlag) : (typeof ALWAYS_BYE_BOTTOM !== 'undefined' ? Boolean(ALWAYS_BYE_BOTTOM) : true);
+    const alwaysByeBottom = (payloadByeFlag !== undefined) ? isTruthy(payloadByeFlag) : (typeof ALWAYS_BYE_BOTTOM !== 'undefined' ? isTruthy(ALWAYS_BYE_BOTTOM) : true);
     const ss = getDb();
     const cleanP = (p) => String(p || '').replace(/\D/g, '');
     const cleanCourtLabel = (c) => {
@@ -3842,7 +3854,7 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
       let chunkSizes = [];
       let len = playersCopy.length;
 
-      // 4-player courts assigned to top ranks first; 5/6-player courts pushed to weakest players at the bottom
+      // Fill top-ranked courts with 4 players first; push 5/6-player courts to weakest players at the bottom
       if (len === 6) {
         chunkSizes = [6];
       } else if (len === 11) {
@@ -3851,13 +3863,13 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
         let remainder = len % 4;
         if (remainder === 0) {
           for (let i = 0; i < len / 4; i++) chunkSizes.push(4);
-        } else if (remainder === 1) { // e.g. 9 -> [4, 5], 13 -> [4, 4, 5]
+        } else if (remainder === 1) { // 9 -> [4, 5], 13 -> [4, 4, 5]
           for (let i = 0; i < (len - 5) / 4; i++) chunkSizes.push(4);
           chunkSizes.push(5);
-        } else if (remainder === 2) { // e.g. 10 -> [5, 5], 14 -> [4, 5, 5]
+        } else if (remainder === 2) { // 10 -> [5, 5], 14 -> [4, 5, 5]
           for (let i = 0; i < (len - 10) / 4; i++) chunkSizes.push(4);
           chunkSizes.push(5, 5);
-        } else if (remainder === 3) { // e.g. 15 -> [5, 5, 5], 19 -> [4, 5, 5, 5]
+        } else if (remainder === 3) { // 15 -> [5, 5, 5], 19 -> [4, 5, 5, 5]
           if (len === 7) chunkSizes.push(4);
           else {
             for (let i = 0; i < (len - 15) / 4; i++) chunkSizes.push(4);
@@ -3876,6 +3888,7 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
       playersCopy.forEach(p => { p.assignedCourt = "BYE"; playersForBye.push(p); });
 
     } else {
+      // Strict 4-Player Court Sizing
       let maxFullCourts = Math.min(Math.floor(playersCopy.length / 4), availableCourts.length);
       let totalPlayingAllowed = maxFullCourts * 4;
       let playersToAssign = [];
@@ -3972,28 +3985,32 @@ function rescheduleFromCheckIns(reschedTarget, courts) {
   });
 }
 
+
 /**
- * Generates schedule tabs on Sched sheet, supports 4, 5, and 6 player groups.
- * Pushes 5-player and 6-player court sizes to bottom-ranked courts (weakest players).
+ * Generates schedule tabs on Sched sheet with strict boolean payload parsing.
  */
 function ScheduleAll(genTarget, courts) {
   return executeWithLock(function() {
     let targetGroup = genTarget;
     let payloadByeFlag = undefined;
-    let integrateByes = true;
+    let integrateByes = false; // Default to strict 4-player courts
+
+    const isTruthy = (val) => val === true || String(val).toLowerCase() === 'true';
 
     if (typeof genTarget === 'object' && genTarget !== null) {
       courts = genTarget.courts || courts;
       payloadByeFlag = genTarget.alwaysByeBottom !== undefined ? genTarget.alwaysByeBottom : genTarget.ALWAYS_BYE_BOTTOM;
-      if (genTarget.integrateByes !== undefined) integrateByes = Boolean(genTarget.integrateByes);
-      else if (genTarget.optimizeByes !== undefined) integrateByes = Boolean(genTarget.optimizeByes);
+      
+      let byeVal = genTarget.optimizeByes !== undefined ? genTarget.optimizeByes :
+                   (genTarget.integrateByes !== undefined ? genTarget.integrateByes : genTarget.distributeByes);
+      
+      if (byeVal !== undefined) {
+        integrateByes = isTruthy(byeVal);
+      }
       targetGroup = genTarget.group || genTarget.sheet || genTarget.schedSheetName || genTarget.genTarget || genTarget.target || "";
     }
 
-    const alwaysByeBottom = (payloadByeFlag !== undefined) 
-      ? Boolean(payloadByeFlag) : (typeof ALWAYS_BYE_BOTTOM !== 'undefined' ? Boolean(ALWAYS_BYE_BOTTOM) : true);
-
-    logDebug("ScheduleAll", "Generating schedule tabs and clearing active scores", { genTarget: targetGroup, courts, alwaysByeBottom, integrateByes });
+    const alwaysByeBottom = (payloadByeFlag !== undefined) ? isTruthy(payloadByeFlag) : (typeof ALWAYS_BYE_BOTTOM !== 'undefined' ? isTruthy(ALWAYS_BYE_BOTTOM) : true);
 
     const ss = getDb();
     const cleanP = (p) => String(p || '').replace(/\D/g, '');
@@ -4077,16 +4094,15 @@ function ScheduleAll(genTarget, courts) {
           let remainder = len % 4;
           if (remainder === 0) {
             for (let i = 0; i < len / 4; i++) chunkSizes.push(4);
-          } else if (remainder === 1) { // 9 -> [4, 5], 13 -> [4, 4, 5]
+          } else if (remainder === 1) {
             for (let i = 0; i < (len - 5) / 4; i++) chunkSizes.push(4);
             chunkSizes.push(5);
-          } else if (remainder === 2) { // 10 -> [5, 5], 14 -> [4, 5, 5]
+          } else if (remainder === 2) {
             for (let i = 0; i < (len - 10) / 4; i++) chunkSizes.push(4);
             chunkSizes.push(5, 5);
-          } else if (remainder === 3) { // 15 -> [5, 5, 5], 19 -> [4, 5, 5, 5]
-            if (len === 7) {
-              chunkSizes.push(4);
-            } else {
+          } else if (remainder === 3) {
+            if (len === 7) chunkSizes.push(4);
+            else {
               for (let i = 0; i < (len - 15) / 4; i++) chunkSizes.push(4);
               chunkSizes.push(5, 5, 5);
             }
@@ -4101,9 +4117,7 @@ function ScheduleAll(genTarget, courts) {
               let chunk = indicesCopy.splice(0, size);
               let cName = availableCourts[courtNum++];
               chunk.forEach(idx => playerCourtMap[idx] = cName);
-           } else {
-              break;
-           }
+           } else break;
         }
         indicesCopy.forEach(idx => byeIndices.add(idx));
       } else {
@@ -4229,4 +4243,12 @@ function ScheduleAll(genTarget, courts) {
 
     return "✅ " + summary.join("\n");
   });
+}
+
+/**
+ * Wrapper for API requests targeting generateScheduleTabs.
+ * Forwards full payload object so optimizeByes/integrateByes are preserved.
+ */
+function generateScheduleTabs(payload, courts) {
+  return ScheduleAll(payload, courts);
 }
