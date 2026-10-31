@@ -108,7 +108,7 @@ function getRankingsAndSchedData(groupName) {
   let hasData = false;
 
   if (schedSheet) {
-    let sheetWeekVal = (typeof getWeekNumber === "function") ? getWeekNumber(schedSheet) : schedSheet.getRange("I2").getValue();
+    let sheetWeekVal = (typeof getWeekNumber === "function") ? getWeekNumber(schedSheet) : schedSheet.getRange("N2").getValue();
     let sheetWeekNum = String(sheetWeekVal || "").replace(/\D/g, "");
 
     let activeWeekVal = (typeof getActiveWeek === "function" && getActiveWeek()) ? getActiveWeek() : 
@@ -2946,7 +2946,7 @@ function handleCheckInPlayer(payload) {
     }
 
     // 1. Check if schedule week is published
-    let sheetWeekVal = (typeof getWeekNumber === "function") ? getWeekNumber(schedSheet) : schedSheet.getRange("I2").getValue();
+    let sheetWeekVal = (typeof getWeekNumber === "function") ? getWeekNumber(schedSheet) : schedSheet.getRange("N2").getValue();
     let sheetWeekNum = sheetWeekVal ? String(sheetWeekVal).replace(/\D/g, "") : "";
 
     let activeWeekVal = (typeof calculateCurrentWeekNumber === "function") ? calculateCurrentWeekNumber() : null;
