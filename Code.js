@@ -4215,3 +4215,122 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
     return "✅ " + summary.join("\n");
   });
 }
+
+
+/**
+ * Finds court assignment, status, and teammates/foursome for a player by phone number.
+ * Supports flexible payload object passing as well as positional parameters.
+ *
+ * @param {string|object} phoneOrPayload - Phone string or API payload object.
+ * @param {string} [groupNameParam] - Target group name (e.g. "Womens", "Mens", "TG").
+ * @return {object} Foursome/court details and list of court teammates.
+ */
+function findFoursomeByPhone(phoneOrPayload, groupNameParam) {
+  let rawPhone = "";
+  let groupName = "";
+
+  // Flexible argument resolver (payload object vs positional strings)
+  if (typeof phoneOrPayload === 'object' && phoneOrPayload !== null) {
+    rawPhone = phoneOrPayload.phone || phoneOrPayload.phoneNumber || phoneOrPayload.cell || phoneOrPayload.mobile || "";
+    groupName = phoneOrPayload.group || phoneOrPayload.groupName || phoneOrPayload.sheet || phoneOrPayload.target || "";
+  } else {
+    rawPhone = String(phoneOrPayload || "");
+    groupName = String(groupNameParam || "");
+  }
+
+  const cleanP = (p) => String(p || '').replace(/\D/g, '');
+  const cleanPhone = cleanP(rawPhone);
+
+  if (!cleanPhone || cleanPhone.length < 7) {
+    return { success: false, error: "A valid 7+ digit phone number is required." };
+  }
+
+  const cleanSuffix = cleanPhone.slice(-7);
+  const ss = getDb();
+  
+  let cleanGroup = String(groupName || (typeof getTargetGroup === 'function' ? getTargetGroup() : "Womens"))
+    .replace(/^(Score|Sched)\s*/i, "").trim();
+  let schedSheetName = "Sched " + cleanGroup;
+  let sheet = ss.getSheetByName(schedSheetName);
+
+  if (!sheet) {
+    return { success: false, error: `Schedule sheet '${schedSheetName}' not found.` };
+  }
+
+  const data = sheet.getDataRange().getValues();
+  if (data.length <= 1) {
+    return { success: false, error: `No schedule data found on tab '${schedSheetName}'.` };
+  }
+
+  const headers = data[0].map(h => String(h || '').toLowerCase().trim());
+  const nameIdx = headers.findIndex(h => /player|name/i.test(h)) !== -1 ? headers.findIndex(h => /player|name/i.test(h)) : 0;
+  const courtIdx = headers.findIndex(h => /court|crt/i.test(h)) !== -1 ? headers.findIndex(h => /court|crt/i.test(h)) : 1;
+  const checkInIdx = headers.findIndex(h => /check/i.test(h)) !== -1 ? headers.findIndex(h => /check/i.test(h)) : 2;
+  const phoneIdx = headers.findIndex(h => /phone|cell|mobile/i.test(h)) !== -1 ? headers.findIndex(h => /phone|cell|mobile/i.test(h)) : 12;
+
+  let targetPlayer = null;
+  let targetCourt = "";
+  let allRows = [];
+
+  for (let r = 1; r < data.length; r++) {
+    let row = data[r];
+    let pName = String(row[nameIdx] || "").trim();
+    let pCourt = String(row[courtIdx] || "").trim();
+    let pPhone = cleanP(row[phoneIdx] !== undefined ? row[phoneIdx] : "");
+
+    if (!pName) continue;
+
+    let rowObj = {
+      name: pName,
+      court: pCourt,
+      phone: pPhone,
+      checkIn: row[checkInIdx] || ""
+    };
+
+    allRows.push(rowObj);
+
+    if (pPhone.length >= 7 && pPhone.endsWith(cleanSuffix)) {
+      targetPlayer = rowObj;
+      targetCourt = pCourt;
+    }
+  }
+
+  if (!targetPlayer) {
+    return { 
+      success: false, 
+      error: `No player found matching phone ending in ...${cleanSuffix} in group '${cleanGroup}'.` 
+    };
+  }
+
+  const normCourt = String(targetCourt || "").toUpperCase().trim();
+
+  if (!targetCourt || normCourt === "BYE" || normCourt === "") {
+    return {
+      success: true,
+      found: true,
+      group: cleanGroup,
+      playerName: targetPlayer.name,
+      court: targetCourt || "BYE",
+      isBye: true,
+      teammates: [],
+      message: `${targetPlayer.name} has a BYE on this schedule.`
+    };
+  }
+
+  // Collect all players sharing the same assigned court (supports 4, 5, or 6 players)
+  let teammates = allRows
+    .filter(r => String(r.court).trim().toLowerCase() === String(targetCourt).trim().toLowerCase())
+    .map(r => ({ name: r.name, phone: r.phone }));
+
+  return {
+    success: true,
+    found: true,
+    group: cleanGroup,
+    playerName: targetPlayer.name,
+    court: targetCourt,
+    isBye: false,
+    courtSize: teammates.length,
+    teammates: teammates,
+    message: `Found ${targetPlayer.name} on Court ${targetCourt} (${teammates.length} players).`
+  };
+}
