@@ -411,12 +411,21 @@
     <p>Total Checked In: <strong id="live-player-count">0</strong> &nbsp; &nbsp; Current Byes Required: <strong id="projected-byes">0</strong></p>
 </div>
 
-<div class="admin-controls">
-    <input type="checkbox" id="optimize-byes-checkbox" name="optimizeByes" onchange="updateAdminDashboard()">
-    <label for="optimize-byes-checkbox">
-        Distribute Byes (Uses 5-player & 6-player groups to eliminate sitting out)
-    </label>
+<!-- Admin Controls with Debug UI -->
+<div class="admin-controls" style="padding: 0.75rem; border: 1px dashed var(--btn-danger-bg, #d9534f); border-radius: 6px; margin-bottom: 1rem; background: #fff8f8;">
+    <div style="display: flex; align-items: center; gap: 0.5rem;">
+        <input type="checkbox" id="optimize-byes-checkbox" name="optimizeByes" onchange="onByeCheckboxToggle(this)" style="width: 20px; height: 20px; cursor: pointer;">
+        <label for="optimize-byes-checkbox" style="font-weight: bold; cursor: pointer;">
+            Distribute Byes (Uses 5-player & 6-player groups to eliminate sitting out)
+        </label>
+    </div>
+    
+    <!-- LIVE DEBUG INDICATOR -->
+    <div id="debug-bye-status" style="margin-top: 0.5rem; font-size: 0.85rem; font-family: monospace; padding: 4px 8px; background: #eee; border-radius: 4px;">
+        🔍 Checkbox Detected: <b>UNCHECKED (False)</b> | Mode: <b>Strict 4-Player Courts</b>
+    </div>
 </div>
+
 
     <!-- 3. Reschedule with Checked-In Players -->
     <div class="card" style="margin-bottom:1rem; background: var(--bg-color); padding: 1rem; border-radius: 0.5rem;">

@@ -446,82 +446,6 @@ function renderAdminCourts(groupName) {
 }
 
 /**
- * Reschedules checked-in players with exact optimizeByes boolean flag.
- */
-async function runRescheduleCheckedIn() {
-  const groupName = getAdminSelectedGroup();
-  const selectedCourts = getSelectedCourts();
-  const optimizeCheckbox = document.getElementById('optimize-byes-checkbox');
-  const optimizeByes = optimizeCheckbox ? Boolean(optimizeCheckbox.checked) : false;
-
-  if (!groupName) return alert('Please select a target group.');
-  if (selectedCourts.length === 0) return alert('Please select at least one court checkbox.');
-
-  const statusEl = document.getElementById('adminStatus');
-  if (statusEl) statusEl.innerText = 'Rescheduling checked-in players...';
-
-  try {
-    const res = await apiCall('rescheduleFromCheckIns', {
-      reschedTarget: groupName,
-      groupName: groupName, group: groupName,
-      sheet: "Sched " + groupName,
-      courts: selectedCourts,
-      checkedInOnly: true,
-      optimizeByes: optimizeByes,
-      integrateByes: optimizeByes
-    });
-
-    if (res && (res.success || !res.error)) {
-      if (statusEl) statusEl.innerText = '✅ Rescheduled checked-in players successfully!';
-      await loadAdminPlayerStatusCache(groupName, true);
-    } else {
-      if (statusEl) statusEl.innerText = '❌ Reschedule failed: ' + (res?.message || res?.error || 'Error');
-    }
-  } catch (err) {
-    console.error("runRescheduleCheckedIn error:", err);
-    if (statusEl) statusEl.innerText = '❌ Error performing reschedule: ' + (err.message || String(err));
-  }
-}
-
-/**
- * Generates full schedule for all active players with exact optimizeByes boolean flag.
- */
-async function runRescheduleActive() {
-  const groupName = getAdminSelectedGroup();
-  const selectedCourts = getSelectedCourts();
-  const optimizeCheckbox = document.getElementById('optimize-byes-checkbox');
-  const optimizeByes = optimizeCheckbox ? Boolean(optimizeCheckbox.checked) : false;
-
-  if (!groupName) return alert('Please select a target group.');
-  if (selectedCourts.length === 0) return alert('Please select at least one court checkbox.');
-
-  const statusEl = document.getElementById('adminStatus');
-  if (statusEl) statusEl.innerText = 'Rescheduling all active players...';
-
-  try {
-    const res = await apiCall('ScheduleAll', {
-      genTarget: groupName,
-      groupName: groupName, group: groupName,
-      sheet: "Sched " + groupName,
-      courts: selectedCourts,
-      checkedInOnly: false,
-      optimizeByes: optimizeByes,
-      integrateByes: optimizeByes
-    });
-
-    if (res && (res.success || !res.error)) {
-      if (statusEl) statusEl.innerText = '✅ Rescheduled all active players successfully!';
-      await loadAdminPlayerStatusCache(groupName, true);
-    } else {
-      if (statusEl) statusEl.innerText = '❌ Reschedule failed: ' + (res?.message || res?.error || 'Error');
-    }
-  } catch (err) {
-    console.error("runRescheduleActive error:", err);
-    if (statusEl) statusEl.innerText = '❌ Error performing reschedule: ' + (err.message || String(err));
-  }
-}
-
-/**
  * Clears current schedule on Sched sheet.
  */
 async function runClearSchedule() {
@@ -857,4 +781,81 @@ function updateAdminDashboard() {
 
   const byesElem = document.getElementById('projected-byes');
   if (byesElem) byesElem.textContent = projectedByes;
+}
+
+
+/**
+ * Reschedules checked-in players with exact optimizeByes boolean flag.
+ */
+async function runRescheduleCheckedIn() {
+  const groupName = getAdminSelectedGroup();
+  const selectedCourts = getSelectedCourts();
+  const optimizeCheckbox = document.getElementById('optimize-byes-checkbox');
+  const optimizeByes = optimizeCheckbox ? Boolean(optimizeCheckbox.checked) : false;
+
+  if (!groupName) return alert('Please select a target group.');
+  if (selectedCourts.length === 0) return alert('Please select at least one court checkbox.');
+
+  const statusEl = document.getElementById('adminStatus');
+  if (statusEl) statusEl.innerText = 'Rescheduling checked-in players...';
+
+  try {
+    const res = await apiCall('rescheduleFromCheckIns', {
+      reschedTarget: groupName,
+      groupName: groupName, group: groupName,
+      sheet: "Sched " + groupName,
+      courts: selectedCourts,
+      checkedInOnly: true,
+      optimizeByes: optimizeByes,
+      integrateByes: optimizeByes
+    });
+
+    if (res && (res.success || !res.error)) {
+      if (statusEl) statusEl.innerText = '✅ Rescheduled checked-in players successfully!';
+      await loadAdminPlayerStatusCache(groupName, true);
+    } else {
+      if (statusEl) statusEl.innerText = '❌ Reschedule failed: ' + (res?.message || res?.error || 'Error');
+    }
+  } catch (err) {
+    console.error("runRescheduleCheckedIn error:", err);
+    if (statusEl) statusEl.innerText = '❌ Error performing reschedule: ' + (err.message || String(err));
+  }
+}
+
+/**
+ * Generates full schedule for all active players with exact optimizeByes boolean flag.
+ */
+async function runRescheduleActive() {
+  const groupName = getAdminSelectedGroup();
+  const selectedCourts = getSelectedCourts();
+  const optimizeCheckbox = document.getElementById('optimize-byes-checkbox');
+  const optimizeByes = optimizeCheckbox ? Boolean(optimizeCheckbox.checked) : false;
+
+  if (!groupName) return alert('Please select a target group.');
+  if (selectedCourts.length === 0) return alert('Please select at least one court checkbox.');
+
+  const statusEl = document.getElementById('adminStatus');
+  if (statusEl) statusEl.innerText = 'Rescheduling all active players...';
+
+  try {
+    const res = await apiCall('ScheduleAll', {
+      genTarget: groupName,
+      groupName: groupName, group: groupName,
+      sheet: "Sched " + groupName,
+      courts: selectedCourts,
+      checkedInOnly: false,
+      optimizeByes: optimizeByes,
+      integrateByes: optimizeByes
+    });
+
+    if (res && (res.success || !res.error)) {
+      if (statusEl) statusEl.innerText = '✅ Rescheduled all active players successfully!';
+      await loadAdminPlayerStatusCache(groupName, true);
+    } else {
+      if (statusEl) statusEl.innerText = '❌ Reschedule failed: ' + (res?.message || res?.error || 'Error');
+    }
+  } catch (err) {
+    console.error("runRescheduleActive error:", err);
+    if (statusEl) statusEl.innerText = '❌ Error performing reschedule: ' + (err.message || String(err));
+  }
 }
