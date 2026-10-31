@@ -3726,66 +3726,52 @@ function submitCourtScores(payload) {
     }
   });
 }
+// ==========================================
+// EXPLICIT API ENDPOINTS FOR WEB APP & MENUS
+// ==========================================
 
-/**
- * Master parameter resolver for Apps Script functions.
- * Safely extracts group, courts, and bye optimization flags regardless of argument positioning.
- */
-function parseRescheduleParams(args) {
-  let group = "";
-  let courts = null;
-  let integrateByes = false;
-  let alwaysByeBottom = true;
-
-  const isTruthy = (val) => val === true || String(val).toLowerCase() === 'true';
-
-  for (let i = 0; i < args.length; i++) {
-    let arg = args[i];
-    if (arg === undefined || arg === null) continue;
-
-    if (typeof arg === 'object' && !Array.isArray(arg)) {
-      // Extract from payload object
-      if (arg.group) group = arg.group;
-      else if (arg.groupName) group = arg.groupName;
-      else if (arg.reschedTarget) group = arg.reschedTarget;
-      else if (arg.genTarget) group = arg.genTarget;
-      else if (arg.target) group = arg.target;
-      else if (arg.sheet) group = arg.sheet;
-
-      if (arg.courts) courts = arg.courts;
-
-      let byeVal = arg.optimizeByes !== undefined ? arg.optimizeByes :
-                   (arg.integrateByes !== undefined ? arg.integrateByes : arg.distributeByes);
-      if (byeVal !== undefined) integrateByes = isTruthy(byeVal);
-
-      if (arg.alwaysByeBottom !== undefined) alwaysByeBottom = isTruthy(arg.alwaysByeBottom);
-      else if (arg.ALWAYS_BYE_BOTTOM !== undefined) alwaysByeBottom = isTruthy(arg.ALWAYS_BYE_BOTTOM);
-
-    } else if (Array.isArray(arg)) {
-      courts = arg;
-    } else if (typeof arg === 'boolean') {
-      integrateByes = arg;
-    } else if (typeof arg === 'string') {
-      let lower = arg.trim().toLowerCase();
-      if (lower === 'true') integrateByes = true;
-      else if (lower === 'false') integrateByes = false;
-      else if (!group) group = arg;
-    }
-  }
-
-  return { group, courts, integrateByes, alwaysByeBottom };
+/** Strict 4-player courts only (Extra players assigned BYE) */
+function rescheduleFromCheckIns(payload, courts) {
+  return rescheduleFromCheckInsCore(payload, courts, false);
 }
 
-/**
- * Reschedules checked-in players into courts.
- */
-function rescheduleFromCheckIns(reschedTarget, courts, optParam) {
+/** 5- and 6-player court integration (Eliminates BYEs) */
+function rescheduleFromCheckInsOptimized(payload, courts) {
+  return rescheduleFromCheckInsCore(payload, courts, true);
+}
+
+/** Strict 4-player courts only for all active players */
+function ScheduleAll(payload, courts) {
+  return scheduleAllCore(payload, courts, false);
+}
+
+/** 5- and 6-player court integration for all active players */
+function ScheduleAllOptimized(payload, courts) {
+  return scheduleAllCore(payload, courts, true);
+}
+
+
+// ==========================================
+// CORE WORKER IMPLEMENTATIONS
+// ==========================================
+
+function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes) {
   return executeWithLock(function() {
-    const params = parseRescheduleParams(arguments);
-    const integrateByes = params.integrateByes;
-    const alwaysByeBottom = params.alwaysByeBottom;
+    let groupName = "";
+    let courts = courtsParam;
+
+    if (typeof targetParam === 'object' && targetParam !== null) {
+        // Replace this line inside rescheduleFromCheckInsCore & scheduleAllCore:
+        groupName = targetParam.group || targetParam.groupName || targetParam.reschedTarget || targetParam.genTarget || targetParam.target || targetParam.sheet || targetParam.tab || targetParam.arg || "";
+      courts = targetParam.courts || courts;
+    } else if (typeof targetParam === 'string') {
+      groupName = targetParam;
+    }
+
+    groupName = String(groupName || "Womens").replace(/^(Score|Sched)\s*/i, "").trim();
+    let targetName = "Sched " + groupName;
+
     const ss = getDb();
-    
     const cleanP = (p) => String(p || '').replace(/\D/g, '');
     const cleanCourtLabel = (c) => {
       if (!c) return ""; let str = String(c).trim();
@@ -3797,9 +3783,6 @@ function rescheduleFromCheckIns(reschedTarget, courts, optParam) {
       if (str.includes(",")) { let parts = str.split(",").map(p => p.trim()).filter(Boolean); if (parts.length === 2) str = parts[1] + " " + parts[0]; }
       return str.replace(/\s+/g, " ");
     };
-
-    let groupName = params.group ? String(params.group).replace(/^(Score|Sched)\s*/i, "").trim() : "Womens";
-    let targetName = "Sched " + groupName;
 
     let sheet = ss.getSheetByName(targetName);
     if (!sheet) return `⚠️ Error: Schedule tab '${targetName}' not found.`;
@@ -3868,7 +3851,7 @@ function rescheduleFromCheckIns(reschedTarget, courts, optParam) {
       return rA.origIdx - rB.origIdx;
     });
 
-    let rawCourts = params.courts ? parseAndSortCourts(params.courts) : getCourtsForGroup(groupName);
+    let rawCourts = courts ? parseAndSortCourts(courts) : getCourtsForGroup(groupName);
     let availableCourts = rawCourts.map(cleanCourtLabel).filter(c => c !== "BYE" && c !== "");
     
     let courtAssignments = {};
@@ -3877,10 +3860,11 @@ function rescheduleFromCheckIns(reschedTarget, courts, optParam) {
     let playersForBye = [];
     let courtNumber = 0;
 
-    if (integrateByes && playersCopy.length >= 4) {
+    if (forceIntegrateByes && playersCopy.length >= 4) {
       let chunkSizes = [];
       let len = playersCopy.length;
 
+      // 4-player courts allocated to top-ranked courts first; 5/6-player courts pushed to weakest courts
       if (len === 6) {
         chunkSizes = [6];
       } else if (len === 11) {
@@ -3916,22 +3900,8 @@ function rescheduleFromCheckIns(reschedTarget, courts, optParam) {
     } else {
       let maxFullCourts = Math.min(Math.floor(playersCopy.length / 4), availableCourts.length);
       let totalPlayingAllowed = maxFullCourts * 4;
-      let playersToAssign = [];
-      
-      if (playersCopy.length > totalPlayingAllowed) {
-        if (alwaysByeBottom) {
-          playersToAssign = playersCopy.slice(0, totalPlayingAllowed);
-          playersForBye = playersCopy.slice(totalPlayingAllowed);
-        } else {
-          let copyForRandom = [...playersCopy];
-          let chosenByeSet = new Set();
-          let numByes = playersCopy.length - totalPlayingAllowed;
-          while (chosenByeSet.size < numByes && copyForRandom.length > 0) {
-            chosenByeSet.add(copyForRandom.splice(Math.floor(Math.random() * copyForRandom.length), 1)[0]);
-          }
-          playersCopy.forEach(p => { if (chosenByeSet.has(p)) playersForBye.push(p); else playersToAssign.push(p); });
-        }
-      } else playersToAssign = [...playersCopy];
+      let playersToAssign = playersCopy.slice(0, totalPlayingAllowed);
+      playersForBye = playersCopy.slice(totalPlayingAllowed);
 
       playersToAssign.forEach((p, idx) => {
         let assignedCrt = availableCourts[Math.floor(idx / 4)];
@@ -4006,18 +3976,23 @@ function rescheduleFromCheckIns(reschedTarget, courts, optParam) {
 
     let activeCourtsCount = Object.keys(courtAssignments).filter(c => courtAssignments[c].length >= 4).length;
     let totalByes = rows.filter(r => r[1] === "BYE").length;
-    return `✅ Rescheduled '${targetName}' (optimizeByes=${integrateByes}). Assigned ${activeCourtsCount} courts, ${totalByes} BYEs.`;
+    let modeText = forceIntegrateByes ? "Optimized 5/6s" : "Strict 4s";
+    return `✅ Rescheduled '${targetName}' [${modeText}]. Assigned ${activeCourtsCount} courts, ${totalByes} BYEs.`;
   });
 }
 
-/**
- * Generates schedule tabs on Sched sheet.
- */
-function ScheduleAll(genTarget, courts, optParam) {
+function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
   return executeWithLock(function() {
-    const params = parseRescheduleParams(arguments);
-    const integrateByes = params.integrateByes;
-    const alwaysByeBottom = params.alwaysByeBottom;
+    let targetGroup = "";
+    let courts = courtsParam;
+
+    if (typeof targetParam === 'object' && targetParam !== null) {
+        groupName = targetParam.group || targetParam.groupName || targetParam.reschedTarget || targetParam.genTarget || targetParam.target || targetParam.sheet || targetParam.tab || targetParam.arg || "";        
+        targetGroup = groupName;
+      courts = targetParam.courts || courts;
+    } else if (typeof targetParam === 'string') {
+      targetGroup = targetParam;
+    }
 
     const ss = getDb();
     const cleanP = (p) => String(p || '').replace(/\D/g, '');
@@ -4026,8 +4001,8 @@ function ScheduleAll(genTarget, courts, optParam) {
     let groupsToProcess = [];
     const currentWeek = calculateCurrentWeekNumber();
 
-    if (params.group) {
-      let cleanGroup = String(params.group).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
+    if (targetGroup) {
+      let cleanGroup = String(targetGroup).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
       groupsToProcess = [cleanGroup];
     } else {
       groupsToProcess = (typeof GROUPS !== 'undefined' && GROUPS.length > 0) ? GROUPS : [getTargetGroup()];
@@ -4072,7 +4047,7 @@ function ScheduleAll(genTarget, courts, optParam) {
         }
       }
 
-      let availableCourts = params.courts ? parseAndSortCourts(params.courts) : getCourtsForGroup(groupName);
+      let availableCourts = courts ? parseAndSortCourts(courts) : getCourtsForGroup(groupName);
       let schedSheetName = "Sched " + groupName;
       let schedSheet = ss.getSheetByName(schedSheetName) || ss.insertSheet(schedSheetName);
 
@@ -4088,7 +4063,7 @@ function ScheduleAll(genTarget, courts, optParam) {
       let byeIndices = new Set();
       let playerCourtMap = {};
 
-      if (integrateByes && numPlayers >= 4) {
+      if (forceIntegrateByes && numPlayers >= 4) {
         let indicesCopy = Array.from({ length: numPlayers }, (_, i) => i);
         let chunkSizes = [];
         let len = numPlayers;
@@ -4135,20 +4110,8 @@ function ScheduleAll(genTarget, courts, optParam) {
         let totalPlayingCount = assignedCourtsCount * 4;
         let byeCount = numPlayers - totalPlayingCount;
 
-        if (byeCount > 0) {
-          if (alwaysByeBottom) {
-            for (let i = 0; i < totalPlayingCount; i++) playingIndices.push(i);
-            for (let i = totalPlayingCount; i < numPlayers; i++) byeIndices.add(i);
-          } else {
-            let availableIndices = Array.from({ length: numPlayers }, (_, idx) => idx);
-            while (byeIndices.size < byeCount) {
-              byeIndices.add(availableIndices.splice(Math.floor(Math.random() * availableIndices.length), 1)[0]);
-            }
-            playingIndices = availableIndices;
-          }
-        } else {
-          for (let i = 0; i < numPlayers; i++) playingIndices.push(i);
-        }
+        for (let i = 0; i < totalPlayingCount; i++) playingIndices.push(i);
+        for (let i = totalPlayingCount; i < numPlayers; i++) byeIndices.add(i);
 
         playingIndices.forEach((playerIdx, orderIdx) => {
           let courtNumIdx = Math.floor(orderIdx / 4);
@@ -4245,13 +4208,10 @@ function ScheduleAll(genTarget, courts, optParam) {
       if (typeof clearUnifiedCache === 'function') clearUnifiedCache(schedSheetName);
       if (typeof CacheService !== 'undefined') CacheService.getScriptCache().remove("UNIFIED_ROSTER_CACHE_" + groupName.toUpperCase());
 
-      summary.push(`Generated schedule for '${groupName}' (optimizeByes=${integrateByes}).${courtWarning}`);
+      let modeText = forceIntegrateByes ? "Optimized 5/6s" : "Strict 4s";
+      summary.push(`Generated schedule for '${groupName}' [${modeText}].${courtWarning}`);
     });
 
     return "✅ " + summary.join("\n");
   });
-}
-
-function generateScheduleTabs(payload, courts, optParam) {
-  return ScheduleAll(payload, courts, optParam);
 }
