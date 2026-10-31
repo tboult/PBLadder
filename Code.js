@@ -3779,11 +3779,12 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
 
 
 /**
- * Backend lookup for court assignments, teammates, and actual game scores.
- * Handles single-row-per-player sheet layout (Col A: Name, Col B: Court, Col C: Phone, Col D-F: Scores).
+ * Backend lookup for court assignments, teammates, and game scores (G1 through G6).
+ * Handles single-row-per-player sheet layout:
+ * Col A: Name | Col B: Court | Col C: Phone | Col D-I: Scores G1 through G6
  * 
  * @param {Object} payload Contains { phone, groupName }
- * @return {Object} JSON payload with player info, teammates list, and court game scores
+ * @return {Object} JSON payload with player info, teammates list, and full court game scores
  */
 function findFoursomeByPhone(payload) {
   try {
@@ -3811,13 +3812,17 @@ function findFoursomeByPhone(payload) {
       return { success: false, message: "Schedule sheet is currently empty." };
     }
 
-    // 1. DYNAMIC COLUMN INDEX DETECTION FROM HEADER ROW
+    // 1. DYNAMIC COLUMN INDEX DETECTION (SUPPORTS UP TO 6 GAMES)
     var colName = 0;
     var colCourt = 1;
     var colPhone = 2;
-    var colG1 = 3;
-    var colG2 = 4;
-    var colG3 = 5;
+    var gameCols = {}; // Map game numbers (1..6) to column indices
+
+    // Default fallbacks if headers are not present:
+    // Col 0: Name, Col 1: Court, Col 2: Phone, Col 3: G1, Col 4: G2, Col 5: G3, Col 6: G4, Col 7: G5, Col 8: G6
+    for (var g = 1; g <= 6; g++) {
+      gameCols[g] = 2 + g;
+    }
 
     if (data.length > 0) {
       var headers = data[0].map(function(h) { return String(h || "").trim().toLowerCase(); });
@@ -3826,9 +3831,13 @@ function findFoursomeByPhone(payload) {
         if (h.indexOf("name") !== -1 || h.indexOf("player") !== -1) colName = i;
         else if (h.indexOf("court") !== -1 || h === "ct") colCourt = i;
         else if (h.indexOf("phone") !== -1 || h.indexOf("cell") !== -1 || h.indexOf("mobile") !== -1) colPhone = i;
-        else if (h === "g1" || h === "game 1" || h === "game1" || h === "score 1" || h === "s1") colG1 = i;
-        else if (h === "g2" || h === "game 2" || h === "game2" || h === "score 2" || h === "s2") colG2 = i;
-        else if (h === "g3" || h === "game 3" || h === "game3" || h === "score 3" || h === "s3") colG3 = i;
+        else {
+          for (var g = 1; g <= 6; g++) {
+            if (h === "g" + g || h === "game " + g || h === "game" + g || h === "score " + g || h === "score" + g || h === "s" + g) {
+              gameCols[g] = i;
+            }
+          }
+        }
       }
     }
 
@@ -3846,7 +3855,7 @@ function findFoursomeByPhone(payload) {
       if (rowDigits.indexOf(targetLast7) !== -1) {
         targetPlayerName = String(row[colName] || "Player").trim();
         var rawCourt = String(row[colCourt] || "").trim();
-        targetCourtNum = rawCourt.replace(/\D/g, ""); // Extract digits (e.g. "9")
+        targetCourtNum = rawCourt.replace(/\D/g, ""); // Extract digits
         break;
       }
     }
@@ -3859,7 +3868,7 @@ function findFoursomeByPhone(payload) {
       };
     }
 
-    // 3. GATHER ALL PLAYERS ASSIGNED TO THE SAME COURT NUMBER
+    // 3. GATHER ALL PLAYERS ASSIGNED TO THE SAME COURT NUMBER & EXTRACT G1..G6
     var teammates = [];
 
     for (var i = startRow; i < data.length; i++) {
@@ -3872,15 +3881,20 @@ function findFoursomeByPhone(payload) {
         var pPhone = String(row[colPhone] || "").trim();
 
         if (pName && pName.toLowerCase() !== "bye" && pName !== "--") {
-          teammates.push({
+          var playerObj = {
             name: pName,
             first: pName.split(" ")[0] || pName,
             last: pName.split(" ").slice(1).join(" ") || "",
-            phone: pPhone,
-            g1: row[colG1] !== undefined ? String(row[colG1]).trim() : "",
-            g2: row[colG2] !== undefined ? String(row[colG2]).trim() : "",
-            g3: row[colG3] !== undefined ? String(row[colG3]).trim() : ""
-          });
+            phone: pPhone
+          };
+
+          // Attach Game Scores G1 through G6 to player object
+          for (var g = 1; g <= 6; g++) {
+            var colIdx = gameCols[g];
+            playerObj["g" + g] = (colIdx !== undefined && row[colIdx] !== undefined) ? String(row[colIdx]).trim() : "";
+          }
+
+          teammates.push(playerObj);
         }
       }
     }
@@ -3904,6 +3918,7 @@ function findFoursomeByPhone(payload) {
     };
   }
 }
+
 
 
 
