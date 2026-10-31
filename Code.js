@@ -3260,10 +3260,6 @@ function ScheduleAllOptimized(payload, courts) {
 // ==========================================
 // CORE WORKER IMPLEMENTATIONS
 // ==========================================
-/**
- * Core worker for rescheduling checked-in players into courts.
- * Ensures player phone numbers are looked up from master Score tab if missing on Sched tab.
- */
 function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes) {
   return executeWithLock(function() {
     let groupName = "";
@@ -3506,7 +3502,7 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
           }
           courtValues.push([cleanCourtLabel(assignedCourt)]);
         }
-        scoreSheet.getRange(2, courtIdx + 1, courtValues.length, 1).setValues(CourtValues);
+        scoreSheet.getRange(2, courtIdx + 1, courtValues.length, 1).setValues(courtValues);
       }
     }
 
@@ -3523,6 +3519,7 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
     return `✅ Rescheduled '${targetName}' [${modeText}]. Assigned ${activeCourtsCount} courts, ${totalByes} BYEs. Phones written to Col M.`;
   });
 }
+
 
 /**
  * Core worker for scheduling all active players.
