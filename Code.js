@@ -1507,6 +1507,16 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
       activePlayers.forEach(p => finalRows.push(p.rowRaw));
       inactivePlayers.forEach(p => finalRows.push(p.rowRaw));
 
+        const targetColCount = finalRows[0].length;
+        finalRows.forEach(r => {
+            while (r.length < targetColCount) {
+                r.push("");
+            }
+            if (r.length > targetColCount) {
+                r.length = targetColCount;
+            }
+        });
+
       if (currRColIdx !== undefined) sheet.getRange(1, currRColIdx + 1, finalRows.length, 1).setNumberFormat('@');
       if (lastRColIdx !== undefined) sheet.getRange(1, lastRColIdx + 1, finalRows.length, 1).setNumberFormat('@');
 
