@@ -3257,9 +3257,38 @@ function ScheduleAllOptimized(payload, courts) {
 
 
 
-// ==========================================
-// CORE WORKER IMPLEMENTATIONS
-// ==========================================
+
+/**
+ * Prioritizes courts 5 through 12 first (sorted numerically),
+ * followed by all other remaining courts (1-4, 13+).
+ * 
+ * @param {Array<number|string>} courts - Array of court numbers.
+ * @return {Array<number>} Prioritized array of court numbers.
+ */
+function prioritizeCourts(courts) {
+  if (!Array.isArray(courts) || courts.length === 0) return [];
+
+  const inRange = [];
+  const outOfRange = [];
+
+  courts.forEach(c => {
+    const num = parseInt(c, 10);
+    if (!isNaN(num)) {
+      if (num >= 5 && num <= 12) {
+        inRange.push(num);
+      } else {
+        outOfRange.push(num);
+      }
+    }
+  });
+
+  inRange.sort((a, b) => a - b);
+  outOfRange.sort((a, b) => a - b);
+
+  return [...inRange, ...outOfRange];
+}
+
+
 // ==========================================
 // CORE WORKER IMPLEMENTATIONS
 // ==========================================
@@ -3295,11 +3324,23 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
       if (str.includes(",")) { let parts = str.split(",").map(p => p.trim()).filter(Boolean); if (parts.length === 2) str = parts[1] + " " + parts[0]; }
       return str.replace(/\s+/g, " ");
     };
+    const extractNumericRank = (val) => {
+      if (val === null || val === undefined || val === "") return 999;
+      if (typeof val === 'number') return val;
+      let str = String(val).trim();
+      let matchPct = str.match(/(\d+(?:\.\d+)?)\s*%/);
+      if (matchPct) return parseFloat(matchPct[1]);
+      let matchNum = str.match(/^(\d+(?:\.\d+)?)/);
+      if (matchNum) return parseFloat(matchNum[1]);
+      return 999;
+    };
 
     let sheet = ss.getSheetByName(targetName);
     if (!sheet) return `⚠️ Error: Schedule tab '${targetName}' not found.`;
 
     const currentWeek = typeof calculateCurrentWeekNumber === 'function' ? calculateCurrentWeekNumber() : 1;
+    const prevWeek = Math.max(0, currentWeek - 1);
+
     let existingData = sheet.getDataRange().getValues();
     let existingMap = {};
 
@@ -3310,7 +3351,7 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
       let g5I = exHead.indexOf("game 5"); let g6I = exHead.indexOf("game 6");
       let totI = exHead.indexOf("total"); let entI = exHead.findIndex(h => h.includes("entered"));
       let phI = exHead.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
-      if (phI === -1) phI = 12; // Default to Column M (index 12)
+      if (phI === -1) phI = 12;
       
       for (let r = 1; r < existingData.length; r++) {
         let pName = existingData[r][0] ? String(existingData[r][0]).trim() : "";
@@ -3329,7 +3370,7 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
       }
     }
 
-    // Fetch master phone numbers and rankings from Score [Group] tab
+    // Fetch master phone numbers and SINGLE PREVIOUS WEEK RANK from Score [Group] tab
     let scoreSheetName = "Score " + groupName;
     let scoreSheet = ss.getSheetByName(scoreSheetName);
     let rankLookup = {};
@@ -3341,6 +3382,10 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
         let scoreHead = scoreData[0].map(h => String(h || '').toLowerCase().trim());
         let col = typeof buildColMap === 'function' ? buildColMap(scoreData[0]) : {};
         let phoneColIdx = scoreHead.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
+        let rankColIdx = scoreHead.indexOf("r" + prevWeek);
+        if (rankColIdx === -1) {
+          rankColIdx = scoreHead.findIndex(h => h === "raw rank" || h === "lastr" || h === "pos" || h === "sortval");
+        }
 
         for (let r = 1; r < scoreData.length; r++) {
           let row = scoreData[r];
@@ -3356,10 +3401,11 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
             let normP = normalizeName(pName);
             if (cleanedPhone) masterPhoneLookup[normP] = cleanedPhone;
 
-            if (typeof getMostRecentRank === 'function') {
-              let recent = getMostRecentRank(row, col, 10);
-              rankLookup[normP] = { rank: recent.rank, numPeople: recent.numPeople, origIdx: r };
-            }
+            let rawRankVal = (rankColIdx !== -1 && row[rankColIdx] !== undefined) ? row[rankColIdx] : "";
+            let rankNum = extractNumericRank(rawRankVal);
+            if (rankNum === 999) rankNum = r;
+
+            rankLookup[normP] = { rank: rankNum, origIdx: r };
           }
         }
       }
@@ -3376,22 +3422,23 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
       p.prev = prev; 
       p.isChecked = isChecked; 
 
-      // Fallback chain: Object payload -> Sched sheet -> Master Score sheet
       p.phone = cleanP(p.phone || p.cell || p.mobile || prev.phone || masterPhoneLookup[normP]);
 
       if (isChecked) checkedInPlayers.push(p); else uncheckedPlayers.push(p);
     });
 
     checkedInPlayers.sort((a, b) => {
-      let rA = rankLookup[normalizeName(a.name)] || { rank: 999, numPeople: 0, origIdx: 999 };
-      let rB = rankLookup[normalizeName(b.name)] || { rank: 999, numPeople: 0, origIdx: 999 };
+      let rA = rankLookup[normalizeName(a.name)] || { rank: 999, origIdx: 999 };
+      let rB = rankLookup[normalizeName(b.name)] || { rank: 999, origIdx: 999 };
       if (rA.rank !== rB.rank) return rA.rank - rB.rank;
-      if (rB.numPeople !== rA.numPeople) return rB.numPeople - rA.numPeople; 
       return rA.origIdx - rB.origIdx;
     });
 
-    let rawCourts = courts ? parseAndSortCourts(courts) : getCourtsForGroup(groupName);
-    let availableCourts = rawCourts.map(cleanCourtLabel).filter(c => c !== "BYE" && c !== "");
+    // Resolve and prioritize courts (5-12 first, then 1-4, 13+)
+    let rawCourts = courts ? (typeof parseAndSortCourts === 'function' ? parseAndSortCourts(courts) : courts) : (typeof getCourtsForGroup === 'function' ? getCourtsForGroup(groupName) : [5, 6, 7, 8, 9, 10, 11, 12, 3, 4, 13, 14, 15, 16]);
+    let cleanedCourts = rawCourts.map(cleanCourtLabel).filter(c => c !== "BYE" && c !== "");
+    let prioritizedNums = prioritizeCourts(cleanedCourts);
+    let availableCourts = prioritizedNums.map(String);
     
     let courtAssignments = {};
     availableCourts.forEach(c => courtAssignments[c] = []);
@@ -3472,8 +3519,7 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
     uncheckedPlayers.forEach(writeRow);
 
     sheet.clearContents();
-    
-    // Set Plain Text format for Court (Col B) & Phone (Col M) BEFORE writing values
+
     sheet.getRange(1, 2, rows.length, 1).setNumberFormat("@");
     sheet.getRange(1, 13, rows.length, 1).setNumberFormat("@");      
 
@@ -3510,7 +3556,6 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
         }
 
         if (courtValues.length > 0) {
-          // Format Score Sheet Court column as Plain Text BEFORE writing values
           scoreSheet.getRange(2, courtIdx + 1, courtValues.length, 1).setNumberFormat("@");
           scoreSheet.getRange(2, courtIdx + 1, courtValues.length, 1).setValues(courtValues);
         }
@@ -3540,13 +3585,7 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
   return executeWithLock(function() {
     let targetGroup = "";
     let courts = courtsParam;
-    
-    // Resolve and prioritize courts safely
-    let availableCourts = Array.isArray(courts) && courts.length > 0 
-        ? courts 
-        : [5, 6, 7, 8, 9, 10, 11, 12, 3, 4, 13, 14, 15, 16];
-    courts = (typeof prioritizeCourts === 'function') ? prioritizeCourts(availableCourts) : availableCourts;
-      
+
     if (typeof targetParam === 'object' && targetParam !== null) {
       targetGroup = targetParam.group || targetParam.groupName || targetParam.genTarget || targetParam.target || targetParam.sheet || targetParam.tab || targetParam.arg || "";
       courts = targetParam.courts || courts;
@@ -3561,9 +3600,25 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
       return String(p).replace(/\D/g, '');
     };
     const cleanStr = (s) => String(s || '').trim().toLowerCase();
+    const cleanCourtLabel = (c) => {
+      if (!c) return ""; let str = String(c).trim();
+      if (str.toUpperCase() === "BYE") return "BYE";
+      let match = str.match(/\d+/); return match ? String(match[0]) : (str.replace(/^(court|crt|score)\s*#?\s*/i, "").trim() || str);
+    };
+    const extractNumericRank = (val) => {
+      if (val === null || val === undefined || val === "") return 999;
+      if (typeof val === 'number') return val;
+      let str = String(val).trim();
+      let matchPct = str.match(/(\d+(?:\.\d+)?)\s*%/);
+      if (matchPct) return parseFloat(matchPct[1]);
+      let matchNum = str.match(/^(\d+(?:\.\d+)?)/);
+      if (matchNum) return parseFloat(matchNum[1]);
+      return 999;
+    };
 
     let groupsToProcess = [];
-    const currentWeek = calculateCurrentWeekNumber();
+    const currentWeek = typeof calculateCurrentWeekNumber === 'function' ? calculateCurrentWeekNumber() : 1;
+    const prevWeek = Math.max(0, currentWeek - 1);
 
     if (targetGroup) {
       let cleanGroup = String(targetGroup).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
@@ -3581,17 +3636,19 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
         return;
       }
 
-      sortActivePlayersForSheet(scoreSheet);
+      if (typeof sortActivePlayersForSheet === 'function') sortActivePlayersForSheet(scoreSheet);
       const data = scoreSheet.getDataRange().getValues();
       if (data.length <= 1) return;
 
-      const col = buildColMap(data[0]);
+      const col = typeof buildColMap === 'function' ? buildColMap(data[0]) : {};
       let scoreHeaders = data[0].map(h => String(h || '').trim().toLowerCase());
       let phoneIdx = scoreHeaders.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
+      let rankColIdx = scoreHeaders.indexOf("r" + prevWeek);
+      if (rankColIdx === -1) {
+        rankColIdx = scoreHeaders.findIndex(h => h === "raw rank" || h === "lastr" || h === "pos" || h === "sortval");
+      }
 
-      let activePlayers = [];
       let activePlayerObjects = [];
-      let inactivePlayers = [];
       let inactivePlayerObjects = [];
 
       for (let r = 1; r < data.length; r++) {
@@ -3605,16 +3662,33 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
         let rawPhone = phoneIdx !== -1 ? row[phoneIdx] : (col.phone !== undefined ? row[col.phone] : (col.cell !== undefined ? row[col.cell] : (col.mobile !== undefined ? row[col.mobile] : "")));
 
         if (name) {
-          let pObj = { name: name, phone: cleanP(rawPhone) };
+          let rawRankVal = (rankColIdx !== -1 && row[rankColIdx] !== undefined) ? row[rankColIdx] : "";
+          let rankNum = extractNumericRank(rawRankVal);
+          if (rankNum === 999) rankNum = r;
+
+          let pObj = { name: name, phone: cleanP(rawPhone), rank: rankNum, origIdx: r };
           if (status === "ACTIVE") {
-            activePlayers.push(name); activePlayerObjects.push(pObj);
+            activePlayerObjects.push(pObj);
           } else {
-            inactivePlayers.push(name); inactivePlayerObjects.push(pObj);
+            inactivePlayerObjects.push(pObj);
           }
         }
       }
 
-      let availableCourts = courts ? parseAndSortCourts(courts) : getCourtsForGroup(groupName);
+      // Sort active players strictly by previous week rank
+      activePlayerObjects.sort((a, b) => {
+        if (a.rank !== b.rank) return a.rank - b.rank;
+        return a.origIdx - b.origIdx;
+      });
+
+      let activePlayers = activePlayerObjects.map(p => p.name);
+
+      // Resolve and prioritize courts (5-12 first, then 1-4, 13+)
+      let rawCourts = courts ? (typeof parseAndSortCourts === 'function' ? parseAndSortCourts(courts) : courts) : (typeof getCourtsForGroup === 'function' ? getCourtsForGroup(groupName) : [5, 6, 7, 8, 9, 10, 11, 12, 3, 4, 13, 14, 15, 16]);
+      let cleanedCourts = rawCourts.map(cleanCourtLabel).filter(c => c !== "BYE" && c !== "");
+      let prioritizedNums = prioritizeCourts(cleanedCourts);
+      let availableCourts = prioritizedNums.map(String);
+
       let schedSheetName = "Sched " + groupName;
       let schedSheet = ss.getSheetByName(schedSheetName) || ss.insertSheet(schedSheetName);
 
@@ -3704,26 +3778,25 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
         rows.push([pName, assignedCourt, "", "", "", "", "", "", "", "", "", "", pPhone]);
       }
 
-      for (let i = 0; i < inactivePlayers.length; i++) {
-        let pName = inactivePlayers[i];
-        let pPhone = inactivePlayerObjects[i] ? inactivePlayerObjects[i].phone : "";
+      for (let i = 0; i < inactivePlayerObjects.length; i++) {
+        let pName = inactivePlayerObjects[i].name;
+        let pPhone = inactivePlayerObjects[i].phone;
         registerLookupKey(pName, pPhone, "");
         rows.push([pName, "", "", "", "", "", "", "", "", "", "", "", pPhone]);
       }
 
       schedSheet.clearContents();
 
-      // Format Court (Col B) & Phone (Col M) as Plain Text BEFORE writing values
-      schedSheet.getRange(1, 2, rows.length, 1).setNumberFormat("@");        
-      schedSheet.getRange(1, 13, rows.length, 1).setNumberFormat("@");
+      sheet.getRange(1, 2, rows.length, 1).setNumberFormat("@");        
+      sheet.getRange(1, 13, rows.length, 1).setNumberFormat("@");
 
-      schedSheet.getRange(1, 1, rows.length, headers.length).setValues(rows);
-      schedSheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
+      sheet.getRange(1, 1, rows.length, headers.length).setValues(rows);
+      sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
 
-      schedSheet.getRange("N1").setValue("SCHEDULE_WEEK").setFontWeight("bold");
-      schedSheet.getRange("N2").setValue(currentWeek).setHorizontalAlignment("center");
-      schedSheet.getRange("N3").setValue("Week " + currentWeek).setHorizontalAlignment("center");
-      schedSheet.getRange("N4").setValue(Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "yyyy-MM-dd")).setHorizontalAlignment("center");
+      sheet.getRange("N1").setValue("SCHEDULE_WEEK").setFontWeight("bold");
+      sheet.getRange("N2").setValue(currentWeek).setHorizontalAlignment("center");
+      sheet.getRange("N3").setValue("Week " + currentWeek).setHorizontalAlignment("center");
+      sheet.getRange("N4").setValue(Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "yyyy-MM-dd")).setHorizontalAlignment("center");
 
       let scoreHeaders2 = data[0].map(h => String(h || '').trim().toLowerCase());
       let phoneIdx2 = scoreHeaders2.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
@@ -3773,7 +3846,6 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
       }
 
       if (scoreCourtValues.length > 0) {
-        // Set Court column on Score sheet to Plain Text BEFORE writing values
         scoreSheet.getRange(2, courtIdx + 1, scoreCourtValues.length, 1).setNumberFormat("@");
         scoreSheet.getRange(2, courtIdx + 1, scoreCourtValues.length, 1).setValues(scoreCourtValues);
       }
@@ -3790,6 +3862,8 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
     return "✅ " + summary.join("\n");
   });
 }
+
+
 
 
 /**
