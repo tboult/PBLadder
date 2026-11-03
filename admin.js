@@ -892,3 +892,84 @@ async function runRescheduleActive() {
     if (statusEl) statusEl.innerText = '❌ Error performing reschedule.';
   }
 }
+
+
+/**
+ * Triggers a full Google Drive backup from the Admin UI.
+ */
+async function runAdminDriveBackup() {
+  const statusEl = document.getElementById('adminStatus');
+  const backupBtn = document.getElementById('btnAdminBackup');
+  
+  if (!confirm('Are you sure you want to create a manual Google Drive backup of the entire spreadsheet now?')) return;
+
+  if (statusEl) statusEl.innerText = '⌛ Creating full Drive backup...';
+  if (backupBtn) {
+    backupBtn.disabled = true;
+    backupBtn.innerText = '⏳ Backing up...';
+  }
+
+  try {
+    const res = await apiCall('apiCreateDriveBackup', {});
+    if (res && (res.success || !res.error)) {
+      const backupName = res.name || res.message || 'Backup created successfully!';
+      if (statusEl) statusEl.innerText = `✅ Backup saved: ${backupName}`;
+      alert(`✅ Backup Created Successfully!\n\nSaved: ${backupName}`);
+    } else {
+      const errMsg = res?.message || res?.error || 'Error creating backup.';
+      if (statusEl) statusEl.innerText = `❌ ${errMsg}`;
+      alert(`Failed to create backup: ${errMsg}`);
+    }
+  } catch (err) {
+    console.error("runAdminDriveBackup error:", err);
+    if (statusEl) statusEl.innerText = '❌ Network error creating backup.';
+    alert('Network error creating Drive backup.');
+  } finally {
+    if (backupBtn) {
+      backupBtn.disabled = false;
+      backupBtn.innerText = '💾 Create Full Drive Backup';
+    }
+  }
+}
+
+/**
+ * Triggers a full sheet restore from backup from the Admin UI.
+ */
+async function runAdminRestoreSheet() {
+  const statusEl = document.getElementById('adminStatus');
+  const restoreBtn = document.getElementById('btnAdminRestore');
+
+  const confirmMsg = "⚠️ WARNING: Restoring will overwrite current spreadsheet data with the latest backup!\n\nAre you sure you want to restore?";
+  if (!confirm(confirmMsg)) return;
+
+  if (statusEl) statusEl.innerText = '⌛ Restoring sheet from backup...';
+  if (restoreBtn) {
+    restoreBtn.disabled = true;
+    restoreBtn.innerText = '⏳ Restoring...';
+  }
+
+  try {
+    const res = await apiCall('apiRestoreSheetFromBackup', {});
+    if (res && (res.success || !res.error)) {
+      const msg = res.message || 'Sheet restored successfully!';
+      if (statusEl) statusEl.innerText = `✅ ${msg}`;
+      alert(`✅ ${msg}`);
+      if (typeof reloadAdminScores === 'function') {
+        reloadAdminScores();
+      }
+    } else {
+      const errMsg = res?.message || res?.error || 'Error restoring sheet.';
+      if (statusEl) statusEl.innerText = `❌ ${errMsg}`;
+      alert(`Failed to restore sheet: ${errMsg}`);
+    }
+  } catch (err) {
+    console.error("runAdminRestoreSheet error:", err);
+    if (statusEl) statusEl.innerText = '❌ Error attempting sheet restore.';
+    alert('Network error attempting sheet restore.');
+  } finally {
+    if (restoreBtn) {
+      restoreBtn.disabled = false;
+      restoreBtn.innerText = '⏮️ Restore Sheet From Backup';
+    }
+  }
+}

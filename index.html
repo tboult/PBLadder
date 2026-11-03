@@ -485,6 +485,22 @@
           </div>
         </div>
       </details>
+
+      <!-- 6. Backup & Restore Controls -->
+      <details class="card" style="margin-bottom:1rem; background: var(--bg-color); cursor: pointer;">
+        <summary style="font-weight:bold; font-size:1.05rem; outline:none;">💾 Backup & Restore Spreadsheet</summary>
+        <div style="margin-top:0.75rem;" onclick="event.stopPropagation();">
+          <p style="font-size:0.85rem; color:#666; margin-bottom:0.75rem;">
+            Create a full Google Drive snapshot backup of all sheets or restore from the latest backup.
+          </p>
+          <button id="btnAdminBackup" class="btn-main" style="margin-bottom:0.5rem; width:100%; color: white; background-color: #0d6efd;" onclick="runAdminDriveBackup()">
+            💾 Create Full Drive Backup
+          </button>
+          <button id="btnAdminRestore" class="btn-sub" style="margin-bottom:0.5rem; background-color: #dc3545; color: white; width:100%;" onclick="runAdminRestoreSheet()">
+            ⏮️ Restore Sheet From Backup
+          </button>
+        </div>
+      </details>      
       
       <!-- 1. Court Selection MOVED TO BOTTOM -->
       <details class="card" style="margin-bottom:1rem; background: var(--bg-color);">
