@@ -756,9 +756,15 @@ function harvestScoresFromSchedules(ss, data, col, targetWeekIdx, schedSheet, we
     hasAnySchedData = true;
   }
 
-  if (schedModified) {
-    schedSheet.getRange(1, 1, schedData.length, schedData[0].length).setValues(schedData);
-  }
+    if (schedModified) {
+        let targetWidth = schedData[0].length;
+        schedData.forEach(r => {
+            while (r.length < targetWidth) r.push("");
+            r.length = targetWidth;
+        });
+        schedSheet.getRange(1, 1, schedData.length, targetWidth).setValues(schedData);
+    }
+    
 
   if (!hasAnySchedData) return warnings;
 
@@ -1278,7 +1284,6 @@ function assignRanksWithinWindows(items, numSlots) {
 /* =========================================================================
  *  MAIN
  * ========================================================================= */
-
 function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, useScaledRankAsPrimary = true) {
   const doUpdateScores  = (updateScores === false) ? false : true;
   const primaryIsScaled = (useScaledRankAsPrimary === false) ? false : true;
@@ -1507,25 +1512,31 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
       activePlayers.forEach(p => finalRows.push(p.rowRaw));
       inactivePlayers.forEach(p => finalRows.push(p.rowRaw));
 
-        const targetColCount = finalRows[0].length;
-        finalRows.forEach(r => {
-            while (r.length < targetColCount) {
-                r.push("");
-            }
-            if (r.length > targetColCount) {
-                r.length = targetColCount;
-            }
-        });
+      // Calculate maximum column width across header and all player rows
+      let targetColCount = headerRow.length;
+      finalRows.forEach(r => {
+        if (r.length > targetColCount) targetColCount = r.length;
+      });
 
-      if (currRColIdx !== undefined) sheet.getRange(1, currRColIdx + 1, finalRows.length, 1).setNumberFormat('@');
-      if (lastRColIdx !== undefined) sheet.getRange(1, lastRColIdx + 1, finalRows.length, 1).setNumberFormat('@');
+      // Normalize every row array to targetColCount
+      finalRows.forEach(r => {
+        while (r.length < targetColCount) {
+          r.push("");
+        }
+        if (r.length > targetColCount) {
+          r.length = targetColCount;
+        }
+      });
+
+      if (currRColIdx !== undefined && currRColIdx < targetColCount) sheet.getRange(1, currRColIdx + 1, finalRows.length, 1).setNumberFormat('@');
+      if (lastRColIdx !== undefined && lastRColIdx < targetColCount) sheet.getRange(1, lastRColIdx + 1, finalRows.length, 1).setNumberFormat('@');
 
       if (typeof updateRankingsSheetForGroup === "function") {
         updateRankingsSheetForGroup(ss, cleanGroupName, activePlayers, inactivePlayers, weekNum);
       }
 
       sheet.clearContents();
-      sheet.getRange(1, 1, finalRows.length, finalRows[0].length).setValues(finalRows);
+      sheet.getRange(1, 1, finalRows.length, targetColCount).setValues(finalRows);
       SpreadsheetApp.flush();
 
       try {
@@ -1564,6 +1575,8 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
     }
   });
 }
+
+
 
 
 
@@ -1684,14 +1697,15 @@ if (weekNum !== undefined && weekNum !== null && weekNum !== "") {
 
 
 
-
 function sortActivePlayersForSheet(sheet) {
-  logDebug("sortActivePlayersForSheet", "Sorting active players for sheet", sheet.getName());
+  if (typeof logDebug === 'function') logDebug("sortActivePlayersForSheet", "Sorting active players for sheet", sheet.getName());
   const data = sheet.getDataRange().getValues();
   if (data.length <= 1) return "⚠️ No player data found on tab: " + sheet.getName();
 
-  const col = buildColMap(data[0]);
+  const col = typeof buildColMap === 'function' ? buildColMap(data[0]) : {};
   let headerRow = data[0];
+  let scoreWidth = headerRow.length;
+
   let activeRows = [];
   let inactiveRows = [];
 
@@ -1700,7 +1714,7 @@ function sortActivePlayersForSheet(sheet) {
     let status = (col.status !== undefined && row[col.status] !== "") 
       ? row[col.status].toString().toUpperCase().trim() 
       : "ACTIVE";
-    let recent = getMostRecentRank(row, col, 10);
+    let recent = typeof getMostRecentRank === 'function' ? getMostRecentRank(row, col, 10) : { rank: i, numPeople: 0 };
     row._recentRank = recent.rank;
     row._recentNumPeople = recent.numPeople;
     row._origIdx = i;
@@ -1720,12 +1734,21 @@ function sortActivePlayersForSheet(sheet) {
     delete r._recentRank;
     delete r._recentNumPeople;
     delete r._origIdx;
+
+    if (r.length > scoreWidth) scoreWidth = r.length;
+  });
+
+  // Normalize all row widths to scoreWidth
+  finalRows.forEach(r => {
+    while (r.length < scoreWidth) r.push("");
+    r.length = scoreWidth;
   });
 
   sheet.clearContents();
-  sheet.getRange(1, 1, finalRows.length, finalRows[0].length).setValues(finalRows);
+  sheet.getRange(1, 1, finalRows.length, scoreWidth).setValues(finalRows);
   return `✅ Active players sorted successfully on tab '${sheet.getName()}'!`;
 }
+
 
 
 
@@ -2702,9 +2725,15 @@ function syncScoreSheetPlayersToSched(ss, cleanGroup, schedSheet) {
 
     // Rewrite Sched sheet if any ghost rows were pruned
     if (prunedCount > 0) {
+      let targetWidth = rowsToKeep[0].length;
+      rowsToKeep.forEach(r => {
+        while (r.length < targetWidth) r.push("");
+        r.length = targetWidth;
+      });
       schedSheet.clearContents();
-      schedSheet.getRange(1, 1, rowsToKeep.length, rowsToKeep[0].length).setValues(rowsToKeep);
+      schedSheet.getRange(1, 1, rowsToKeep.length, targetWidth).setValues(rowsToKeep);
     }
+
 
     // 4. ADD missing roster players from Score sheet to bottom of Sched sheet
     const missingPlayers = validScoreRosterList.filter(name => !existingSchedTokens.has(getTokensKey(name)));
@@ -2946,6 +2975,14 @@ function handleCheckInPlayer(payload) {
  * courts, check-ins, and submitter info strictly coupled to each player.
  * Clears old Column I week metadata prior to writing new week information.
  */
+/**
+ * Reorders the Sched sheet to match new rankings while preserving scores,
+ * courts, check-ins, and submitter info strictly coupled to each player.
+ */
+/**
+ * Reorders the Sched sheet to match new rankings while preserving scores,
+ * courts, check-ins, and submitter info strictly coupled to each player.
+ */
 function rebuildSchedSheetOrder(ss, cleanGroupName, activePlayers, inactivePlayers, prevWeekNum) {
   let schedSheet = ss.getSheetByName("Sched " + cleanGroupName);
   if (!schedSheet) return;
@@ -2953,44 +2990,18 @@ function rebuildSchedSheetOrder(ss, cleanGroupName, activePlayers, inactivePlaye
   let schedData = schedSheet.getDataRange().getValues();
   if (schedData.length <= 1) return;
   
-  let headers = schedData[0].map(h => String(h || ''));
-  while (headers.length < 12) {
-    headers.push("");
-  }
-  
-  // Enforce standard headers across Columns A-L
-  if (!headers[0]) headers[0] = "Player Name";
-  if (!headers[1]) headers[1] = "Court";
-  if (!headers[2]) headers[2] = "Check-In";
-  if (!headers[3]) headers[3] = "Game 1";
-  if (!headers[4]) headers[4] = "Game 2";
-  if (!headers[5]) headers[5] = "Game 3";
-  if (!headers[6]) headers[6] = "Total";
-  if (!headers[7]) headers[7] = "Entered";
-  if (!headers[9]) headers[9] = "Phone";
-  if (!headers[10]) headers[10] = "First Name";
-  if (!headers[11]) headers[11] = "Last Name";
-
+  const SCHED_COLS = 13; // Columns A through M
+  let headers = ["Player Name", "Court", "Check-In", "Game 1", "Game 2", "Game 3", "Game 4", "Game 5", "Game 6", "Total", "Entered", "W", "Phone"];
   let schedHeadersLower = headers.map(h => h.trim().toLowerCase());
   
-  let nameIdx  = schedHeadersLower.findIndex(h => /name|player/i.test(h));
-  if (nameIdx === -1) nameIdx = 0;
+  let nameIdx  = 0;
+  let phoneIdx = 12; // Col M
+  let firstIdx = 10; // Col K
+  let lastIdx  = 11; // Col L
 
-  let phoneIdx = schedHeadersLower.findIndex(h => /phone|cell|mobile/i.test(h));
-  if (phoneIdx === -1) phoneIdx = 9; // Col J
-
-  let firstIdx = schedHeadersLower.findIndex(h => /\bfirst\b|fname/i.test(h));
-  if (firstIdx === -1) firstIdx = 10; // Col K
-
-  let lastIdx  = schedHeadersLower.findIndex(h => /\blast\b|lname/i.test(h));
-  if (lastIdx === -1) lastIdx = 11; // Col L
-
-  // Index existing Sched sheet rows with multi-column lookup keys
   let schedRows = [];
   for (let r = 1; r < schedData.length; r++) {
     let row = schedData[r];
-    while (row.length < 12) row.push("");
-
     let rawName = String(row[nameIdx] || "").trim();
     if (!rawName || rawName.startsWith("---") || rawName.toLowerCase().startsWith("time:") || rawName.startsWith("SCHEDULE_WEEK")) {
       continue;
@@ -2998,7 +3009,7 @@ function rebuildSchedSheetOrder(ss, cleanGroupName, activePlayers, inactivePlaye
 
     let rawFirst = String(row[firstIdx] || "").trim();
     let rawLast  = String(row[lastIdx] || "").trim();
-    let phoneDigits = cleanPhoneDigits(row[phoneIdx]);
+    let phoneDigits = typeof cleanPhoneDigits === 'function' ? cleanPhoneDigits(row[phoneIdx]) : String(row[phoneIdx] || "").replace(/\D/g, "");
 
     let normName = typeof normalizeName === 'function' ? normalizeName(rawName) : rawName.toLowerCase().trim();
     let normFirst = typeof normalizeName === 'function' ? normalizeName(rawFirst) : rawFirst.toLowerCase().trim();
@@ -3006,7 +3017,7 @@ function rebuildSchedSheetOrder(ss, cleanGroupName, activePlayers, inactivePlaye
     let tokenKey = (normName.match(/[a-z0-9]+/g) || []).sort().join(" ");
 
     schedRows.push({
-      rawRow: row.slice(),
+      rawRow: row.slice(0, SCHED_COLS),
       rawName: rawName,
       normName: normName,
       normFirst: normFirst,
@@ -3017,104 +3028,80 @@ function rebuildSchedSheetOrder(ss, cleanGroupName, activePlayers, inactivePlaye
     });
   }
 
-  // 5-Tier Matching Engine
   function findMatchingRow(p) {
     let pNorm = typeof normalizeName === 'function' ? normalizeName(p.name) : String(p.name || '').toLowerCase().trim();
     let pFirstNorm = typeof normalizeName === 'function' ? normalizeName(p.firstName) : String(p.firstName || '').toLowerCase().trim();
     let pLastNorm = typeof normalizeName === 'function' ? normalizeName(p.lastName) : String(p.lastName || '').toLowerCase().trim();
     let pTokens = (pNorm.match(/[a-z0-9]+/g) || []).sort().join(" ");
-    let pPhone = cleanPhoneDigits(p.phone);
+    let pPhone = typeof cleanPhoneDigits === 'function' ? cleanPhoneDigits(p.phone) : String(p.phone || "").replace(/\D/g, "");
 
     let match = null;
-
-    // Tier 1: Phone Match (Last 7 Digits)
     if (pPhone && pPhone.length >= 7) {
       let pTail = pPhone.slice(-7);
       match = schedRows.find(r => !r.used && r.phoneDigits && r.phoneDigits.endsWith(pTail));
     }
-
-    // Tier 2: Separate First & Last Name Match (Cols K & L)
     if (!match && pFirstNorm && pLastNorm) {
       match = schedRows.find(r => !r.used && r.normFirst === pFirstNorm && r.normLast === pLastNorm);
     }
-
-    // Tier 3: Full Normalized Name Match (Col A)
     if (!match && pNorm) {
       match = schedRows.find(r => !r.used && r.normName === pNorm);
     }
-
-    // Tier 4: Tokenized Name Match ("Smith John" === "John Smith")
     if (!match && pTokens) {
       match = schedRows.find(r => !r.used && r.tokenKey === pTokens);
     }
-
-    // Tier 5: Substring / Partial Name Match
     if (!match && pNorm && pNorm.length >= 3) {
       match = schedRows.find(r => !r.used && (r.normName.includes(pNorm) || pNorm.includes(r.normName)));
     }
 
-    let matchedRow;
-    if (match) {
-      match.used = true;
-      matchedRow = match.rawRow;
-    } else {
-      matchedRow = new Array(12).fill("");
-    }
+    let matchedRow = match ? match.rawRow : new Array(SCHED_COLS).fill("");
+    if (match) match.used = true;
 
-    while (matchedRow.length < 12) matchedRow.push("");
+    while (matchedRow.length < SCHED_COLS) matchedRow.push("");
+    matchedRow.length = SCHED_COLS;
 
-    // Update roster identity fields from master Score sheet
     matchedRow[nameIdx] = p.name;
     if (pPhone) matchedRow[phoneIdx] = p.phone;
-    if (p.firstName) matchedRow[firstIdx] = p.firstName;
-    if (p.lastName) matchedRow[lastIdx] = p.lastName;
 
     return matchedRow;
   }
 
   let newRows = [headers];
+  (activePlayers || []).forEach(p => newRows.push(findMatchingRow(p)));
+  (inactivePlayers || []).forEach(p => newRows.push(findMatchingRow(p)));
+  schedRows.forEach(r => { if (!r.used) newRows.push(r.rawRow); });
 
-  // Reorder Active Players by Rank
-  (activePlayers || []).forEach(p => {
-    newRows.push(findMatchingRow(p));
-  });
-
-  // Reorder Inactive Players by Prior Rank
-  (inactivePlayers || []).forEach(p => {
-    newRows.push(findMatchingRow(p));
-  });
-
-  // Retain any unmatched historical rows
-  schedRows.forEach(r => {
-    if (!r.used) newRows.push(r.rawRow);
+  // Normalize matrix width strictly to 13 columns (Columns A-M)
+  newRows.forEach(r => {
+    while (r.length < SCHED_COLS) r.push("");
+    r.length = SCHED_COLS;
   });
 
   schedSheet.clearContents();
-  schedSheet.getRange(1, 1, newRows.length, headers.length).setValues(newRows);
+  schedSheet.getRange(1, 1, newRows.length, SCHED_COLS).setValues(newRows);
 
-  // Clear all old Column I week metadata across all rows before stamping new week info
+  // Clear & Stamp Column N metadata (N1:N4) independently
   let maxColRows = Math.max(schedSheet.getLastRow(), 20);
   if (maxColRows > 0) {
-    schedSheet.getRange(1, 9, maxColRows, 1).clearContent().clearFormat();
+    schedSheet.getRange(1, 14, maxColRows, 1).clearContent().clearFormat();
   }
 
-  // Stamp new week header metadata in Column I (Rows 1-4)
   let nextWeek = prevWeekNum + 1;
   if (nextWeek <= 10) {
     try {
-      schedSheet.getRange("N1").setValue("SCHEDULE_WEEK").setFontWeight("bold");
-      schedSheet.getRange("N2").setValue(nextWeek).setHorizontalAlignment("center");
-      schedSheet.getRange("N3").setValue("Week " + nextWeek).setHorizontalAlignment("center");
-      
       let tz = ss.getSpreadsheetTimeZone() || "America/Phoenix";
       let todayStr = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd");
-      schedSheet.getRange("N4").setValue(todayStr).setHorizontalAlignment("center");
+
+      schedSheet.getRange("N1:N4").setValues([
+        ["SCHEDULE_WEEK"],
+        [nextWeek],
+        ["Week " + nextWeek],
+        [todayStr]
+      ]);
     } catch (e) {
       Logger.log("Non-fatal header stamp warning: " + e.message);
     }
   }
 }
-
 
 
 
@@ -3303,6 +3290,10 @@ function prioritizeCourts(courts) {
 // CORE WORKER IMPLEMENTATIONS
 // ==========================================
 
+/**
+ * Core worker for rescheduling based on check-ins.
+ * Clears Pts on Score sheet and fills Court assignments.
+ */
 function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes) {
   return executeWithLock(function() {
     let groupName = "";
@@ -3447,7 +3438,7 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
     // Resolve and prioritize courts (5-12 first, then 1-4, 13+)
     let rawCourts = courts ? (typeof parseAndSortCourts === 'function' ? parseAndSortCourts(courts) : courts) : (typeof getCourtsForGroup === 'function' ? getCourtsForGroup(groupName) : [5, 6, 7, 8, 9, 10, 11, 12, 3, 4, 13, 14, 15, 16]);
     let cleanedCourts = rawCourts.map(cleanCourtLabel).filter(c => c !== "BYE" && c !== "");
-    let prioritizedNums = prioritizeCourts(cleanedCourts);
+    let prioritizedNums = typeof prioritizeCourts === 'function' ? prioritizeCourts(cleanedCourts) : cleanedCourts;
     let availableCourts = prioritizedNums.map(String);
     
     let courtAssignments = {};
@@ -3541,13 +3532,20 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
     sheet.getRange("N3").setValue("Week " + currentWeek).setHorizontalAlignment("center");
     sheet.getRange("N4").setValue(Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "yyyy-MM-dd")).setHorizontalAlignment("center");
 
+    // Clear Pts column and sync Court assignments on Score sheet
     if (scoreSheet) {
       let scoreData = scoreSheet.getDataRange().getValues();
       if (scoreData.length > 1) {
         const col = typeof buildColMap === 'function' ? buildColMap(scoreData[0]) : {};
         let courtIdx = col.court !== undefined ? col.court : scoreData[0].map(h => String(h || '').trim().toLowerCase()).findIndex(h => /court|crt/i.test(h));
+        let ptsIdx = col.pts !== undefined ? col.pts : scoreData[0].map(h => String(h || '').trim().toLowerCase()).findIndex(h => /^pts$|^points$|^total$/i.test(h));
         let statusIdx = col.status !== undefined ? col.status : scoreData[0].map(h => String(h || '').trim().toLowerCase()).findIndex(h => /status/i.test(h));
+        
         if (courtIdx === -1) courtIdx = 3;
+        if (ptsIdx === -1) ptsIdx = 4;
+
+        // Clear Points column on Score sheet
+        scoreSheet.getRange(2, ptsIdx + 1, scoreData.length - 1, 1).clearContent();
 
         let courtValues = [];
         for (let r = 1; r < scoreData.length; r++) {
@@ -3589,7 +3587,7 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
 
 /**
  * Core worker for scheduling all active players.
- * Copies phones from Score master sheet into Column M of Sched sheet with text formatting.
+ * Clears Pts on Score sheet and fills Court assignments.
  */
 function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
   return executeWithLock(function() {
@@ -3696,7 +3694,7 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
       // Resolve and prioritize courts (5-12 first, then 1-4, 13+)
       let rawCourts = courts ? (typeof parseAndSortCourts === 'function' ? parseAndSortCourts(courts) : courts) : (typeof getCourtsForGroup === 'function' ? getCourtsForGroup(groupName) : [5, 6, 7, 8, 9, 10, 11, 12, 3, 4, 13, 14, 15, 16]);
       let cleanedCourts = rawCourts.map(cleanCourtLabel).filter(c => c !== "BYE" && c !== "");
-      let prioritizedNums = prioritizeCourts(cleanedCourts);
+      let prioritizedNums = typeof prioritizeCourts === 'function' ? prioritizeCourts(cleanedCourts) : cleanedCourts;
       let availableCourts = prioritizedNums.map(String);
 
       let schedSheetName = "Sched " + groupName;
@@ -3819,6 +3817,7 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
       let ptsIdx = scoreHeaders2.findIndex(h => /^pts$|^points$|^total$/i.test(h));
       if (ptsIdx === -1) ptsIdx = 4;
 
+      // Clear Points column on Score sheet
       if (data.length > 1) scoreSheet.getRange(2, ptsIdx + 1, data.length - 1, 1).clearContent();
 
       let scoreCourtValues = [];
@@ -3872,7 +3871,6 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
     return "✅ " + summary.join("\n");
   });
 }
-
 
 
 
