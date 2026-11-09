@@ -3584,7 +3584,6 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
   });
 }
 
-
 /**
  * Core worker for scheduling all active players.
  * Clears Pts on Score sheet and fills Court assignments.
@@ -3795,16 +3794,17 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
 
       schedSheet.clearContents();
 
-      sheet.getRange(1, 2, rows.length, 1).setNumberFormat("@");        
-      sheet.getRange(1, 13, rows.length, 1).setNumberFormat("@");
+      // FIXED: Used `schedSheet` instead of `sheet`
+      schedSheet.getRange(1, 2, rows.length, 1).setNumberFormat("@");        
+      schedSheet.getRange(1, 13, rows.length, 1).setNumberFormat("@");
 
-      sheet.getRange(1, 1, rows.length, headers.length).setValues(rows);
-      sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
+      schedSheet.getRange(1, 1, rows.length, headers.length).setValues(rows);
+      schedSheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
 
-      sheet.getRange("N1").setValue("SCHEDULE_WEEK").setFontWeight("bold");
-      sheet.getRange("N2").setValue(currentWeek).setHorizontalAlignment("center");
-      sheet.getRange("N3").setValue("Week " + currentWeek).setHorizontalAlignment("center");
-      sheet.getRange("N4").setValue(Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "yyyy-MM-dd")).setHorizontalAlignment("center");
+      schedSheet.getRange("N1").setValue("SCHEDULE_WEEK").setFontWeight("bold");
+      schedSheet.getRange("N2").setValue(currentWeek).setHorizontalAlignment("center");
+      schedSheet.getRange("N3").setValue("Week " + currentWeek).setHorizontalAlignment("center");
+      schedSheet.getRange("N4").setValue(Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "yyyy-MM-dd")).setHorizontalAlignment("center");
 
       let scoreHeaders2 = data[0].map(h => String(h || '').trim().toLowerCase());
       let phoneIdx2 = scoreHeaders2.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
@@ -3871,7 +3871,6 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
     return "✅ " + summary.join("\n");
   });
 }
-
 
 
 /**
