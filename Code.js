@@ -95,84 +95,119 @@ function isCheckInTrue(val) {
 }
 
 
-function getRankingsAndSchedData(groupName) {
-  const ss = getDb();
-  const cleanGroup = cleanGroupName(groupName);
-  const scoreSheet = ss.getSheetByName("Score " + cleanGroup);
-  const schedSheet = ss.getSheetByName("Sched " + cleanGroup);
+function renderRankingsAndSchedule(rawData) {
+  const viewerContent = document.getElementById('viewerContent');
+  if (!viewerContent) return;
 
-  if (!scoreSheet) {
-    throw new Error("Roster sheet not found for group: Score " + cleanGroup);
+  const esc = (val) => String(val ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+  const data = (rawData && typeof rawData === 'object' && rawData.data && typeof rawData.data === 'object' && !Array.isArray(rawData.data))
+    ? rawData.data
+    : rawData;
+
+  if (typeof data === 'string') {
+    viewerContent.innerHTML = data;
+    return;
   }
 
-  const data = scoreSheet.getDataRange().getValues();
-  const col = data.length > 0 ? buildColMap(data[0]) : {};
-  const rankLookup = buildAuthoritativeRankLookup(ss, cleanGroup, scoreSheet);
-  const activePlayers = [];
+  if (data && typeof data.html === 'string') {
+    viewerContent.innerHTML = data.html;
+    return;
+  }
 
-  for (let r = 1; r < data.length; r++) {
-    const row = data[r];
-    const first = col.first !== undefined ? String(row[col.first] || "").trim() : "";
-    const last = col.last !== undefined ? String(row[col.last] || "").trim() : "";
-    const name = (col.name !== undefined && row[col.name]) ? String(row[col.name]).trim() : `${first} ${last}`.trim();
-    if (!name) continue;
+  if (data && typeof data.rankingsHtml === 'string') {
+    viewerContent.innerHTML = data.rankingsHtml;
+    return;
+  }
 
-    const status = (col.status !== undefined && row[col.status] !== "")
-      ? String(row[col.status]).toUpperCase().trim()
-      : "ACTIVE";
-    if (status === "INACTIVE") continue;
+  const rankingsList = data && (data.rankings || data.ranks || data.standings || data.players);
 
-    const stats = calculateStats(row, col);
-    let weeksPlayed = 0;
-    for (let w = 1; w <= 10; w++) {
-      if (col["w" + w] !== undefined && row[col["w" + w]] !== "" && row[col["w" + w]] !== null) {
-        weeksPlayed++;
-      }
+  if (!Array.isArray(rankingsList)) {
+    viewerContent.innerHTML = `<pre style="white-space:pre-wrap; word-break:break-word;">${esc(JSON.stringify(data, null, 2))}</pre>`;
+    return;
+  }
+
+  const groupLabel = data.group ? `${esc(data.group)} ` : '';
+  const weekLabel = data.week ? ` (Through Week ${esc(data.week)})` : '';
+  const ruleNote = data.note
+    || 'Players with > 4 weeks (> 180 possible points) are ranked by Point %; players with 4 or fewer weeks have bounded weekly movement.';
+
+  let html = `
+    <div style="margin-bottom:0.75rem;">
+      <h4 style="margin:0 0 0.4rem 0;">${groupLabel}Standings${weekLabel}</h4>
+      <div style="font-size:0.9rem; color:#495057; background:#f8f9fa; border-left:4px solid #0d6efd; padding:0.5rem 0.75rem; border-radius:4px;">
+        ${esc(ruleNote)}
+      </div>
+    </div>
+  `;
+
+  if (rankingsList.length === 0) {
+    html += `<p style="color:#666; font-style:italic;">No active rankings recorded yet for ${esc(data.group || 'this group')}.</p>`;
+    viewerContent.innerHTML = html;
+    return;
+  }
+
+  html += `
+    <table class="data-table" style="width:100%; border-collapse:collapse;">
+      <thead>
+        <tr>
+          <th style="text-align:center;">Rank</th>
+          <th style="text-align:left;">Player</th>
+          <th style="text-align:right;">Pts</th>
+          <th style="text-align:center;">Wks</th>
+          <th style="text-align:right;">Pts %</th>
+        </tr>
+      </thead>
+      <tbody>
+  `;
+
+  rankingsList.forEach((r, idx) => {
+    if (typeof r === 'string') {
+      html += `<tr><td colspan="5">${esc(r)}</td></tr>`;
+      return;
     }
 
-    const rEntry = rankLookup.getRankForPlayer(name, r);
-    const storedRank = (col.rnum !== undefined && row[col.rnum] !== "" && !isNaN(Number(row[col.rnum])))
-      ? Number(row[col.rnum])
-      : rEntry.rank;
+    const statusStr = String(r.status || 'ACTIVE').trim().toUpperCase();
+    const isInactive = statusStr === 'INACTIVE';
+    const rankDisplay = isInactive
+      ? '<span style="display:inline-block; padding:2px 6px; border-radius:4px; background:#6c757d; color:#fff; font-size:0.8rem; font-weight:bold;">INACTIVE</span>'
+      : `<b>${esc(r.rank ?? (idx + 1))}</b>`;
 
-    activePlayers.push({
-      name: name,
-      total: stats.total,
-      weeks: weeksPlayed,
-      pct: Number((stats.winPct * 100).toFixed(2)),
-      isPctRanked: weeksPlayed > 4 || (weeksPlayed * MAX_POINTS_PER_WEEK) > 180,
-      _sortRank: storedRank,
-      _origIdx: r
-    });
-  }
+    const name = esc(r.name || `${r.first || ''} ${r.last || ''}`.trim());
+    const totalPts = r.total ?? r.points ?? r.score ?? 0;
+    const weeks = r.weeks ?? '';
+    const pctNum = typeof r.pct === 'number' ? r.pct : parseFloat(r.pct);
+    const pctDisplay = !isNaN(pctNum) ? `${pctNum.toFixed(1)}%` : '';
+    const tierBadge = r.isPctRanked === false
+      ? ' <span title="Bounded weekly movement (<= 4 weeks)" style="font-size:0.75rem; color:#6c757d;">*</span>'
+      : '';
 
-  activePlayers.sort((a, b) =>
-    (a._sortRank - b._sortRank) || (b.pct - a.pct) || (a._origIdx - b._origIdx)
-  );
+    html += `
+      <tr style="${isInactive ? 'opacity:0.75; background-color:#f8f9fa;' : ''}">
+        <td style="text-align:center; white-space:nowrap;">${rankDisplay}</td>
+        <td>${name}${tierBadge}</td>
+        <td style="text-align:right;">${esc(totalPts)}</td>
+        <td style="text-align:center;">${esc(weeks)}</td>
+        <td style="text-align:right; font-weight:600;">${esc(pctDisplay)}</td>
+      </tr>
+    `;
+  });
 
-  const rankings = activePlayers.map((p, idx) => ({
-    rank: idx + 1,
-    name: p.name,
-    total: p.total,
-    weeks: p.weeks,
-    pct: p.pct,
-    isPctRanked: p.isPctRanked
-  }));
+  html += `
+      </tbody>
+    </table>
+    <div style="margin-top:0.5rem; font-size:0.8rem; color:#6c757d;">
+      * 4 or fewer weeks played (bounded weekly movement tier)
+    </div>
+  `;
 
-  let schedule = [];
-  if (schedSheet && schedSheet.getLastRow() >= 2) {
-    schedule = schedSheet.getRange(2, 1, schedSheet.getLastRow() - 1, 13).getValues();
-  }
-
-  return {
-    success: true,
-    group: cleanGroup,
-    week: getWeekNumber(schedSheet),
-    note: "Players with > 4 weeks (> 180 possible points) are ranked by Point %; players with 4 or fewer weeks have bounded weekly movement.",
-    rankings: rankings,
-    schedule: schedule
-  };
+  viewerContent.innerHTML = html;
 }
+
 
 
 
@@ -1314,230 +1349,160 @@ function assignRanksWithinWindows(items, numSlots) {
 /* =========================================================================
  *  MAIN
  * ========================================================================= */
-function processWeeklyScoresForSheet(sheet, weekCol, shift = true) {
-  const ss = getDb();
-  const scoreSheet = (typeof sheet === "string")
-    ? getValidActiveScoreSheet(sheet)
-    : (sheet || getValidActiveScoreSheet());
-  const cleanGroup = cleanGroupName(scoreSheet.getName());
-  const schedSheet = ss.getSheetByName("Sched " + cleanGroup);
+function processWeeklyScoresForSheet(sheet, weekOrCol, shiftOrGroup) {
+  if (!sheet) return;
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return;
 
-  const data = scoreSheet.getDataRange().getValues();
-  if (data.length <= 1) return "⚠️ No player data found on tab: " + scoreSheet.getName();
+  const lastCol = sheet.getLastColumn();
+  const data = sheet.getRange(1, 1, lastRow, lastCol).getValues();
+  const col = (weekOrCol && typeof weekOrCol === 'object' && weekOrCol.total !== undefined)
+    ? weekOrCol
+    : buildColMap(data[0]);
 
-  const col = buildColMap(data[0]);
-  const parsedWeek = weekCol ? parseInt(String(weekCol).replace(/\D/g, ""), 10) : NaN;
-  const weekNum = (!isNaN(parsedWeek) && parsedWeek >= 1 && parsedWeek <= 10)
-    ? parsedWeek
-    : getWeekNumber(schedSheet);
-
-  const targetWeekIdx = col["w" + weekNum];
-  const targetRankIdx = col["r" + weekNum];
-  if (targetWeekIdx === undefined) {
-    throw new Error(`Week column W${weekNum} not found on '${scoreSheet.getName()}'.`);
+  const weekIndices = [];
+  for (let w = 1; w <= 10; w++) {
+    if (col['w' + w] !== undefined) weekIndices.push(col['w' + w]);
   }
 
-  // 1. Harvest Game 1-6 totals & courts from Sched <Group> into Score <Group>
-  harvestScoresFromSchedules(ss, data, col, targetWeekIdx, schedSheet, weekNum);
-
   const activePlayers = [];
-  const inactivePlayers = [];
-  const allPlayers = [];
+  const inactiveRows = [];
 
   for (let r = 1; r < data.length; r++) {
     const row = data[r];
-    const first = col.first !== undefined ? String(row[col.first] || "").trim() : "";
-    const last = col.last !== undefined ? String(row[col.last] || "").trim() : "";
-    const name = (col.name !== undefined && row[col.name]) ? String(row[col.name]).trim() : `${first} ${last}`.trim();
+    const first = col.first !== undefined ? String(row[col.first] || '').trim() : '';
+    const last  = col.last  !== undefined ? String(row[col.last]  || '').trim() : '';
+    const name  = (first || last)
+      ? `${first} ${last}`.trim()
+      : (col.name !== undefined ? String(row[col.name] || '').trim() : '');
     if (!name) continue;
 
-    // Copy current Pts into W<weekNum> if present
-    if (col.pts !== undefined && row[col.pts] !== "" && row[col.pts] !== null && !isNaN(parseFloat(row[col.pts]))) {
-      row[targetWeekIdx] = parseFloat(row[col.pts]);
-    }
+    const status = col.status !== undefined
+      ? String(row[col.status] || '').trim().toUpperCase()
+      : 'ACTIVE';
 
-    const status = (col.status !== undefined && row[col.status] !== "")
-      ? String(row[col.status]).toUpperCase().trim()
-      : "ACTIVE";
-
-    // Sum cumulative points and weeks played through weekNum
-    let cumScore = 0;
+    let totalPts = 0;
     let weeksPlayed = 0;
-    for (let w = 1; w <= weekNum; w++) {
-      const wIdx = col["w" + w];
-      if (wIdx !== undefined && row[wIdx] !== "" && row[wIdx] !== null && !isNaN(parseFloat(row[wIdx]))) {
-        cumScore += parseFloat(row[wIdx]);
+
+    for (let w = 0; w < weekIndices.length; w++) {
+      const val = row[weekIndices[w]];
+      if (val !== '' && val !== null && val !== undefined && !isNaN(Number(val))) {
+        totalPts += Number(val);
         weeksPlayed++;
       }
     }
 
-    // Find most recent prior standing from R<weekNum-1> down to R0
-    let priorInfo = safeParseRankVal("", Infinity, 0);
-    for (let w = weekNum - 1; w >= 0; w--) {
-      const rIdx = col["r" + w];
-      if (rIdx !== undefined && row[rIdx] !== "" && row[rIdx] !== null) {
-        const parsed = safeParseRankVal(row[rIdx], Infinity, 0);
-        if (parsed.hasPrior) {
-          priorInfo = parsed;
-          break;
-        }
-      }
+    const maxPts = weeksPlayed * 45;
+    const pct = maxPts > 0 ? (totalPts / maxPts) * 100 : 0;
+
+    if (status === 'INACTIVE') {
+      inactiveRows.push({
+        rowIndex: r + 1,
+        totalPts: totalPts,
+        maxPts: maxPts,
+        pct: pct
+      });
+      continue;
     }
 
-    const cumPct = weeksPlayed > 0 ? cumScore / (weeksPlayed * MAX_POINTS_PER_WEEK) : 0;
-    const isPctRanked = weeksPlayed > 4 || (weeksPlayed * MAX_POINTS_PER_WEEK) > 180;
+    const prevRank = (col.rnum !== undefined && Number(row[col.rnum]) > 0)
+      ? Number(row[col.rnum])
+      : r;
 
-    const pObj = {
-      rowIndex: r,
-      firstName: first,
-      lastName: last,
+    activePlayers.push({
+      rowIndex: r + 1,
       name: name,
-      phone: col.phone !== undefined ? String(row[col.phone] || "").trim() : "",
       status: status,
-      cumScore: cumScore,
-      weeksPlayed: weeksPlayed,
-      cumPct: cumPct,
-      isPctRanked: isPctRanked,
-      hasPrior: priorInfo.hasPrior,
-      priorRank: priorInfo.rank,
-      priorNumPeople: priorInfo.numPeople,
-      priorPercent: priorInfo.percent
-    };
-
-    allPlayers.push(pObj);
-    if (status === "INACTIVE") {
-      inactivePlayers.push(pObj);
-    } else {
-      activePlayers.push(pObj);
-    }
-  }
-
-  // 2. Merit sort active players (1..numActive) to set sortVal
-  const numActive = activePlayers.length;
-  activePlayers.sort((a, b) => {
-    if ((a.weeksPlayed > 0) !== (b.weeksPlayed > 0)) return a.weeksPlayed > 0 ? -1 : 1;
-    if (Math.abs(b.cumPct - a.cumPct) > 1e-6) return b.cumPct - a.cumPct;
-    if (b.cumScore !== a.cumScore) return b.cumScore - a.cumScore;
-    if (a.priorRank !== b.priorRank) return a.priorRank - b.priorRank;
-    return a.rowIndex - b.rowIndex;
-  });
-  activePlayers.forEach((p, idx) => { p.sortVal = idx + 1; });
-
-  // 3. Run mixed Tier 1 + Tier 2 bounded ranking pass on ACTIVE players only
-  if (numActive > 0) {
-    const baseMove = (typeof MAX_MOVEMENT_PCT !== "undefined" && MAX_MOVEMENT_PCT > 0)
-      ? Math.max(1, Math.round((MAX_MOVEMENT_PCT / 100) * numActive))
-      : (MAX_MOVEMENT || 6);
-
-    const primaryRes = computeBoundedRanks(activePlayers, numActive, baseMove, true);
-    const method2Res = computeBoundedRanks(activePlayers, numActive, baseMove, false);
-
-    const pMap = {};
-    const m2Map = {};
-    primaryRes.items.forEach(it => { pMap[it.uid] = it; });
-    method2Res.items.forEach(it => { m2Map[it.uid] = it; });
-
-    activePlayers.forEach(p => {
-      const pIt = pMap[p.rowIndex];
-      const m2It = m2Map[p.rowIndex];
-      p.primaryFinalRank = pIt ? pIt.finalRank : p.sortVal;
-      p.primaryStr = pIt ? pIt.outStr : "";
-      p.method2Str = m2It ? m2It.outStr : "";
+      total: totalPts,
+      weeks: weeksPlayed,
+      maxPts: maxPts,
+      pct: pct,
+      prevRank: prevRank
     });
   }
 
-  // INACTIVE players receive NO rank number
-  inactivePlayers.forEach(p => {
-    p.primaryFinalRank = "";
-    p.sortVal = "";
-    p.primaryStr = p.hasPrior ? formatInactiveStanding(p, true) : "";
-    p.method2Str = p.hasPrior ? formatInactiveStanding(p, false) : "";
-  });
-
-  // 4. Write updated values back to Score <Group>
-  allPlayers.forEach(p => {
-    const row = data[p.rowIndex];
-    if (col.total !== undefined) row[col.total] = p.cumScore;
-    if (col.winPct !== undefined) row[col.winPct] = p.weeksPlayed > 0 ? p.cumPct : 0;
-    if (col.rnum !== undefined) row[col.rnum] = p.primaryFinalRank;
-    if (col.rawRankCol !== undefined) row[col.rawRankCol] = p.sortVal;
-    if (col.sortval !== undefined) row[col.sortval] = p.sortVal;
-    if (col.newleft !== undefined) row[col.newleft] = p.primaryFinalRank;
-    if (col.lastr !== undefined) row[col.lastr] = p.method2Str;
-    if (targetRankIdx !== undefined) row[targetRankIdx] = p.primaryStr;
-  });
-
-  scoreSheet.getRange(1, 1, data.length, data[0].length).setValues(data);
-
-  // 5. Sort Score sheet, update Rankings <Group>, and shift Sched <Group> if requested
-  sortActivePlayersForSheet(scoreSheet);
-  updateRankingsSheetForGroup(cleanGroup, allPlayers, weekNum);
-
-  if (shift) {
-    activePlayers.sort((a, b) => a.primaryFinalRank - b.primaryFinalRank);
-    rebuildSchedSheetOrder(ss, cleanGroup, activePlayers, inactivePlayers, weekNum);
+  // Update totals/pct and clear rank on INACTIVE rows
+  for (let i = 0; i < inactiveRows.length; i++) {
+    const p = inactiveRows[i];
+    if (col.total !== undefined)  sheet.getRange(p.rowIndex, col.total + 1).setValue(p.totalPts);
+    if (col.pos !== undefined)    sheet.getRange(p.rowIndex, col.pos + 1).setValue(p.maxPts);
+    if (col.winPct !== undefined) sheet.getRange(p.rowIndex, col.winPct + 1).setValue(Number((p.pct / 100).toFixed(6)));
+    if (col.rnum !== undefined)   sheet.getRange(p.rowIndex, col.rnum + 1).setValue('');
   }
 
-  if (typeof clearUnifiedCache === "function") clearUnifiedCache(cleanGroup);
-  try {
-    CacheService.getScriptCache().remove("UNIFIED_ROSTER_CACHE_" + cleanGroup.toUpperCase());
-  } catch (e) {}
+  const ranked = computeMixedRankings(activePlayers);
 
-  return `✅ Standings updated for '${cleanGroup}' (Week ${weekNum}${shift ? ", shifted to Week " + (weekNum + 1) : ""}).`;
+  for (let i = 0; i < ranked.length; i++) {
+    const p = ranked[i];
+    if (col.total !== undefined)  sheet.getRange(p.rowIndex, col.total + 1).setValue(p.total);
+    if (col.pos !== undefined)    sheet.getRange(p.rowIndex, col.pos + 1).setValue(p.maxPts);
+    if (col.winPct !== undefined) sheet.getRange(p.rowIndex, col.winPct + 1).setValue(Number((p.pct / 100).toFixed(6)));
+    if (col.rnum !== undefined)   sheet.getRange(p.rowIndex, col.rnum + 1).setValue(p.rank);
+  }
+
+  const cleanGroup = String(shiftOrGroup || sheet.getName() || '').replace(/^(Score|Sched|Rankings)\s*/i, '').trim();
+  if (cleanGroup) {
+    updateRankingsSheetForGroup(cleanGroup, ranked);
+  }
 }
 
+function updateRankingsSheetForGroup(groupName, players) {
+  const ss = (typeof getDb === 'function') ? getDb() : SpreadsheetApp.getActiveSpreadsheet();
+  const cleanGroup = String(groupName || '').replace(/^(Score|Sched|Rankings)\s*/i, '').trim();
+  const rankSheetName = 'Rankings ' + cleanGroup;
+  let rankSheet = ss.getSheetByName(rankSheetName);
 
+  if (!rankSheet) {
+    rankSheet = ss.insertSheet(rankSheetName);
+  }
 
+  const activePlayers = (players || [])
+    .filter(p => p && p.name && String(p.status || '').trim().toUpperCase() !== 'INACTIVE')
+    .map(p => {
+      const weeks = Number(p.weeksPlayed ?? p.weeks) || 0;
+      const total = Number(p.cumScore ?? p.totalPts ?? p.total) || 0;
+      const maxPts = weeks * 45;
+      let pct = maxPts > 0 ? (total / maxPts) * 100 : (Number(p.pct) || 0);
+      if (pct > 0 && pct <= 1 && total > 0) pct = pct * 100;
 
+      return {
+        name: String(p.name).trim(),
+        total: total,
+        weeks: weeks,
+        maxPts: maxPts,
+        pct: pct,
+        prevRank: Number(p.prevRank ?? p.rank) || 0
+      };
+    });
 
-
-
-
-
-
-
-
-/**
- * Writes the Rankings tab for one group.
- *
- * Reads the new engine's properties:
- *   p.primaryStr       standing string under the primary method
- *                      ("17.9%-R" percentile, "5/28-R" absolute)
- *   p.method2Str       standing string under the secondary method
- *   p.primaryFinalRank integer 1..N, or numActive+1 for inactive rows
- *
- * p.rjStr is no longer produced and is read only as a legacy fallback.
- */
-function updateRankingsSheetForGroup(groupName, players, weekNum) {
-  const ss = getDb();
-  const cleanGroup = cleanGroupName(groupName);
-  const rankSheetName = "Rankings " + cleanGroup;
-  const rankSheet = ss.getSheetByName(rankSheetName) || ss.insertSheet(rankSheetName);
-
-  const activeOrdered = (players || [])
-    .filter(p => p && p.name && String(p.status || "ACTIVE").toUpperCase().trim() !== "INACTIVE")
-    .sort((a, b) => (Number(a.primaryFinalRank || a.rank) || 99999) - (Number(b.primaryFinalRank || b.rank) || 99999));
-
-  const weekLabel = weekNum ? "Week " + weekNum : "";
-  const headers = ["Rank", "Player Name", "Standing", "Abs Standing", "Win %", weekLabel];
-  const rows = [headers];
-
-  activeOrdered.forEach((p, idx) => {
-    const pctVal = p.cumPct !== undefined ? (p.cumPct * 100).toFixed(1) + "%" : (p.pct !== undefined ? p.pct + "%" : "");
-    rows.push([
-      idx + 1,
-      p.name,
-      p.primaryStr || "",
-      p.method2Str || "",
-      pctVal,
-      p.isPctRanked ? "Merit (>4 wks)" : "Bounded (<=4 wks)"
-    ]);
-  });
+  const ordered = computeMixedRankings(activePlayers);
 
   rankSheet.clearContents();
-  rankSheet.getRange(1, 1, rows.length, headers.length).setValues(rows);
-  rankSheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
+  rankSheet.getRange(1, 1, 1, 6).setValues([[
+    'Rank',
+    'Name',
+    'Pt %',
+    'Pts',
+    'Weeks',
+    'Tier'
+  ]]);
+
+  if (ordered.length > 0) {
+    const rows = ordered.map(p => [
+      p.rank,
+      p.name,
+      Number(p.pct.toFixed(2)),
+      p.total,
+      p.weeks,
+      p.isPctRanked ? '> 4 Weeks (Pt %)' : '<= 4 Weeks (Bounded Movement)'
+    ]);
+    rankSheet.getRange(2, 1, rows.length, 6).setValues(rows);
+  }
 }
+
+
+
+
 
 
 
@@ -4228,3 +4193,249 @@ function buildAuthoritativeRankLookup(ss, groupName, scoreSheet) {
 }
 
 
+
+function computeMixedRankings(activePlayers) {
+  const n = activePlayers.length;
+  if (n === 0) return [];
+
+  // 1. Normalize metrics & compute unconstrained merit order (Pt % descending)
+  const normalized = activePlayers.map((p, idx) => {
+    const weeks = Number(p.weeks) || 0;
+    const total = Number(p.total) || 0;
+    const maxPts = weeks * 45;
+    let pct = maxPts > 0 ? (total / maxPts) * 100 : (Number(p.pct) || 0);
+    if (pct > 0 && pct <= 1 && total > 0) pct = pct * 100;
+
+    const priorRank = Number(p.priorRank ?? p.prevRank) || 0;
+    const hasPrior = Boolean(p.hasPrior || priorRank > 0);
+
+    return {
+      ...p,
+      rowIndex: p.rowIndex || (idx + 2),
+      weeks: weeks,
+      total: total,
+      maxPts: maxPts,
+      pct: pct,
+      cumPct: pct / 100,
+      priorRank: priorRank,
+      priorNumPeople: Number(p.priorNumPeople) || n,
+      priorPercent: (p.priorPercent !== undefined && p.priorPercent !== null)
+        ? p.priorPercent
+        : (priorRank > 0 ? (priorRank / n) * 100 : null),
+      hasPrior: hasPrior,
+      isPctRanked: (weeks > 4 || maxPts > 180),
+      _origIdx: idx
+    };
+  });
+
+  // Assign merit rank (sortVal: 1 = highest Pt %)
+  const byMerit = [...normalized].sort((a, b) =>
+    b.pct - a.pct ||
+    b.total - a.total ||
+    (a.priorRank || (n + 1)) - (b.priorRank || (n + 1)) ||
+    a._origIdx - b._origIdx
+  );
+
+  const meritMap = new Map();
+  byMerit.forEach((p, idx) => {
+    meritMap.set(p.rowIndex, idx + 1);
+  });
+
+  const sourcePlayers = normalized.map(p => ({
+    ...p,
+    sortVal: meritMap.get(p.rowIndex)
+  }));
+
+  // 2. Use the unified bounded-window solver so >4 week and <=4 week players
+  //    interleave into a single 1..N list
+  if (typeof computeBoundedRanks === 'function') {
+    const baseMove = (typeof MAX_MOVEMENT_PCT !== 'undefined' && MAX_MOVEMENT_PCT > 0)
+      ? Math.max(1, Math.round((MAX_MOVEMENT_PCT / 100) * n))
+      : ((typeof MAX_MOVEMENT !== 'undefined') ? MAX_MOVEMENT : 6);
+
+    const solved = computeBoundedRanks(sourcePlayers, n, baseMove, true);
+    const byUid = new Map();
+    sourcePlayers.forEach(p => byUid.set(p.rowIndex, p));
+
+    return solved.items
+      .slice()
+      .sort((a, b) => a.finalRank - b.finalRank)
+      .map(item => {
+        const orig = byUid.get(item.uid) || {};
+        return {
+          ...orig,
+          rank: item.finalRank,
+          isPctRanked: item.isPctRanked,
+          restrictionSuffix: item.restrictionSuffix || ''
+        };
+      });
+  }
+
+  // Fallback if computeBoundedRanks is unavailable
+  return byMerit.map((p, idx) => ({
+    ...p,
+    rank: idx + 1
+  }));
+}
+
+
+function getRankingsAndSchedData(groupName) {
+  const ss = (typeof getDb === 'function') ? getDb() : SpreadsheetApp.getActiveSpreadsheet();
+  const cleanGroup = String(groupName || 'Womens').replace(/^(Score|Sched|Rankings)\s*/i, '').trim();
+
+  const scoreSheet = (typeof getScoreSheetByGroup === 'function' ? getScoreSheetByGroup(cleanGroup) : null)
+    || ss.getSheetByName('Score ' + cleanGroup)
+    || ss.getSheetByName(cleanGroup);
+  const schedSheet = ss.getSheetByName('Sched ' + cleanGroup);
+
+  if (!scoreSheet) {
+    throw new Error('Score sheet not found for group: ' + cleanGroup);
+  }
+
+  const data = scoreSheet.getDataRange().getValues();
+  const activePlayers = [];
+
+  if (data.length >= 2) {
+    const col = buildColMap(data[0]);
+    const weekIndices = [];
+    for (let w = 1; w <= 10; w++) {
+      if (col['w' + w] !== undefined) weekIndices.push(col['w' + w]);
+    }
+
+    const rColsDesc = [];
+    for (let w = 10; w >= 1; w--) {
+      if (col['r' + w] !== undefined) rColsDesc.push(col['r' + w]);
+    }
+
+    // Count active rows first so prior standings scale to the active field
+    let totalActiveCount = 0;
+    for (let r = 1; r < data.length; r++) {
+      const row = data[r];
+      const first = col.first !== undefined ? String(row[col.first] || '').trim() : '';
+      const last  = col.last  !== undefined ? String(row[col.last]  || '').trim() : '';
+      const name  = (first || last)
+        ? `${first} ${last}`.trim()
+        : (col.name !== undefined ? String(row[col.name] || '').trim() : '');
+      if (!name) continue;
+      const status = col.status !== undefined
+        ? String(row[col.status] || '').trim().toUpperCase()
+        : 'ACTIVE';
+      if (status !== 'INACTIVE') totalActiveCount++;
+    }
+
+    for (let r = 1; r < data.length; r++) {
+      const row = data[r];
+      const first = col.first !== undefined ? String(row[col.first] || '').trim() : '';
+      const last  = col.last  !== undefined ? String(row[col.last]  || '').trim() : '';
+      const name  = (first || last)
+        ? `${first} ${last}`.trim()
+        : (col.name !== undefined ? String(row[col.name] || '').trim() : '');
+      if (!name) continue;
+
+      const status = col.status !== undefined
+        ? String(row[col.status] || '').trim().toUpperCase()
+        : 'ACTIVE';
+
+      if (status === 'INACTIVE') continue;
+
+      // Count played weeks and cumulative points directly from W1..W10
+      let total = 0;
+      let weeks = 0;
+      for (let i = 0; i < weekIndices.length; i++) {
+        const rawVal = row[weekIndices[i]];
+        if (rawVal !== '' && rawVal !== null && rawVal !== undefined && !isNaN(Number(rawVal))) {
+          total += Number(rawVal);
+          weeks++;
+        }
+      }
+
+      const maxPts = weeks * 45;
+      let pct = 0;
+      if (maxPts > 0) {
+        pct = (total / maxPts) * 100;
+      } else if (col.winPct !== undefined && row[col.winPct] !== '' && !isNaN(Number(row[col.winPct]))) {
+        const rawPct = Number(row[col.winPct]);
+        pct = (rawPct > 0 && rawPct <= 1) ? rawPct * 100 : rawPct;
+      }
+
+      // Extract prior standing (RNum -> NewLeft -> latest R10..R1)
+      let priorRank = 0;
+      let priorNumPeople = totalActiveCount;
+      let priorPercent = null;
+      let hasPrior = false;
+
+      const directRank = (col.rnum !== undefined && Number(row[col.rnum]) > 0)
+        ? Number(row[col.rnum])
+        : (col.newleft !== undefined && Number(row[col.newleft]) > 0)
+          ? Number(row[col.newleft])
+          : 0;
+
+      if (directRank > 0) {
+        priorRank = directRank;
+        priorNumPeople = totalActiveCount;
+        priorPercent = totalActiveCount > 0 ? (directRank / totalActiveCount) * 100 : null;
+        hasPrior = true;
+      } else if (typeof safeParseRankVal === 'function') {
+        for (let c = 0; c < rColsDesc.length; c++) {
+          const parsed = safeParseRankVal(row[rColsDesc[c]], 0, totalActiveCount);
+          if (parsed && parsed.hasPrior && parsed.rank > 0) {
+            priorRank = parsed.rank;
+            priorNumPeople = parsed.numPeople || totalActiveCount;
+            priorPercent = parsed.percent;
+            hasPrior = true;
+            break;
+          }
+        }
+      }
+
+      activePlayers.push({
+        rowIndex: r + 1,
+        name: name,
+        status: status,
+        total: total,
+        weeks: weeks,
+        maxPts: maxPts,
+        pct: pct,
+        prevRank: priorRank,
+        priorRank: priorRank,
+        priorNumPeople: priorNumPeople,
+        priorPercent: priorPercent,
+        hasPrior: hasPrior
+      });
+    }
+  }
+
+  const ordered = computeMixedRankings(activePlayers);
+
+  const rankings = ordered.map(p => ({
+    rank: p.rank,
+    name: p.name,
+    pct: Number(p.pct.toFixed(2)),
+    total: p.total,
+    weeks: p.weeks,
+    isPctRanked: p.isPctRanked
+  }));
+
+  let activeWeek = 1;
+  let schedule = [];
+
+  if (schedSheet) {
+    activeWeek = Number(schedSheet.getRange('N1').getValue()) || 1;
+    const schedLastRow = schedSheet.getLastRow();
+    if (schedLastRow >= 2) {
+      const numCols = Math.min(13, schedSheet.getLastColumn());
+      if (numCols > 0) {
+        schedule = schedSheet.getRange(2, 1, schedLastRow - 1, numCols).getValues();
+      }
+    }
+  }
+
+  return {
+    success: true,
+    group: cleanGroup,
+    week: activeWeek,
+    note: 'Players with > 4 weeks (> 180 possible points) are ranked by Pt %; players with ≤ 4 weeks have bounded weekly movement, mixed into one unified list.',
+    rankings: rankings,
+    schedule: schedule
+  };
+}

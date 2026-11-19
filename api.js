@@ -1484,6 +1484,9 @@ function isValidEmail(emailStr) {
 /**
  * Loads schedule and rankings data for the active group and renders into viewerContent
  */
+/**
+ * Loads schedule and rankings data for the active group and renders into viewerContent
+ */
 async function loadRankingsAndSched(targetGroup = null) {
   const checkedRadio = document.querySelector('input[name="helpGroupRadio"]:checked, input[name="checkinGroupRadio"]:checked, input[name="adminGroupRadio"]:checked');
   const group = targetGroup
@@ -1528,42 +1531,19 @@ async function loadRankingsAndSched(targetGroup = null) {
 
     if (statusEl) statusEl.innerText = '';
 
-    let htmlContent = '';
-    if (typeof res === 'string') {
-      htmlContent = res;
-    } else if (res && typeof res.html === 'string') {
-      htmlContent = res.html;
-    } else if (res && typeof res.data === 'string') {
-      htmlContent = res.data;
-    } else if (res && res.data && typeof res.data.html === 'string') {
-      htmlContent = res.data.html;
-    } else if (res && typeof res.result === 'string') {
-      htmlContent = res.result;
-    } else {
-      htmlContent = `<i>No renderable schedule data returned for group "${group}".</i>`;
+    if (!res || (res.success === false && !Array.isArray(res.rankings) && typeof res.html !== 'string')) {
+      const errMsg = (res && (res.message || res.error)) || `No renderable data returned for group "${group}".`;
+      contentEl.innerHTML = `<i>${errMsg}</i>`;
+      return;
     }
 
-    contentEl.innerHTML = htmlContent;
-
-    // Ensure INACTIVE cells are never clipped by narrow Rank column CSS and stand out clearly
-    contentEl.querySelectorAll('table tr').forEach(tr => {
-      const firstCell = tr.querySelector('td');
-      if (!firstCell) return;
-      const cellText = firstCell.textContent.trim().toUpperCase();
-      if (cellText === 'INACTIVE') {
-        tr.style.opacity = '0.75';
-        tr.style.backgroundColor = '#f8f9fa';
-        firstCell.style.whiteSpace = 'nowrap';
-        firstCell.style.minWidth = '85px';
-        firstCell.innerHTML = '<span style="display:inline-block; padding:2px 6px; border-radius:4px; background:#6c757d; color:#fff; font-size:0.8rem; font-weight:bold;">INACTIVE</span>';
-      }
-    });
-
+    renderRankingsAndSchedule(res);
   } catch (e) {
     console.error("💥 Error loading schedule & standings:", e);
     if (statusEl) statusEl.innerText = e.message || "Network error loading data.";
   }
 }
+
 
 
 
@@ -2392,67 +2372,155 @@ function submitSingleGameScore(gameNum, btnElement) {
 /**
  * Renders rankings and omits schedule as requested.
  */
-function renderRankingsAndSchedule(data) {
+/**
+ * Renders rankings JSON (or legacy HTML string) into #viewerContent.
+ */
+/**
+ * Renders rankings JSON (or legacy HTML string) into #viewerContent.
+ * Columns: Rank | Name | Pt % | Pts | Weeks
+ */
+/**
+ * Renders rankings JSON (or legacy HTML string) into #viewerContent.
+ * Preserves the unified mixed 1..N ranking order returned by the backend.
+ * Columns: Rank | Name | Pt % | Pts | Weeks
+ */
+function renderRankingsAndSchedule(rawData) {
   const viewerContent = document.getElementById('viewerContent');
   if (!viewerContent) return;
+
+  const esc = (val) => String(val ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+  const data = (rawData && typeof rawData === 'object' && rawData.data && typeof rawData.data === 'object' && !Array.isArray(rawData.data))
+    ? rawData.data
+    : rawData;
 
   if (typeof data === 'string') {
     viewerContent.innerHTML = data;
     return;
   }
 
-  if (data.html) {
+  if (data && typeof data.html === 'string') {
     viewerContent.innerHTML = data.html;
     return;
   }
 
-  let html = `<h4 style="margin-top:1rem; margin-bottom:0.5rem;"> Ranking CODE/Model changed. Moved to rank as percent of active instead of absolute number since changing actives sizes often made +-4 limit impossible. Now its +- relative to % rank but even that may be ocassionally violated if you are new or if active sizes changes a lot.</h4>`;      
-
-  const rankingsList = data.rankings || data.ranks || data.standings || data.players;
-
-  if (rankingsList && Array.isArray(rankingsList) && rankingsList.length > 0) {
-    html += `
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>Rank</th>
-            <th>Player</th>
-            <th>Points</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-    `;
-    rankingsList.forEach((r, idx) => {
-      if (typeof r === 'string') {
-        html += `<tr><td colspan="4">${r}</td></tr>`;
-      } else {
-        const rank = r.rank || idx + 1;
-        const name = r.name || `${r.first || ''} ${r.last || ''}`.trim();
-        const score = r.points ?? r.score ?? r.pct ?? r.total ?? '';
-        const status = r.status || 'Active';
-        html += `
-          <tr>
-            <td><b>${rank}</b></td>
-            <td>${name}</td>
-            <td>${score}</td>
-            <td><span class="status-badge ${status.toLowerCase() === 'active' ? 'status-active' : 'status-inactive'}">${status}</span></td>
-          </tr>
-        `;
-      }
-    });
-    html += `</tbody></table>`;
-  } else if (data.rankingsHtml) {
-    html += data.rankingsHtml;
-  }
-
-  if (!html) {
-    viewerContent.innerHTML = `<pre style="white-space:pre-wrap; word-break:break-word;">${JSON.stringify(data, null, 2)}</pre>`;
+  if (data && typeof data.rankingsHtml === 'string') {
+    viewerContent.innerHTML = data.rankingsHtml;
     return;
   }
 
+  const rawList = data && (data.rankings || data.ranks || data.standings || data.players);
+
+  if (!Array.isArray(rawList)) {
+    viewerContent.innerHTML = `<pre style="white-space:pre-wrap; word-break:break-word;">${esc(JSON.stringify(data, null, 2))}</pre>`;
+    return;
+  }
+
+  // Keep active players in the exact unified mixed rank order from the backend, with INACTIVE rows at the bottom
+  const activeRows = [];
+  const inactiveRows = [];
+
+  rawList.forEach((r) => {
+    if (!r || typeof r !== 'object') {
+      activeRows.push(r);
+      return;
+    }
+    const statusStr = String(r.status || 'ACTIVE').trim().toUpperCase();
+    if (statusStr === 'INACTIVE') {
+      inactiveRows.push(r);
+    } else {
+      activeRows.push(r);
+    }
+  });
+
+  activeRows.sort((a, b) => (Number(a?.rank) || 9999) - (Number(b?.rank) || 9999));
+  const rankingsList = [...activeRows, ...inactiveRows];
+
+  const groupLabel = data.group ? `${esc(data.group)} ` : '';
+  const weekLabel = data.week ? ` (Through Week ${esc(data.week)})` : '';
+  const ruleNote = data.note
+    || 'Players with > 4 weeks (> 180 possible points) are ranked by Pt %; players with ≤ 4 weeks have bounded weekly movement, mixed into one unified list.';
+
+  let html = `
+    <div style="margin-bottom:0.75rem;">
+      <h4 style="margin:0 0 0.4rem 0;">${groupLabel}Standings${weekLabel}</h4>
+      <div style="font-size:0.9rem; color:#495057; background:#f8f9fa; border-left:4px solid #0d6efd; padding:0.5rem 0.75rem; border-radius:4px;">
+        ${esc(ruleNote)}
+      </div>
+    </div>
+  `;
+
+  if (rankingsList.length === 0) {
+    html += `<p style="color:#666; font-style:italic;">No active rankings recorded yet for ${esc(data.group || 'this group')}.</p>`;
+    viewerContent.innerHTML = html;
+    return;
+  }
+
+  html += `
+    <table class="data-table" style="width:100%; border-collapse:collapse;">
+      <thead>
+        <tr>
+          <th style="text-align:center;">Rank</th>
+          <th style="text-align:left;">Name</th>
+          <th style="text-align:right;">Pt %</th>
+          <th style="text-align:right;">Pts</th>
+          <th style="text-align:center;">Weeks</th>
+        </tr>
+      </thead>
+      <tbody>
+  `;
+
+  rankingsList.forEach((r, idx) => {
+    if (typeof r === 'string') {
+      html += `<tr><td colspan="5">${esc(r)}</td></tr>`;
+      return;
+    }
+
+    const statusStr = String(r.status || 'ACTIVE').trim().toUpperCase();
+    const isInactive = statusStr === 'INACTIVE';
+    const rankNum = r.rank ?? (idx + 1);
+    const rankDisplay = isInactive
+      ? '<span style="display:inline-block; padding:2px 6px; border-radius:4px; background:#6c757d; color:#fff; font-size:0.8rem; font-weight:bold;">INACTIVE</span>'
+      : `<b>${esc(rankNum)}</b>`;
+
+    const name = esc(r.name || `${r.first || ''} ${r.last || ''}`.trim());
+    const weeks = Number(r.weeks ?? 0);
+    const totalPts = Number(r.total ?? r.points ?? r.score ?? 0);
+    const pctNum = typeof r.pct === 'number' ? r.pct : parseFloat(r.pct);
+    const pctDisplay = !isNaN(pctNum) ? `${pctNum.toFixed(1)}%` : '';
+    const isBounded = !isInactive && (r.isPctRanked === false || weeks <= 4);
+    const boundedTag = isBounded
+      ? ' <span title="≤ 4 weeks played (bounded weekly movement)" style="font-size:0.75rem; color:#6c757d;">*</span>'
+      : '';
+
+    html += `
+      <tr style="${isInactive ? 'opacity:0.75; background-color:#f8f9fa;' : ''}">
+        <td style="text-align:center; white-space:nowrap;">${rankDisplay}</td>
+        <td>${name}${boundedTag}</td>
+        <td style="text-align:right; font-weight:600;">${esc(pctDisplay)}</td>
+        <td style="text-align:right;">${esc(totalPts)}</td>
+        <td style="text-align:center;">${esc(weeks)}</td>
+      </tr>
+    `;
+  });
+
+  html += `
+      </tbody>
+    </table>
+    <div style="margin-top:0.5rem; font-size:0.8rem; color:#6c757d;">
+      * ≤ 4 weeks played (bounded weekly movement rule applied within unified standings)
+    </div>
+  `;
+
   viewerContent.innerHTML = html;
 }
+
+
+
 
 
 
