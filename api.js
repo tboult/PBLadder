@@ -1809,7 +1809,6 @@ window.unifiedRosterCache = {
  * Updates status banner display at top of Enter Scores tab
  */
 function updateAutoCheckinBanner(message, type = 'success') {
-function updateAutoCheckinBanner(message, type = 'success') {
   const banner = document.getElementById('scoreAutoCheckinBanner') || document.getElementById('autoCheckinStatusBanner');
     if (!banner) return;
 
