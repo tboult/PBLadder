@@ -33,6 +33,24 @@
     <span class="loading-spinner"></span>
     <span id="globalLoaderText">Loading data...</span>
   </div>
+<script>
+  // Failsafe: never trap the user on "Loading data..." if a script fails
+  setTimeout(function () {
+    var loader = document.getElementById('globalLoader');
+    if (loader) loader.style.display = 'none';
+  }, 4000);
+
+  // Auto-reload when sw.js updates
+  if ('serviceWorker' in navigator) {
+    var swReloading = false;
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (!swReloading) {
+        swReloading = true;
+        window.location.reload();
+      }
+    });
+  }
+</script>
 
   <!-- TOP WELCOME BANNER -->
   <div id="welcomeBanner" style="display: none; background: var(--bg-color, #f0f4f8); border: 1px solid var(--input-border, #ccc); border-radius: 8px; padding: 0.5rem 1rem; margin-bottom: 0.5rem; text-align: center; font-size: 1.05rem; font-weight: 500;">
@@ -519,8 +537,8 @@
   </div>
 
   <!-- Script Dependencies -->
-  <script src="api-fixed.js"></script>
-  <script src="api.js"></script>
-  <script src="admin.js"></script>
+<script src="api-fixed.js?v=1.0.1"></script>
+<script src="api.js?v=1.0.1"></script>
+<script src="admin.js?v=1.0.1"></script>
 </body>
 </html>
