@@ -112,42 +112,75 @@ function filterAdminPlayers() {
 }
 
 
-async function submitAdminRegistration() {
-  const first = document.getElementById('adminRegFirst')?.value.trim() || '';
-  const last = document.getElementById('adminRegLast')?.value.trim() || '';
-  const phone = document.getElementById('adminRegPhone')?.value.trim() || '';
-  const email = document.getElementById('adminRegEmail')?.value.trim() || '';
-  const group = getAdminSelectedGroup();
+async function submitAdminRegistration(event) {
+  if (event) event.preventDefault();
 
-  if (!first || !last || !phone) {
-    alert('Please provide first name, last name, and phone number.');
+  const nameInput = document.getElementById('adminRegName');
+  const phoneInput = document.getElementById('adminRegPhone');
+  const groupInput = document.getElementById('adminRegGroup');
+  const statusEl = document.getElementById('adminStatus');
+
+  const name = (nameInput?.value || '').trim();
+  const phone = (phoneInput?.value || '').trim();
+  const group = groupInput?.value || window.currentGroup || 'Tuesday';
+
+  if (!name || !phone) {
+    if (statusEl) {
+      statusEl.textContent = 'Error: Name and phone number are required.';
+      statusEl.className = 'status-error';
+    }
     return;
   }
 
-  const statusEl = document.getElementById('adminStatus');
-  if (statusEl) statusEl.innerText = 'Adding pending player...';
+  if (statusEl) {
+    statusEl.textContent = 'Adding player...';
+    statusEl.className = 'status-info';
+  }
 
   try {
-    const res = await apiCall('addNewUser', { 
-        first, last, phone, email, 
-        group: group, groupName: group,
-        sheet: "Sched " + group
-    });
-    
-    if (res && (res.success || !res.error)) {
-      if (statusEl) statusEl.innerText = '✅ Player added successfully!';
-      if (document.getElementById('adminRegFirst')) document.getElementById('adminRegFirst').value = '';
-      if (document.getElementById('adminRegLast')) document.getElementById('adminRegLast').value = '';
-      if (document.getElementById('adminRegPhone')) document.getElementById('adminRegPhone').value = '';
-      if (document.getElementById('adminRegEmail')) document.getElementById('adminRegEmail').value = '';
-      await loadAdminPlayerStatusCache(group, true);
-    } else {
-      if (statusEl) statusEl.innerText = '❌ Failed: ' + (res.message || 'Error');
+    const res = await apiCall('addNewUser', { name, phone, group });
+    const msg = typeof res === 'string'
+      ? res
+      : (res?.data || res?.message || '');
+
+    const isError = /^error\b/i.test(msg) || Boolean(res?.error);
+    const isNotice = /^⚠️|^notice\b/i.test(msg) || Boolean(res?.notice);
+
+    if (isError) {
+      if (statusEl) {
+        statusEl.textContent = msg || 'Error: Unable to add player.';
+        statusEl.className = 'status-error';
+      }
+      return;
+    }
+
+    if (isNotice) {
+      if (statusEl) {
+        statusEl.textContent = msg;
+        statusEl.className = 'status-warning';
+      }
+      return;
+    }
+
+    if (statusEl) {
+      statusEl.textContent = msg || '✅ Player added successfully!';
+      statusEl.className = 'status-success';
+    }
+
+    if (nameInput) nameInput.value = '';
+    if (phoneInput) phoneInput.value = '';
+
+    if (typeof loadUnifiedRoster === 'function') {
+      await loadUnifiedRoster(true);
     }
   } catch (err) {
-    if (statusEl) statusEl.innerText = '❌ Network error adding player.';
+    if (statusEl) {
+      statusEl.textContent = 'Error: ' + (err.message || err);
+      statusEl.className = 'status-error';
+    }
   }
 }
+
 
 async function runAdmin(actionName, extraPayload = {}) {
   const statusEl = document.getElementById('adminStatus');
@@ -494,23 +527,7 @@ function setTargetGroup(newGroup) {
   adminCacheTimestamp = 0;
 }
 
-async function generateTestGroupSheets() {
-  const statusEl = document.getElementById('adminStatus');
-  if (statusEl) statusEl.innerText = 'Copying Mens sheets to TG test sheets...';
 
-  try {
-    const res = await apiCall('createTestGroupSheets', {});
-    if (res && (res.success || (res.data && res.data.success))) {
-      if (statusEl) statusEl.innerText = '✅ Test sheets created from Mens!';
-    } else {
-      if (statusEl) statusEl.innerText = '❌ Failed to create test sheets.';
-    }
-    return res;
-  } catch (err) {
-    if (statusEl) statusEl.innerText = '❌ Error copying test sheets.';
-    throw err;
-  }
-}
 
 async function loadAdminGroupSelector() {
   const selectEl = document.getElementById('adminGroupSelect');
@@ -541,14 +558,7 @@ async function onAdminGroupChange(newGroup) {
   await loadAdminPlayerData(newGroup, true);
 }
 
-async function setTestGroup(enabled) {
-  try {
-    return await apiCall('setTestGroupState', { enabled: enabled });
-  } catch (err) {
-    console.error('Error in setTestGroup:', err);
-    throw err;
-  }
-}
+
 
 async function reloadAdminScores() {
   const groupName = getAdminSelectedGroup();
@@ -831,75 +841,84 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 });
 
-async function runRescheduleCheckedIn() {
-  const groupName = getAdminSelectedGroup();
-  const selectedCourts = getSelectedCourts();
-  const isOptimized = Boolean(document.getElementById('optimize-byes-checkbox')?.checked);
-  
-  // Explicitly pick backend target endpoint
-  const targetEndpoint = isOptimized ? 'rescheduleFromCheckInsOptimized' : 'rescheduleFromCheckIns';
-
-  if (!groupName) return alert('Please select a target group.');
-  if (selectedCourts.length === 0) return alert('Please select at least one court checkbox.');
-
+async function runRescheduleCheckedIn(mode = 'strict') {
+  const group = document.getElementById('adminGroupSelect')?.value || window.currentGroup || 'Tuesday';
+  const courts = Number(document.getElementById('adminCourtCount')?.value) || 0;
   const statusEl = document.getElementById('adminStatus');
-  if (statusEl) statusEl.innerText = `Rescheduling checked-in players (${isOptimized ? 'Optimized' : 'Strict'})...`;
+
+  const action = mode === 'optimized'
+    ? 'rescheduleCheckedInOptimized'
+    : 'rescheduleCheckedInStrict';
+
+  if (statusEl) {
+    statusEl.textContent = `Rescheduling checked-in players (${mode}) for ${group}...`;
+    statusEl.className = 'status-info';
+  }
 
   try {
-    const res = await apiCall(targetEndpoint, {
-      group: groupName,
-      groupName: groupName,
-      sheet: "Sched " + groupName,
-      courts: selectedCourts,
-      checkedInOnly: true
-    });
+    const res = await apiCall(action, { group, courts });
+    const msg = typeof res === 'string'
+      ? res
+      : (res?.data || res?.message || `✅ Checked-in schedule (${mode}) generated for ${group}.`);
 
-    if (res && (res.success || !res.error)) {
-      if (statusEl) statusEl.innerText = `✅ Rescheduled checked-in players successfully!`;
-      await loadAdminPlayerStatusCache(groupName, true);
-    } else {
-      if (statusEl) statusEl.innerText = '❌ Reschedule failed: ' + (res?.message || res?.error || 'Error');
+    const hasWarning = /insufficient courts|warning|⚠️|error/i.test(msg);
+
+    if (statusEl) {
+      statusEl.textContent = msg;
+      statusEl.className = hasWarning ? 'status-warning' : 'status-success';
+    }
+
+    if (typeof refreshAdminScheduleView === 'function') {
+      await refreshAdminScheduleView(group);
     }
   } catch (err) {
-    console.error("runRescheduleCheckedIn error:", err);
-    if (statusEl) statusEl.innerText = '❌ Error performing reschedule.';
+    if (statusEl) {
+      statusEl.textContent = 'Error: ' + (err.message || err);
+      statusEl.className = 'status-error';
+    }
   }
 }
 
-async function runRescheduleActive() {
-  const groupName = getAdminSelectedGroup();
-  const selectedCourts = getSelectedCourts();
-  const isOptimized = Boolean(document.getElementById('optimize-byes-checkbox')?.checked);
-
-  // Explicitly pick backend target endpoint
-  const targetEndpoint = isOptimized ? 'ScheduleAllOptimized' : 'ScheduleAll';
-
-  if (!groupName) return alert('Please select a target group.');
-  if (selectedCourts.length === 0) return alert('Please select at least one court checkbox.');
-
+async function runRescheduleActive(mode = 'strict') {
+  const group = document.getElementById('adminGroupSelect')?.value || window.currentGroup || 'Tuesday';
+  const courts = Number(document.getElementById('adminCourtCount')?.value) || 0;
   const statusEl = document.getElementById('adminStatus');
-  if (statusEl) statusEl.innerText = `Rescheduling all active players (${isOptimized ? 'Optimized' : 'Strict'})...`;
+
+  const action = mode === 'optimized'
+    ? 'rescheduleActiveOptimized'
+    : 'rescheduleActiveStrict';
+
+  if (statusEl) {
+    statusEl.textContent = `Rescheduling active players (${mode}) for ${group}...`;
+    statusEl.className = 'status-info';
+  }
 
   try {
-    const res = await apiCall(targetEndpoint, {
-      group: groupName,
-      groupName: groupName,
-      sheet: "Sched " + groupName,
-      courts: selectedCourts,
-      checkedInOnly: false
-    });
+    const res = await apiCall(action, { group, courts });
+    const msg = typeof res === 'string'
+      ? res
+      : (res?.data || res?.message || `✅ Active schedule (${mode}) generated for ${group}.`);
 
-    if (res && (res.success || !res.error)) {
-      if (statusEl) statusEl.innerText = `✅ Rescheduled all active players successfully!`;
-      await loadAdminPlayerStatusCache(groupName, true);
-    } else {
-      if (statusEl) statusEl.innerText = '❌ Reschedule failed: ' + (res?.message || res?.error || 'Error');
+    const hasWarning = /insufficient courts|warning|⚠️|error/i.test(msg);
+
+    if (statusEl) {
+      statusEl.textContent = msg;
+      statusEl.className = hasWarning ? 'status-warning' : 'status-success';
+    }
+
+    if (typeof refreshAdminScheduleView === 'function') {
+      await refreshAdminScheduleView(group);
     }
   } catch (err) {
-    console.error("runRescheduleActive error:", err);
-    if (statusEl) statusEl.innerText = '❌ Error performing reschedule.';
+    if (statusEl) {
+      statusEl.textContent = 'Error: ' + (err.message || err);
+      statusEl.className = 'status-error';
+    }
   }
 }
+
+
+
 
 
 /**

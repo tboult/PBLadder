@@ -336,102 +336,55 @@ async function loadPlayerStatusFromCache(phone) {
 
 
 async function triggerAutoCheckIn() {
-  const scoreBanner = document.getElementById("scoreAutoCheckinBanner");
-  const scoreBadge = document.getElementById("pStatusDisplay");
-  const checkinBadge = document.getElementById("checkinPlayerStatusBadge");
-  const checkinStatusMsg = document.getElementById("checkInStatus");
-  const frontBadge = document.getElementById("frontStatusDisplay");
+  const savedPhone = typeof getSavedPhone === 'function' ? getSavedPhone() : '';
+  const savedName = typeof getSavedName === 'function' ? getSavedName() : '';
+  const targetPhoneDigits = String(savedPhone || '').replace(/\D/g, '').slice(-10);
+  const normalizedTargetName = String(savedName || '').trim().toLowerCase().replace(/\s+/g, ' ');
 
-  function updateAllTabStatuses(message, badgeText, bgHex, textHex) {
-    if (scoreBanner) {
-      scoreBanner.style.display = "block";
-      scoreBanner.innerText = message;
-      scoreBanner.style.backgroundColor = bgHex;
-      scoreBanner.style.color = textHex;
-    }
-    if (scoreBadge) scoreBadge.innerText = badgeText;
+  if (!targetPhoneDigits && !normalizedTargetName) return;
 
-    if (checkinBadge) {
-      checkinBadge.innerText = badgeText;
-      checkinBadge.style.backgroundColor = bgHex;
-      checkinBadge.style.color = textHex;
-    }
-    if (checkinStatusMsg) checkinStatusMsg.innerText = message;
+  const activeGroup = window.currentGroup || document.getElementById('groupSelect')?.value || 'Tuesday';
+  const roster = (window.unifiedRoster && window.unifiedRoster[activeGroup]) || [];
+  if (!roster.length) return;
 
-    if (frontBadge) {
-      frontBadge.innerText = badgeText;
-      frontBadge.style.setProperty("background-color", bgHex, "important");
-      frontBadge.style.setProperty("color", textHex, "important");
-    }
+  // 1. Prioritize exact normalized name match (for shared family phone numbers)
+  let matchedPlayer = null;
+  if (normalizedTargetName) {
+    matchedPlayer = roster.find(p =>
+      String(p.name || '').trim().toLowerCase().replace(/\s+/g, ' ') === normalizedTargetName
+    );
   }
 
-  updateAllTabStatuses("⏳ Auto checking in...", "Checking In...", "#ffc107", "#000000");
+  // 2. Fall back to 10-digit phone match only if no name match was found
+  if (!matchedPlayer && targetPhoneDigits) {
+    matchedPlayer = roster.find(p =>
+      String(p.phone || '').replace(/\D/g, '').slice(-10) === targetPhoneDigits
+    );
+  }
+
+  if (!matchedPlayer) return;
+
+  const currentStatus = String(matchedPlayer.checkedIn || '').trim().toLowerCase();
+  if (currentStatus === 'yes' || currentStatus === 'checked in' || currentStatus === 'true') {
+    return;
+  }
 
   try {
-    const savedPhone = typeof getSavedPhone === 'function' ? getSavedPhone() : (localStorage.getItem('scpb_saved_phone') || '');
-    const savedName = typeof getSavedName === 'function' ? getSavedName() : (localStorage.getItem('scpb_saved_name') || localStorage.getItem('scpb_player_name') || '');
-    const currentGroup = typeof getSavedGroup === 'function' ? getSavedGroup() : (localStorage.getItem('scpb_selected_group') || '');
-
-    if (!savedPhone && !savedName) {
-      updateAllTabStatuses("⚠️ No saved player details found.", "Not Registered", "#6c757d", "#ffffff");
-      return;
-    }
-
-    // Ensure current group roster is loaded into memory before checking status
-    if ((!window.cachedRoster || window.cachedRoster.length === 0) && currentGroup && typeof loadUnifiedRosterData === 'function') {
-      await loadUnifiedRosterData(currentGroup, false);
-    }
-
-    // Validate player existence and active/check-in status locally before hitting backend
-    if (window.cachedRoster && Array.isArray(window.cachedRoster)) {
-      const targetPhoneDigits = savedPhone.replace(/\D/g, '');
-      const player = window.cachedRoster.find(p => 
-        (p.phone && String(p.phone).replace(/\D/g, '') === targetPhoneDigits) ||
-        (p.name && p.name.toLowerCase() === savedName.toLowerCase())
-      );
-
-      if (player) {
-        if (player.active === false || player.active === 'false' || player.status === 'Inactive') {
-          updateAllTabStatuses("⛔ Inactive cannot check in", "Inactive", "#6c757d", "#ffffff");
-          return;
-        }
-        const isChecked = player.checkedIn === true || player.checkedIn === 'true' || player.isCheckedIn === true;
-        if (isChecked) {
-          updateAllTabStatuses("✅ Auto Checked-In Successfully", "Checked In", "#198754", "#ffffff");
-          return;
-        }
-      } else if (targetPhoneDigits && window.cachedRoster.length > 0) {
-        updateAllTabStatuses("⚠️ Player not found in this group.", "Not Registered", "#6c757d", "#ffffff");
-        return;
-      }
-    }
-
-    // Call check-in API
-    const res = await apiCall('toggleSingleCheckIn', {
-      sheet: "Sched " + currentGroup,
-      playerName: savedName,
-      phone: savedPhone,
-      groupName: currentGroup,
-      isCheckedIn: true
+    await apiCall('checkInPlayer', {
+      group: activeGroup,
+      name: matchedPlayer.name,
+      phone: matchedPlayer.phone || savedPhone,
+      status: 'Yes'
     });
-
-    // Check for Inactive state from backend response
-    if (res && (res.isInactive || res.message?.toLowerCase().includes("inactive"))) {
-      updateAllTabStatuses("⛔ Inactive cannot check in", "Inactive", "#6c757d", "#ffffff");
-      return;
-    }
-
-    if (res && (res.success || res.status === 'Checked In' || res.checkedIn)) {
-      updateAllTabStatuses("✅ Auto Checked-In Successfully", "Checked In", "#198754", "#ffffff");
-    } else {
-      const msg = res?.message || "Check-in failed";
-      updateAllTabStatuses(`⚠️ Auto Check-In: ${msg}`, "Not Checked In", "#dc3545", "#ffffff");
+    if (typeof loadUnifiedRoster === 'function') {
+      await loadUnifiedRoster(true);
     }
   } catch (err) {
-    console.error("Auto check-in error:", err);
-    updateAllTabStatuses("❌ Network Error during Auto Check-In", "Error", "#dc3545", "#ffffff");
+    console.error('Auto check-in failed:', err);
   }
 }
+
+
 
 // Single Consolidated Tab Refresh Handler
 async function refreshActiveTabData(forceRefresh = false) {
@@ -490,43 +443,57 @@ let checkInPlayersCache = [];
 
 // Replace renderCheckInPlayers to display just the auto-checked user
 function renderCheckInPlayers(players) {
-  logDebug(`📡 rendercheckinplayers : "${players}"...`);
-  const nameEl = document.getElementById('checkinPlayerName');
-  const badgeEl = document.getElementById('checkinPlayerStatusBadge');
-  const btnEl = document.getElementById('userCheckinBtn');
-  
-  if (!nameEl || !badgeEl || !btnEl) return;
+  const container = document.getElementById('checkInList');
+  if (!container) return;
 
-  const savedPhone = getSavedPhone();
-  const cleanPhone = savedPhone.replace(/\D/g, '');
+  const savedPhoneDigits = String((typeof getSavedPhone === 'function' ? getSavedPhone() : '') || '')
+    .replace(/\D/g, '')
+    .slice(-10);
+  const normalizedSavedName = String((typeof getSavedName === 'function' ? getSavedName() : '') || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
 
-  let currentUser = null;
-  if (players && players.length > 0) {
-     currentUser = players.find(p => String(p.phone || p.cell || p.playerId || '').replace(/\D/g, '') === cleanPhone);
+  // Match by name first so shared family phones highlight the right player
+  let selfPlayer = null;
+  if (normalizedSavedName) {
+    selfPlayer = (players || []).find(p =>
+      String(p.name || '').trim().toLowerCase().replace(/\s+/g, ' ') === normalizedSavedName
+    );
+  }
+  if (!selfPlayer && savedPhoneDigits) {
+    selfPlayer = (players || []).find(p =>
+      String(p.phone || '').replace(/\D/g, '').slice(-10) === savedPhoneDigits
+    );
   }
 
-  if (!currentUser) {
-     nameEl.innerText = 'Player not found in this group.';
-     badgeEl.innerText = 'N/A';
-     badgeEl.className = 'status-badge';
-     btnEl.style.display = 'none';
-     return;
-  }
+  container.innerHTML = '';
 
-  const displayName = currentUser.name || `${currentUser.first || ''} ${currentUser.last || ''}`.trim();
-  nameEl.innerText = displayName;
+  (players || []).forEach(player => {
+    const isSelf = selfPlayer && player.name === selfPlayer.name;
+    const isCheckedIn = ['yes', 'checked in', 'true'].includes(
+      String(player.checkedIn || '').trim().toLowerCase()
+    );
 
-  const isChecked = currentUser.checkedIn === true || currentUser.checkedIn === 'true' || currentUser.checked === true;
-  badgeEl.innerText = isChecked ? 'Checked In' : 'Not Checked In';
-  badgeEl.className = isChecked ? 'status-badge status-active' : 'status-badge status-inactive';
+    const row = document.createElement('div');
+    row.className = 'checkin-row' + (isSelf ? ' highlight-self' : '');
 
-  btnEl.style.display = 'inline-block';
-  btnEl.innerText = isChecked ? 'Cancel Check-In' : 'Check In';
-  
-  btnEl.setAttribute('data-phone', currentUser.phone || savedPhone);
-  btnEl.setAttribute('data-name', displayName);
-  btnEl.setAttribute('data-checked', isChecked);
+    const label = document.createElement('span');
+    label.className = 'player-name';
+    label.textContent = player.name + (isSelf ? ' (You)' : '');
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = isCheckedIn ? 'btn-checked-in' : 'btn-check-in';
+    btn.textContent = isCheckedIn ? 'Checked In ✓' : 'Check In';
+    btn.onclick = () => togglePlayerCheckIn(player.name, player.phone, !isCheckedIn);
+
+    row.appendChild(label);
+    row.appendChild(btn);
+    container.appendChild(row);
+  });
 }
+
 
 // Add the new check-in functionality handler for the single user view
 async function toggleUserCheckin() {
@@ -706,105 +673,79 @@ function showToast(message, type = 'info') {
 
 
 
-async function submitUserRegistration() {
-  // Helper to find the active non-empty value across duplicate input IDs
-  const getInputValue = (...ids) => {
-    for (const id of ids) {
-      const el = document.getElementById(id);
-      if (el && el.value && el.value.trim() !== '') {
-        return el.value.trim();
-      }
+async function submitUserRegistration(event) {
+  if (event) event.preventDefault();
+
+  const nameInput = document.getElementById('regName');
+  const phoneInput = document.getElementById('regPhone');
+  const groupInput = document.getElementById('regGroup');
+  const statusEl = document.getElementById('regStatus');
+
+  const name = (nameInput?.value || '').trim();
+  const phone = (phoneInput?.value || '').trim();
+  const group = groupInput?.value || window.currentGroup || 'Tuesday';
+
+  if (!name || !phone) {
+    if (statusEl) {
+      statusEl.textContent = 'Please enter both your full name and phone number.';
+      statusEl.className = 'status-error';
     }
-    return '';
-  };
-
-  // 1. READ FIELD VALUES
-  const first = getInputValue('frontRegFirst', 'regFirst');
-  const last = getInputValue('frontRegLast', 'regLast');
-  const phone = getInputValue('frontRegPhone', 'regPhone');
-  const email = getInputValue('frontRegEmail', 'regEmail');
-  const comment = getInputValue('frontRegComment', 'regComment', 'userComment');
-
-  // 2. READ GROUP FROM SELECTOR OR LOCAL STORAGE
-  const topGroupSelect = document.getElementById('groupSelect') || 
-                         document.getElementById('groupDropdown') || 
-                         document.getElementById('adminGroupSelect');
-
-  const group = (typeof getSavedGroup === 'function' ? getSavedGroup() : '') || 
-                (topGroupSelect ? topGroupSelect.value : '');
-
-  // Log values for easy debugging
-  logDebug("🔍 Registration Attempt Values:", { first, last, phone, email, group, comment });
-
-  // 3. VALIDATE GROUP SELECTION
-  if (!group) {
-    alert('⚠️ Please choose a Group at the top of the page before submitting registration.');
     return;
   }
 
-  // 4. VALIDATE REQUIRED USER FIELDS
-  if (!first || !last || !phone) {
-    let missing = [];
-    if (!first) missing.push("First Name");
-    if (!last) missing.push("Last Name");
-    if (!phone) missing.push("Phone Number");
-
-    alert(`⚠️ Please fill out required field(s): ${missing.join(', ')}`);
-    return;
+  if (statusEl) {
+    statusEl.textContent = 'Submitting registration...';
+    statusEl.className = 'status-info';
   }
-
-  const statusEl = document.getElementById('phoneStatus');
-  if (statusEl) statusEl.innerText = 'Submitting registration...';
 
   try {
-    document.body.style.cursor = 'wait';
+    const res = await apiCall('addNewUser', { name, phone, group });
+    const responseMsg = typeof res === 'string'
+      ? res
+      : (res?.data || res?.message || res?.result || '');
 
-    // Call backend Apps Script
-    const res = await apiCall('addNewUser', { 
-      first, 
-      last, 
-      phone, 
-      email, 
-      group,
-      comment
-    });
-
-    // Clean up response string (handle both raw string or object responses)
-    const responseMsg = typeof res === 'string' ? res : (res.message || res.result || JSON.stringify(res));
-
-    // Evaluate response type from backend message prefix
-    const isError = responseMsg.toLowerCase().startsWith('error') || (res && res.error);
-    const isNotice = responseMsg.includes('⚠️ Notice:');
-    const isSuccess = responseMsg.includes('✅ Success:');
+    const isError = /^error\b/i.test(responseMsg) || Boolean(res?.error);
+    const isNotice = /^⚠️|^notice\b/i.test(responseMsg) || Boolean(res?.notice);
 
     if (isError) {
-      alert(`❌ Registration failed:\n\n${responseMsg}`);
-      if (statusEl) statusEl.innerText = '❌ Registration failed.';
-    } else if (isNotice) {
-      // Handles duplicate player or potential match updates
-      alert(responseMsg);
-      if (statusEl) statusEl.innerText = responseMsg;
-    } else if (isSuccess || responseMsg) {
-      // Handles new successful addition
-      alert(responseMsg);
+      if (statusEl) {
+        statusEl.textContent = responseMsg || 'Registration failed.';
+        statusEl.className = 'status-error';
+      }
+      return;
+    }
 
-      // Clear input fields on success
-      ['frontRegFirst', 'regFirst', 'frontRegLast', 'regLast', 'frontRegPhone', 'regPhone', 'frontRegEmail', 'regEmail', 'frontRegComment', 'regComment'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.value = '';
-      });
+    if (isNotice) {
+      if (statusEl) {
+        statusEl.textContent = responseMsg;
+        statusEl.className = 'status-warning';
+      }
+      return;
+    }
 
-      if (typeof cancelRegistration === 'function') cancelRegistration();
-      if (statusEl) statusEl.innerText = '✅ Registration complete!';
+    if (typeof saveUserCredentials === 'function') {
+      saveUserCredentials(name, phone);
+    }
+
+    if (statusEl) {
+      statusEl.textContent = responseMsg || '✅ Registration complete!';
+      statusEl.className = 'status-success';
+    }
+
+    const regSection = document.getElementById('registrationSection');
+    if (regSection) regSection.style.display = 'none';
+
+    if (typeof loadUnifiedRoster === 'function') {
+      await loadUnifiedRoster(true);
     }
   } catch (err) {
-    console.error("Error submitting registration:", err);
-    alert('❌ Error submitting registration. Please check your network connection.');
-    if (statusEl) statusEl.innerText = '❌ Error submitting registration.';
-  } finally {
-    document.body.style.cursor = 'default';
+    if (statusEl) {
+      statusEl.textContent = 'Error: ' + (err.message || err);
+      statusEl.className = 'status-error';
+    }
   }
 }
+
 
 async function toggleStatus() {
   logDebug(`In togglestatus...`);
@@ -2599,134 +2540,86 @@ function handleManualRefresh() {
  * Handles phone lookup execution and mapping to UI.
  * Supports passing either boolean (forceRefresh) or string (phone number).
  */
-async function lookupPhone(param1, param2) {
-  const phoneInput = document.getElementById('phoneInput') || document.getElementById('scorePhoneInput');
-  const phoneBtn = document.getElementById('savePhoneBtn');
-  const findBtn = document.getElementById('findFoursomeBtn');
-  const refreshBtn = document.getElementById('refreshScoresBtn');
+async function lookupPhone() {
+  const phoneInput = document.getElementById('lookupPhoneInput');
+  const statusEl = document.getElementById('lookupStatus');
+  const regSection = document.getElementById('registrationSection');
+  const foursomeContainer = document.getElementById('foursomeResult');
 
-  let forceRefresh = false;
-  let targetPhone = "";
+  const rawPhone = (phoneInput?.value || '').trim();
+  const phoneDigits = rawPhone.replace(/\D/g, '').slice(-10);
+  const group = window.currentGroup || document.getElementById('groupSelect')?.value || 'Tuesday';
+  const savedName = typeof getSavedName === 'function' ? getSavedName() : '';
 
-  if (typeof param1 === 'boolean') {
-    forceRefresh = param1;
-  } else if (typeof param1 === 'string' && param1.replace(/\D/g, '').length >= 7) {
-    targetPhone = param1;
-    if (typeof param2 === 'boolean') forceRefresh = param2;
-  }
-
-  if (!targetPhone) {
-    targetPhone = (phoneInput ? phoneInput.value : '') || getSavedPhone();
-  }
-
-  const phone = String(targetPhone).replace(/\D/g, '');
-
-  if (phone.length !== 10) {
-    if (refreshBtn) {
-      refreshBtn.disabled = false;
-      refreshBtn.innerHTML = '🔄 Refresh Scores & Schedule';
+  if (phoneDigits.length < 10) {
+    if (statusEl) {
+      statusEl.textContent = 'Please enter a valid 10-digit phone number.';
+      statusEl.className = 'status-error';
     }
     return;
   }
 
-  if (phoneInput) phoneInput.value = phone;
+  if (typeof saveUserCredentials === 'function' && savedName) {
+    saveUserCredentials(savedName, rawPhone);
+  }
 
-  document.body.style.cursor = 'wait';
-  if (findBtn) {
-    findBtn.disabled = true;
-    findBtn.innerHTML = '⏳ Checking...';
-  }
-  if (phoneBtn) {
-    phoneBtn.disabled = true;
-    phoneBtn.innerHTML = '⏳ Checking...';
-  }
-  if (refreshBtn) {
-    refreshBtn.disabled = true;
-    refreshBtn.innerHTML = '⏳ Refreshing...';
+  if (statusEl) {
+    statusEl.textContent = 'Looking up assignment...';
+    statusEl.className = 'status-info';
   }
 
   try {
-    const currentGroup = getSavedGroup();
-    const savedName = typeof getSavedName === 'function' ? getSavedName() : '';
+    const res = await apiCall('lookupPhone', { phone: rawPhone, group, name: savedName });
+    const data = res?.data && typeof res.data === 'object' ? res.data : res;
 
-    if (forceRefresh && typeof loadUnifiedRosterData === 'function') {
-      await loadUnifiedRosterData(currentGroup, true);
+    if (data?.found) {
+      if (regSection) regSection.style.display = 'none';
+      if (statusEl) statusEl.textContent = '';
+      if (typeof renderFoursomeAssignment === 'function') {
+        renderFoursomeAssignment(data);
+      }
+      return;
     }
 
-    const rawResponse = await apiCall('findFoursomeByPhone', { 
-      groupName: currentGroup, 
-      group: currentGroup,
-      phone: phone,
-      playerName: savedName,
-      forceRefresh: forceRefresh
-    });
+    // Check if player exists on roster (e.g., on BYE or schedule not yet posted)
+    const roster = (window.unifiedRoster && window.unifiedRoster[group]) || [];
+    const rosterMatch = roster.find(p =>
+      String(p.phone || '').replace(/\D/g, '').slice(-10) === phoneDigits
+    );
+    const isRegistered = Boolean(
+      window.activeLookupPlayer?.existsOnRoster || data?.registered || data?.onBye || rosterMatch
+    );
 
-    const result = rawResponse?.result || rawResponse?.payload || rawResponse?.data || rawResponse;
-
-    if (result && (result.success || result.found || result.playerName)) {
-      const foursomeList = Array.isArray(result.teammates) ? result.teammates : (Array.isArray(result.foursome) ? result.foursome : []);
-      const courtScores = result.scores || result.courtScores || result.gameScores || null;
-
-      let playerObj = null;
-      if (typeof result.player === 'object' && result.player !== null) {
-        playerObj = result.player;
-      } else {
-        playerObj = {
-          name: result.playerName || result.name || (typeof result.player === 'string' ? result.player : 'Player'),
-          court: result.court || 'Unassigned',
-          group: result.group || currentGroup,
-          isBye: result.isBye === true
-        };
+    if (isRegistered) {
+      const playerName = data?.name || rosterMatch?.name || savedName || 'Player';
+      if (regSection) regSection.style.display = 'none';
+      if (foursomeContainer) foursomeContainer.innerHTML = '';
+      if (statusEl) {
+        statusEl.textContent = `${playerName} is registered for ${group}, but has no court assignment yet (on BYE or schedule pending).`;
+        statusEl.className = 'status-info';
       }
+      return;
+    }
 
-      const resolvedName = playerObj 
-        ? (`${playerObj.first || ''} ${playerObj.last || ''}`.trim() || playerObj.name || playerObj.playerName || '') 
-        : '';
-
-      savePlayerCredentials(phone, resolvedName);
-
-      if (findBtn) {
-        findBtn.disabled = true;
-        findBtn.innerHTML = '✅ Found!';
-      }
-
-      renderLookupResult(playerObj, foursomeList, courtScores);
-      if (typeof updateWelcomeBanner === 'function') updateWelcomeBanner();
-    } else {
-      if (phoneBtn) {
-         phoneBtn.innerHTML = 'Register New Player';
-      }
-      const statusMsg = document.getElementById('phoneStatus');
-      if (statusMsg) {
-          statusMsg.innerText = "Phone number not registered. Please complete registration below.";
-          statusMsg.style.color = "#dc3545";
-      }        
-      const scoreRegSection = document.getElementById('registrationSection');
-      if (scoreRegSection) {
-          scoreRegSection.style.display = 'block';
-      }
-
-      const helpRegAccordion = document.getElementById('registrationAccordion');
-      if (helpRegAccordion) {
-          helpRegAccordion.open = true; 
-      }
-      renderLookupResult(null, [], null);
+    // Truly unregistered phone number
+    if (foursomeContainer) foursomeContainer.innerHTML = '';
+    if (statusEl) {
+      statusEl.textContent = 'Phone number not registered. Please complete registration below.';
+      statusEl.className = 'status-warning';
+    }
+    if (regSection) {
+      regSection.style.display = 'block';
+      const regPhone = document.getElementById('regPhone');
+      if (regPhone) regPhone.value = rawPhone;
     }
   } catch (err) {
-    console.error("Error during lookup:", err);
-    renderLookupResult(null, [], null);
-  } finally {
-    document.body.style.cursor = 'default';
-    if (phoneBtn && phoneBtn.innerHTML !== 'Register New Player') {
-      phoneBtn.disabled = false;
-      phoneBtn.innerHTML = 'Recheck Assignment';
-    }
-    if (refreshBtn) {
-      refreshBtn.disabled = false;
-      refreshBtn.innerHTML = '🔄 Refresh Scores & Schedule';
+    if (statusEl) {
+      statusEl.textContent = 'Lookup error: ' + (err.message || err);
+      statusEl.className = 'status-error';
     }
   }
 }
+
 
 
 /**

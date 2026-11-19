@@ -355,30 +355,65 @@ function getInitialAppData(phone) {
 
 
 function startNewSeason() {
-  const ss = getDb();
-  let clearedCount = 0;
-  getValidScoreTabs().forEach(tabName => {
-    const scoreSheet = ss.getSheetByName(tabName);
-    if (scoreSheet) {
-      const data = scoreSheet.getDataRange().getValues();
-      const colMap = buildColMap(data[0]);
-      let colsToClear = [];
-      for (let i = 1; i <= 10; i++) {
-        if (colMap["w" + i] !== undefined) colsToClear.push(colMap["w" + i] + 1);
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const groups = ['Tuesday', 'Thursday', 'Saturday'];
+  const seasonTimestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+
+  // Create a backup before resetting season data
+  if (typeof apiexecuteDriveBackup === 'function') {
+    apiexecuteDriveBackup('Pre-NewSeason-' + seasonTimestamp);
+  }
+
+  groups.forEach(group => {
+    const rosterSheet = ss.getSheetByName(group);
+    if (rosterSheet && rosterSheet.getLastRow() >= 2) {
+      const col = buildColMap(rosterSheet);
+      const numRows = rosterSheet.getLastRow() - 1;
+
+      // Clear weekly scores, totals, percentages, and check-in status
+      (col.weekCols || []).forEach(wCol => {
+        rosterSheet.getRange(2, wCol, numRows, 1).clearContent();
+      });
+      if (col.total) rosterSheet.getRange(2, col.total, numRows, 1).clearContent();
+      if (col.weeks) rosterSheet.getRange(2, col.weeks, numRows, 1).clearContent();
+      if (col.pct) rosterSheet.getRange(2, col.pct, numRows, 1).clearContent();
+      if (col.rank) rosterSheet.getRange(2, col.rank, numRows, 1).clearContent();
+      if (col.checkedIn) rosterSheet.getRange(2, col.checkedIn, numRows, 1).setValue('');
+    }
+
+    const schedSheet = ss.getSheetByName('Sched ' + group);
+    if (schedSheet) {
+      if (schedSheet.getLastRow() >= 2) {
+        schedSheet.getRange(2, 1, schedSheet.getLastRow() - 1, 13).clearContent();
       }
-      let lastRow = scoreSheet.getLastRow();
-      if (colsToClear.length > 0 && lastRow > 1) {
-        colsToClear.forEach(cIdx => {
-          scoreSheet.getRange(2, cIdx, lastRow - 1, 1).clearContent();
-        });
-      }
-      clearedCount++;
+      schedSheet.getRange('N1').setValue(1);
+    }
+
+    const rankSheet = ss.getSheetByName('Rankings ' + group);
+    if (rankSheet && rankSheet.getLastRow() >= 2) {
+      rankSheet.getRange(2, 1, rankSheet.getLastRow() - 1, rankSheet.getLastColumn()).clearContent();
     }
   });
-  let year = new Date().getFullYear();
-  PropertiesService.getDocumentProperties().setProperty('SEASON_START_DATE', year + '-10-04T00:00:00');
-  return `✅ New season started across ${clearedCount} score tabs! All weekly scores wiped. Week 1 is configured to begin Oct 4th.`;
+
+  // Safely persist season start metadata in both Web App and bound-script contexts
+  try {
+    const docProps = PropertiesService.getDocumentProperties();
+    if (docProps) {
+      docProps.setProperty('SEASON_START_DATE', seasonTimestamp);
+    } else {
+      PropertiesService.getScriptProperties().setProperty('SEASON_START_DATE', seasonTimestamp);
+    }
+  } catch (e) {
+    PropertiesService.getScriptProperties().setProperty('SEASON_START_DATE', seasonTimestamp);
+  }
+
+  if (typeof clearRosterCache === 'function') {
+    clearRosterCache();
+  }
+
+  return '✅ New season initialized (' + seasonTimestamp + '). All weekly scores and schedules cleared.';
 }
+
 
 // Helper function to format phone numbers to XXX-XXX-XXXX
 function formatPhoneNumber(phone) {
@@ -1399,360 +1434,71 @@ function assignRanksWithinWindows(items, numSlots) {
 /* =========================================================================
  *  MAIN
  * ========================================================================= */
-function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, useScaledRankAsPrimary = true) {
-  const doUpdateScores  = (updateScores === false) ? false : true;
-  const primaryIsScaled = (useScaledRankAsPrimary === false) ? false : true;
+function processWeeklyScoresForSheet(sheet, col, groupName) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return;
 
-  return executeWithLock(function () {
-    const ss = (typeof getDb === "function")
-      ? getDb()
-      : SpreadsheetApp.getActiveSpreadsheet();
+  const lastCol = sheet.getLastColumn();
+  const data = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
+  const weekCols = col.weekCols || [];
 
-    if (!sheet) sheet = ss.getActiveSheet();
-    if (typeof checkAndRunWeeklyBackup === "function") checkAndRunWeeklyBackup();
+  const rankedPlayers = [];
+  const unrankedPlayers = [];
 
-    const cleanGroupName = sheet.getName().replace(/^Score\s+/i, "").trim();
-    const schedSheet =
-      ss.getSheetByName("Sched " + cleanGroupName) ||
-      ss.getSheetByName("Sched") ||
-      ss.getSheetByName("Schedule");
+  for (let i = 0; i < data.length; i++) {
+    const row = data[i];
+    const name = String(row[col.name - 1] || '').trim();
+    if (!name) continue;
 
-    let backupScore, backupSched;
-    const ts = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "HHmmss");
+    let totalPts = 0;
+    let weeksPlayed = 0;
 
-    function safeDeleteTemp(name) {
-      try {
-        const ex = ss.getSheetByName(name);
-        if (ex) {
-          ss.deleteSheet(ex);
-          SpreadsheetApp.flush();
-        }
-      } catch(e) {}
+    for (let w = 0; w < weekCols.length; w++) {
+      const val = row[weekCols[w] - 1];
+      if (val !== '' && val !== null && !isNaN(Number(val))) {
+        totalPts += Number(val);
+        weeksPlayed++;
+      }
     }
 
-    if (sheet) {
-      const bName = "TmpBkup_Score_" + ts;
-      safeDeleteTemp(bName);
-      backupScore = sheet.copyTo(ss);
-      backupScore.setName(bName);
-      backupScore.hideSheet();
+    const maxPts = weeksPlayed * 45;
+    const pct = maxPts > 0 ? (totalPts / maxPts) * 100 : 0;
+
+    // 4 or more weeks (> 135 possible points at 45 pts/week) qualify for Point % ranking
+    const isPctRanked = (maxPts > 135 || weeksPlayed >= 4);
+
+    const playerEntry = {
+      rowIndex: i + 2,
+      name: name,
+      totalPts: totalPts,
+      weeksPlayed: weeksPlayed,
+      maxPts: maxPts,
+      pct: pct,
+      isPctRanked: isPctRanked
+    };
+
+    if (isPctRanked) {
+      rankedPlayers.push(playerEntry);
+    } else {
+      unrankedPlayers.push(playerEntry);
     }
-    if (schedSheet) {
-      const bName = "TmpBkup_Sched_" + ts;
-      safeDeleteTemp(bName);
-      backupSched = schedSheet.copyTo(ss);
-      backupSched.setName(bName);
-      backupSched.hideSheet();
-    }
-    
-    SpreadsheetApp.flush();
+  }
 
-    try {
-      const data = sheet.getDataRange().getValues();
-      if (data.length <= 1) {
-        throw new Error("No player data on tab: " + sheet.getName());
-      }
+  rankedPlayers.sort((a, b) => b.pct - a.pct || b.totalPts - a.totalPts);
+  unrankedPlayers.sort((a, b) => b.pct - a.pct || b.totalPts - a.totalPts);
 
-      const headerRow = data[0];
-      const col = (typeof buildColMap === "function") ? buildColMap(headerRow) : {};
+  const combined = rankedPlayers.concat(unrankedPlayers);
 
-      if (col.first === undefined) col.first = headerRow.findIndex(h => /first/i.test(h));
-      if (col.last === undefined) col.last = headerRow.findIndex(h => /last/i.test(h));
-
-      const totColIdx     = resolveCol(col, headerRow, ["tot", "total"]);
-      const posColIdx     = resolveCol(col, headerRow, ["pos", "possible"]);
-      const pctColIdx     = resolveCol(col, headerRow, ["pct", "winPct"]);
-      const ptsColIdx     = resolveCol(col, headerRow, ["pts", "points"]);
-      const rawRankColIdx = resolveCol(col, headerRow, ["rawRankCol", "rawRank", "Raw Rank"]);
-      const rNumIdx       = resolveCol(col, headerRow, ["rNum", "rnum"]);
-      const lastRColIdx   = resolveCol(col, headerRow, ["lastr", "LASTR"]);
-      const sortValColIdx = resolveCol(col, headerRow, ["sortval", "SortVal"]);
-      const newLeftColIdx = resolveCol(col, headerRow, ["newleft", "NewLeft"]);
-
-      let weekNum;
-      if (forcedWeek !== null && forcedWeek !== undefined && forcedWeek !== "") {
-        const m = forcedWeek.toString().match(/\d+/);
-        weekNum = m ? parseInt(m[0], 10) : ((typeof calculateCurrentWeekNumber === "function") ? calculateCurrentWeekNumber() : 1);
-      } else {
-        weekNum = (typeof calculateCurrentWeekNumber === "function") ? calculateCurrentWeekNumber() : 1;
-      }
-
-      const targetWeekIdx = resolveCol(col, headerRow, ["w" + weekNum, "W" + weekNum, "Week " + weekNum]);
-      const currRColIdx   = resolveCol(col, headerRow, ["r" + weekNum, "R" + weekNum]);
-      const prevRColIdx   = resolveCol(col, headerRow, ["r" + (weekNum - 1), "R" + (weekNum - 1)]);
-
-      // Harvest and sync scores from Sched sheet
-      if (doUpdateScores) {
-        if (typeof harvestScoresFromSchedules === "function") {
-          const warnings = harvestScoresFromSchedules(ss, data, col, targetWeekIdx, schedSheet, weekNum);
-          if (warnings && warnings.length > 0) {
-            const warnMsg = "⚠️ Disagreements Found and Auto-Corrected:\n\n" + warnings.join("\n") + 
-                            "\n\nThe Score sheet and Schedule totals have been corrected. Rankings will now be calculated using the corrected sums.";
-            try { SpreadsheetApp.getUi().alert("Auto-Corrections Applied", warnMsg, SpreadsheetApp.getUi().ButtonSet.OK); } 
-            catch (e) { Logger.log("Mismatches auto-corrected: " + warnMsg); }
-          }
-        }
-
-        if (ptsColIdx !== undefined && targetWeekIdx !== undefined) {
-          for (let i = 1; i < data.length; i++) {
-            const v = data[i][ptsColIdx];
-            data[i][targetWeekIdx] = (v !== "" && v !== null && v !== undefined && !isNaN(parseFloat(v))) ? parseFloat(v) : "";
-          }
-        }
-      }
-
-      // Deduplicate by normalized full name ONLY so family members sharing a phone are never dropped
-      const seenByName = {};
-      const uniqueRows = [];
-
-      for (let i = 1; i < data.length; i++) {
-        const row = data[i].slice();
-        const firstName = (col.first !== undefined) ? String(row[col.first] || "").trim() : "";
-        const lastName = (col.last !== undefined) ? String(row[col.last] || "").trim() : "";
-        const pName = (col.name !== undefined && row[col.name]) ? row[col.name].toString().trim() : (firstName + " " + lastName).trim();
-        if (!pName) continue;
-
-        const normKey = typeof normalizeName === "function" ? normalizeName(pName) : pName.toLowerCase().trim();
-        const phoneColIdx = col.phone !== undefined ? col.phone : col.mobile;
-        const pPhone = phoneColIdx !== undefined ? cleanPhoneDigits(row[phoneColIdx]) : "";
-
-        const existingEntry = normKey ? seenByName[normKey] : null;
-        if (existingEntry) {
-          for (let w = 1; w <= 10; w++) {
-            const wCol = resolveCol(col, headerRow, ["w" + w, "W" + w]);
-            if (wCol !== undefined && (existingEntry.row[wCol] === "" || existingEntry.row[wCol] === null) && row[wCol] !== "" && row[wCol] !== null) {
-              existingEntry.row[wCol] = row[wCol];
-            }
-          }
-          continue;
-        }
-
-        const entry = { rowIndex: i, row: row, name: pName, firstName: firstName, lastName: lastName, phone: pPhone };
-        if (normKey) seenByName[normKey] = entry;
-        uniqueRows.push(entry);
-      }
-
-      let numActive = 0;
-      for (let idx = 0; idx < uniqueRows.length; idx++) {
-        const v = (targetWeekIdx !== undefined) ? uniqueRows[idx].row[targetWeekIdx] : "";
-        if (v !== "" && v !== null && v !== undefined && !isNaN(parseFloat(v))) numActive++;
-      }
-      if (numActive === 0) throw new Error("No active players this week.");
-
-      const defaultPrevRank = numActive;
-      const activePlayers = [];
-      const inactivePlayers = [];
-      const suspectHistory = [];
-
-      for (let idx = 0; idx < uniqueRows.length; idx++) {
-        const entry = uniqueRows[idx];
-        const row = entry.row;
-        const v = (targetWeekIdx !== undefined) ? row[targetWeekIdx] : "";
-        const hasScore = (v !== "" && v !== null && v !== undefined && !isNaN(parseFloat(v)));
-
-        let cumScore = 0;
-        let weeksPlayed = 0;
-        for (let w = 1; w <= 10; w++) {
-          const wCol = resolveCol(col, headerRow, ["w" + w, "W" + w]);
-          if (wCol !== undefined && row[wCol] !== "" && row[wCol] !== null) {
-            const val = parseFloat(row[wCol]);
-            if (!isNaN(val)) {
-              cumScore += val;
-              if (val > 0) weeksPlayed++;
-            }
-          }
-        }
-
-        const maxPts = MAX_POINTS_PER_WEEK * weeksPlayed;
-        const cumPct = (maxPts > 0) ? (cumScore / maxPts) : 0;
-        const isPctRanked = (maxPts > 180 || weeksPlayed > 4);
-
-        const prevCell = (prevRColIdx !== undefined) ? row[prevRColIdx] : "";
-        const prev = safeParseRankVal(prevCell, defaultPrevRank, numActive);
-
-        if (prev.isSuspect && prev.rawStr) suspectHistory.push(entry.name + ": " + prev.rawStr);
-
-        const rawStatus = (col.status !== undefined && row[col.status] !== undefined && row[col.status] !== "") ? String(row[col.status]).toUpperCase().trim() : "ACTIVE";
-
-        const obj = {
-          rowIndex: entry.rowIndex,
-          rowRaw: row.slice(),
-          name: entry.name,
-          firstName: entry.firstName,
-          lastName: entry.lastName,
-          phone: entry.phone,
-          isActive: hasScore,
-          status: rawStatus,
-          cumScore: cumScore,
-          weeksPlayed: weeksPlayed,
-          maxPtsForPlayedWeeks: maxPts,
-          cumPct: cumPct,
-          isPctRanked: isPctRanked,
-          hasPrior: prev.hasPrior,
-          priorRank: prev.rank,
-          priorNumPeople: prev.numPeople,
-          priorPercent: prev.percent,
-          priorRawStr: prev.rawStr
-        };
-
-        if (hasScore) activePlayers.push(obj);
-        else inactivePlayers.push(obj);
-      }
-
-      const movePct = (typeof MAX_MOVEMENT_PCT !== "undefined") ? Number(MAX_MOVEMENT_PCT) : 15;
-      const maxMove = Math.max(1, Math.round((movePct / 100) * numActive));
-
-
-
-      activePlayers.sort(function (a, b) {
-        if (Math.abs(b.cumPct - a.cumPct) > 0.0001) return b.cumPct - a.cumPct;
-        if (b.cumScore !== a.cumScore) return b.cumScore - a.cumScore;
-        const pa = a.hasPrior ? a.priorRank : defaultPrevRank;
-        const pb = b.hasPrior ? b.priorRank : defaultPrevRank;
-        if (pa !== pb) return pa - pb;
-        return b.priorNumPeople - a.priorNumPeople;
-      });
-      
-      activePlayers.forEach(function (p, i) { p.sortVal = i + 1; p.rawRank = i + 1; });
-
-      const scaled   = computeBoundedRanks(activePlayers, numActive, maxMove, true);
-      const absolute = computeBoundedRanks(activePlayers, numActive, maxMove, false);
-
-      const scaledByRow = {}; scaled.items.forEach(function (r) { scaledByRow[r.uid] = r; });
-      const absByRow = {}; absolute.items.forEach(function (r) { absByRow[r.uid] = r; });
-
-      activePlayers.forEach(function (p) {
-        const s = scaledByRow[p.rowIndex];
-        const a = absByRow[p.rowIndex];
-        if (!s || !a) throw new Error("Missing method result for row " + p.rowIndex);
-
-        if (primaryIsScaled) {
-          p.primaryStr = s.outStr; p.primaryFinalRank = s.finalRank; p.primaryIsRestr = s.isRestricted; p.method2Str = a.outStr;
-        } else {
-          p.primaryStr = a.outStr; p.primaryFinalRank = a.finalRank; p.primaryIsRestr = a.isRestricted; p.method2Str = s.outStr;
-        }
-        p.diagSortVal = p.sortVal; p.diagNewLeft = p.primaryFinalRank;
-      });
-
-      inactivePlayers.forEach(function (p) {
-        p.primaryFinalRank = numActive + 1;
-        p.primaryStr = formatInactiveStanding(p, primaryIsScaled);
-        p.method2Str  = formatInactiveStanding(p, !primaryIsScaled);
-      });
-
-      const writeRowData = (p, statusOverride) => {
-        if (col.group !== undefined) p.rowRaw[col.group] = cleanGroupName;
-        if (totColIdx !== undefined) p.rowRaw[totColIdx] = p.cumScore;
-        if (posColIdx !== undefined) p.rowRaw[posColIdx] = p.maxPtsForPlayedWeeks;
-        if (pctColIdx !== undefined) p.rowRaw[pctColIdx] = p.cumPct;
-        if (col.status !== undefined) p.rowRaw[col.status] = statusOverride || p.status;
-        if (rawRankColIdx !== undefined) p.rowRaw[rawRankColIdx] = p.sortVal || "";
-        if (sortValColIdx !== undefined) p.rowRaw[sortValColIdx] = p.diagSortVal || "";
-        if (newLeftColIdx !== undefined) p.rowRaw[newLeftColIdx] = p.diagNewLeft || "";
-        if (lastRColIdx !== undefined) p.rowRaw[lastRColIdx] = p.method2Str;
-        if (currRColIdx !== undefined) p.rowRaw[currRColIdx] = String(p.primaryStr || "").replace(/^'/, "");
-        if (rNumIdx !== undefined) p.rowRaw[rNumIdx] = p.isActive ? (p.primaryIsRestr ? ((p.cumPct * 100).toFixed(2) + "R") : (p.cumPct * 100).toFixed(2)) : "";
-      };
-
-      activePlayers.forEach(p => writeRowData(p, "ACTIVE"));
-      inactivePlayers.forEach(p => writeRowData(p));
-      
-      activePlayers.sort((a, b) => a.primaryFinalRank - b.primaryFinalRank);
-
-      inactivePlayers.sort((a, b) => {
-        const pa = a.hasPrior ? a.priorRank : 99999;
-        const pb = b.hasPrior ? b.priorRank : 99999;
-        if (pa !== pb) return pa - pb;
-        return (b.priorNumPeople || 0) - (a.priorNumPeople || 0);
-      });
-
-      const finalRows = [headerRow];
-      activePlayers.forEach(p => finalRows.push(p.rowRaw));
-      inactivePlayers.forEach(p => finalRows.push(p.rowRaw));
-
-      let targetColCount = headerRow.length;
-      finalRows.forEach(r => {
-        if (r.length > targetColCount) targetColCount = r.length;
-      });
-
-      finalRows.forEach(r => {
-        while (r.length < targetColCount) {
-          r.push("");
-        }
-        if (r.length > targetColCount) {
-          r.length = targetColCount;
-        }
-      });
-
-      if (currRColIdx !== undefined && currRColIdx < targetColCount) sheet.getRange(1, currRColIdx + 1, finalRows.length, 1).setNumberFormat('@');
-      if (lastRColIdx !== undefined && lastRColIdx < targetColCount) sheet.getRange(1, lastRColIdx + 1, finalRows.length, 1).setNumberFormat('@');
-
-      sheet.clearContents();
-      sheet.getRange(1, 1, finalRows.length, targetColCount).setValues(finalRows);
-      SpreadsheetApp.flush();
-
-      // Update Rankings sheet only after Score sheet commit succeeds
-      if (typeof updateRankingsSheetForGroup === "function") {
-        updateRankingsSheetForGroup(ss, cleanGroupName, activePlayers, inactivePlayers, weekNum);
-      }
-
-      try {
-        if (backupScore) ss.deleteSheet(backupScore);
-        if (backupSched) ss.deleteSheet(backupSched);
-        SpreadsheetApp.flush();
-      } catch (e) {
-        Logger.log("Safe ignore: Failed to delete temp backup sheet: " + e.message);
-      }
-
- let msg = "Alert: Processed '" + sheet.getName() + "'. " + numActive + " active, " + inactivePlayers.length + " inactive.";
-
-        if (scaled.windowUsed > maxMove || absolute.windowUsed > maxMove) {
-            const usedPct = Math.round((Math.max(scaled.windowUsed, absolute.windowUsed) / numActive) * 100);
-            msg += ` (Note: Movement cap widened from ±${movePct}% (±${maxMove}) to ±${usedPct}% (±${Math.max(scaled.windowUsed, absolute.windowUsed)}) for feasibility.)`;
-        }
-        
-      if (suspectHistory.length > 0) {
-        msg += ` Warning — suspect prior ranks ignored/flagged: ${suspectHistory.join(", ")}.`;
-      }
-
-      if (typeof rebuildSchedSheetOrder === "function") {
-        rebuildSchedSheetOrder(ss, cleanGroupName, activePlayers, inactivePlayers, weekNum);
-      }
-
-      if (typeof CacheService !== "undefined") {
-        try {
-          const keysToClear = [
-            "UNIFIED_ROSTER_CACHE_" + cleanGroupName.toUpperCase(),
-            "SCHEDULE_" + cleanGroupName,
-            "APP_INIT_DATA"
-          ];
-          if (typeof getCheckInCacheKey === "function") {
-            keysToClear.push(getCheckInCacheKey("Sched " + cleanGroupName));
-          }
-          CacheService.getScriptCache().removeAll(keysToClear);
-        } catch (e) {}
-      }
-
-      return msg;
-
-    } catch (error) {
-      try {
-        if (backupScore && sheet) {
-          sheet.clear();
-          backupScore.getDataRange().copyTo(sheet.getRange(1, 1));
-          ss.deleteSheet(backupScore);
-        }
-        if (backupSched && schedSheet) {
-          schedSheet.clear();
-          backupSched.getDataRange().copyTo(schedSheet.getRange(1, 1));
-          ss.deleteSheet(backupSched);
-        }
-        SpreadsheetApp.flush();
-      } catch (restoreErr) {}
-      return "Processing failed. Data restored. Error: " + error.message;
-    }
-  });
+  for (let i = 0; i < combined.length; i++) {
+    const p = combined[i];
+    const rankVal = i + 1;
+    if (col.total) sheet.getRange(p.rowIndex, col.total).setValue(p.totalPts);
+    if (col.weeks) sheet.getRange(p.rowIndex, col.weeks).setValue(p.weeksPlayed);
+    if (col.pct) sheet.getRange(p.rowIndex, col.pct).setValue(Number(p.pct.toFixed(2)));
+    if (col.rank) sheet.getRange(p.rowIndex, col.rank).setValue(rankVal);
+  }
 }
+
 
 
 
