@@ -95,8 +95,6 @@ function isCheckInTrue(val) {
 
 
 
-
-
 function getRankingsAndSchedData(groupName) {
   if (!groupName) return { html: "<i>No group specified.</i>" };
   const ss = getDb();
@@ -106,9 +104,44 @@ function getRankingsAndSchedData(groupName) {
                   ss.getSheetByName("Score " + cleanGroup) || 
                   (typeof getScoreSheetByGroup === "function" ? getScoreSheetByGroup(cleanGroup) : null);
 
-  let html = `<h3 style="margin-top:0;">📊 ${cleanGroup} Schedule & Standings</h3>`;
+  let detectedWeek = "";
+  let scData = null;
 
-  // Replaced Schedule logic with large font message
+  if (rankSheet) {
+    scData = rankSheet.getDataRange().getDisplayValues();
+    if (scData && scData.length > 0) {
+      // Check F1 / F2 badge on "Rankings <Group>"
+      if (scData[0].length >= 6 && String(scData[0][5] || "").trim()) {
+        const m = String(scData[0][5]).match(/\d+/);
+        if (m) detectedWeek = m[0];
+      }
+      if (!detectedWeek && scData.length > 1 && scData[1].length >= 6 && String(scData[1][5] || "").trim()) {
+        const m = String(scData[1][5]).match(/\d+/);
+        if (m) detectedWeek = m[0];
+      }
+      // Check "Rank (Week X)" header
+      if (!detectedWeek && scData[0][0]) {
+        const m = String(scData[0][0]).match(/week\s*(\d+)/i);
+        if (m) detectedWeek = m[1];
+      }
+      // Fallback: check highest populated R<w> header on Score sheet
+      if (!detectedWeek) {
+        for (let w = 10; w >= 1; w--) {
+          const rIdx = scData[0].findIndex(h => String(h || "").trim().toLowerCase() === "r" + w);
+          if (rIdx !== -1 && scData.slice(1).some(row => String(row[rIdx] || "").trim() !== "")) {
+            detectedWeek = String(w);
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  const weekBannerSuffix = detectedWeek ? ` — Week ${detectedWeek}` : "";
+  const weekSubheadingSuffix = detectedWeek ? ` (Week ${detectedWeek})` : "";
+
+  let html = `<h3 style="margin-top:0;">📊 ${cleanGroup} Schedule & Standings${weekBannerSuffix}</h3>`;
+
   html += `
     <div style="background:#e3f2fd; color:#0c5460; border:2px solid #bee5eb; padding:25px; margin-bottom:20px; border-radius:8px; text-align:center;">
       <h2 style="margin:0 0 15px 0; font-size: 1.8em; font-weight:bold;">Schedule now computed based on checkin.</h2>
@@ -116,108 +149,127 @@ function getRankingsAndSchedData(groupName) {
       <p style="font-size: 1.2em; margin: 0; color:#555;">If it's not yet posted, wait until 10:55 and then refresh the enter-score tab.</p>
     </div>`;
 
-  if (rankSheet) {
-    let scData = rankSheet.getDataRange().getDisplayValues();
-    if (scData && scData.length > 1) {
-      let colMap = typeof buildColMap === "function" ? buildColMap(scData[0]) : {};
-      let headers = scData[0];
+  if (scData && scData.length > 1) {
+    let colMap = typeof buildColMap === "function" ? buildColMap(scData[0]) : {};
+    let headers = scData[0];
 
-      let findColIdx = function(possibleKeys) {
-        if (colMap) {
-          for (let k of possibleKeys) {
-            let clean = k.toLowerCase().replace(/[^a-z0-9]/g, '');
-            if (colMap[clean] !== undefined) return colMap[clean];
-            if (colMap[k] !== undefined) return colMap[k];
-          }
+    let findColIdx = function(possibleKeys) {
+      if (colMap) {
+        for (let k of possibleKeys) {
+          let clean = k.toLowerCase().replace(/[^a-z0-9]/g, '');
+          if (colMap[clean] !== undefined) return colMap[clean];
+          if (colMap[k] !== undefined) return colMap[k];
         }
+      }
+      for (let k of possibleKeys) {
+        let target = k.toLowerCase().replace(/[^a-z0-9]/g, '');
         for (let i = 0; i < headers.length; i++) {
           let h = String(headers[i]).toLowerCase().replace(/[^a-z0-9]/g, '');
-          for (let k of possibleKeys) {
-            let target = k.toLowerCase().replace(/[^a-z0-9]/g, '');
-            if (h === target || h.includes(target)) return i;
+          if (h === target || h.startsWith(target)) return i;
+        }
+      }
+      for (let k of possibleKeys) {
+        let target = k.toLowerCase().replace(/[^a-z0-9]/g, '');
+        for (let i = 0; i < headers.length; i++) {
+          let h = String(headers[i]).toLowerCase().replace(/[^a-z0-9]/g, '');
+          if (h.includes(target)) return i;
+        }
+      }
+      return undefined;
+    };
+
+    let rankIdx   = findColIdx(["Rank", "#", "Position", "RNum"]);
+    let nameIdx   = findColIdx(["Name", "Player Name", "Player", "First"]);
+    let ptPctIdx  = findColIdx(["Point %", "Win %", "Win%", "WinPct", "Win", "Pct", "Win Rate"]);
+    let totalIdx  = findColIdx(["Total Points", "Total Score", "TotalPoints", "Total", "Points", "Pts", "Tot", "Score"]);
+    let statusIdx = findColIdx(["Status", "Active"]);
+      
+    html += `<h4>Ladder Rankings${weekSubheadingSuffix}. Players with more than 4 weeks of scores (&gt;180 possible points) are ranked by Point % (scores/possible). Players with 4 or fewer weeks use % of active players with ±4 mobility limits.</h4>
+             <table class="data-table">
+               <thead>
+                 <tr>
+                   <th>Rank${weekSubheadingSuffix}</th>
+                   <th>Name</th>
+                   <th>Point %</th>
+                   <th>Total Points</th>
+                 </tr>
+               </thead>
+               <tbody>`;
+
+    let rankorder = 1;
+    let seenNames = new Set();
+
+    for (let r = 1; r < scData.length; r++) {
+      let row = scData[r];
+      let name = nameIdx !== undefined ? String(row[nameIdx] || "").trim() : `${row[colMap.first || 0] || ''} ${row[colMap.last || 1] || ''}`.trim();
+
+      if (!name || name === "Player Name" || name.startsWith("---")) continue;
+
+      let normKey = typeof normalizeName === "function" ? normalizeName(name) : name.toLowerCase().trim();
+      if (normKey && seenNames.has(normKey)) continue;
+      if (normKey) seenNames.add(normKey);
+
+      let rawRankCell = (rankIdx !== undefined && row[rankIdx] !== undefined) ? String(row[rankIdx]).trim() : "";
+      let statusVal = statusIdx !== undefined ? String(row[statusIdx] || "").trim().toUpperCase() : "";
+      let isInactive = (
+        rawRankCell.toUpperCase() === "INACTIVE" ||
+        statusVal === "INACTIVE" ||
+        statusVal === "QUIT" ||
+        statusVal === "DROPPED"
+      );
+      let rankVal = isInactive ? "INACTIVE" : (rawRankCell || String(rankorder));
+
+      let ptPctVal = "0.0%";
+      if (ptPctIdx !== undefined && row[ptPctIdx] !== "" && row[ptPctIdx] !== null) {
+        let rawWinStr = String(row[ptPctIdx]).replace('%', '').trim();
+        let winNum = parseFloat(rawWinStr) || 0;
+        if (winNum <= 1.0 && winNum > 0 && !String(row[ptPctIdx]).includes('%')) {
+          winNum = winNum * 100;
+        }
+        ptPctVal = winNum.toFixed(1) + "%";
+      }          
+
+      let totalVal = "";
+      if (totalIdx !== undefined && row[totalIdx] !== "" && row[totalIdx] !== null) {
+        totalVal = row[totalIdx];
+      } else {
+        let gameSum = 0;
+        let playedCount = 0;
+        let foundGames = false;
+        for (let c = 0; c < row.length; c++) {
+          let hName = String(headers[c]).toLowerCase().trim();
+          if (hName.includes("game") || /^g[1-6]$/i.test(hName)) {
+            let pts = parseFloat(row[c]);
+            if (!isNaN(pts)) {
+              gameSum += pts;
+              playedCount++;
+              foundGames = true;
+            }
           }
         }
-        return undefined;
-      };
+        let scaledTotal = (playedCount > 0) ? ((playedCount === 3) ? gameSum : Math.round((gameSum / playedCount) * 3)) : 0;
+        totalVal = foundGames ? String(scaledTotal) : "0";
+      }
 
-      let rankIdx  = findColIdx(["Rank", "R1", "Position"]);
-      let numIdx   = findColIdx(["%#", "rnum", "#", "Num"]);
-      let nameIdx  = findColIdx(["Name", "Player Name", "Player", "First"]);
-      let ptPctIdx = findColIdx(["Point %", "Win %", "Win%", "WinPct", "Win", "Pct", "Win Rate"]);
-      let totalIdx = findColIdx(["Total Points", "Total Score", "TotalPoints", "Total", "Points", "Pts", "Tot", "Score"]);
-        
-      html += `<h4>Ladder Rankings. Note: Ranking CODE/Model changed. Moved to rank as percent of active instead of absolute number since changing actives sizes often made +-4 limit impossible. Now its +- relative to % rank but even that may be ocassionally violated if you are new or if active sizes changes a lot.</h4>
-               <table class="data-table">
-                 <thead>
-                   <tr>
-                     <th>Name</th>
-                     <th>Active Rank</th>
-                     <th>%#</th>
-                     <th>Point %</th>
-                     <th>Total Points</th>
-                   </tr>
-                 </thead>
-                 <tbody>`;
-
-      let rankorder = 1;
-      let totalPlayers = scData.length - 1;
-
-      for (let r = 1; r < scData.length; r++) {
-        let row = scData[r];
-        let name = nameIdx !== undefined ? row[nameIdx] : `${row[colMap.first || 0] || ''} ${row[colMap.last || 1] || ''}`.trim();
-
-        if (!name || name === "Player Name" || name.startsWith("---")) continue;
-
-        let rankVal = (rankIdx !== undefined && row[rankIdx]) ? row[rankIdx] : `${rankorder}/${totalPlayers}`;
-        let numVal  = (numIdx !== undefined && row[numIdx]) ? row[numIdx] : "";
-
-        let ptPctVal = "0.0%";
-        if (ptPctIdx !== undefined && row[ptPctIdx] !== "" && row[ptPctIdx] !== null) {
-          let rawWinStr = String(row[ptPctIdx]).replace('%', '').trim();
-          let winNum = parseFloat(rawWinStr) || 0;
-          if (winNum <= 1.0 && winNum > 0 && !String(row[ptPctIdx]).includes('%')) {
-            winNum = winNum * 100;
-          }
-          ptPctVal = winNum.toFixed(1) + "%";
-        }          
-
-        let totalVal = "";
-        if (totalIdx !== undefined && row[totalIdx] !== "" && row[totalIdx] !== null) {
-          totalVal = row[totalIdx];
-        } else {
-          let gameSum = 0;
-          let playedCount = 0;
-          let foundGames = false;
-          for (let c = 0; c < row.length; c++) {
-              let hName = String(headers[c]).toLowerCase().trim();
-              if (hName.includes("game") || /^g[1-6]$/i.test(hName)) {
-                  let pts = parseFloat(row[c]);
-                  if (!isNaN(pts)) {
-                      gameSum += pts;
-                      playedCount++;
-                      foundGames = true;
-                  }
-              }
-          }
-          let scaledTotal = (playedCount > 0) ? ((playedCount === 3) ? gameSum : Math.round((gameSum / playedCount) * 3)) : 0;
-          totalVal = foundGames ? String(scaledTotal) : "0";
-        }
-
-        html += `<tr>
-          <td>${name}</td>
-          <td>${numVal}</td>
-          <td>${rankVal}</td>
-          <td>${ptPctVal}</td>
-          <td>${totalVal}</td>
-        </tr>`;
+      html += `<tr>
+        <td><b>${rankVal}</b></td>
+        <td>${name}</td>
+        <td>${ptPctVal}</td>
+        <td>${totalVal}</td>
+      </tr>`;
+      if (rankVal.toUpperCase() !== "INACTIVE") {
         rankorder++;
       }
-      html += `</tbody></table>`;
     }
+    html += `</tbody></table>`;
   }
 
   return { html: html };
 }
+
+
+
+
 
 
 
@@ -271,15 +323,14 @@ function webExportSchedulePdf(groupName) {
 }
 
 function getInitialAppData(phone) {
-  // Determine default group or extract from phone/params
-  var defaultGroup = GROUPS[0] || "Mens";
-  
-  return { 
-    version: getAppVersion(), 
-    groups: GROUPS, 
+  var defaultGroup = GROUPS[0] || "Womens";
+  var rosterRes = getAdminPlayersByGroup(defaultGroup);
+
+  return {
+    version: getAppVersion(),
+    groups: GROUPS,
     sheets: SCHEDULE_TABS,
-    // Add the player roster here so frontend gets it instantly
-    checkInPlayers: getAdminPlayersByGroup({ group: defaultGroup }) 
+    checkInPlayers: (rosterRes && Array.isArray(rosterRes.players)) ? rosterRes.players : []
   };
 }
 
@@ -327,88 +378,93 @@ function formatPhoneNumber(phone) {
 }
 
 
-
 function addNewUser(info) {
-  Logger.log("=== DEBUG addNewUser START ===");
-  Logger.log("Received info: " + JSON.stringify(info));
+  return executeWithLock(function () {
+    Logger.log("=== DEBUG addNewUser START ===");
+    Logger.log("Received info: " + JSON.stringify(info));
 
-  if (!info.first || !info.last || !info.phone || !info.group) {
-    return "Error: First, Last, Phone, and Group are required.";
-  }
-  
-  const targetSheet = getScoreSheetByGroup(info.group);
-  if (!targetSheet) return `Error: Target score tab for group '${info.group}' not found.`;
-  
-  // getDisplayValues ensures formatted text (strings) rather than raw numbers/dates
-  const data = targetSheet.getDataRange().getDisplayValues();
-  if (!data || data.length === 0) return "Error: Target score sheet is empty.";
-
-  // 1. DYNAMIC HEADER SEARCH (Scans first 5 rows for column headers)
-  let headerRowIdx = -1;
-  let phoneColIdx = -1;
-  let firstColIdx = -1;
-  let lastColIdx = -1;
-  let nameColIdx = -1;
-  let emailColIdx = -1;
-  let commentColIdx = -1;
-  let statusColIdx = -1;
-
-  for (let r = 0; r < Math.min(data.length, 5); r++) {
-    const row = data[r].map(c => String(c || "").toLowerCase().trim());
-    
-    const pIdx = row.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
-    const fIdx = row.findIndex(h => /first/i.test(h));
-    const lIdx = row.findIndex(h => /last/i.test(h));
-    const nIdx = row.findIndex(h => /name|player/i.test(h));
-
-    if (pIdx !== -1 || fIdx !== -1 || nIdx !== -1) {
-      headerRowIdx = r;
-      phoneColIdx = pIdx;
-      firstColIdx = fIdx;
-      lastColIdx = lIdx;
-      nameColIdx = nIdx;
-      emailColIdx = row.findIndex(h => /email/i.test(h));
-      commentColIdx = row.findIndex(h => /comment|notes/i.test(h));
-      statusColIdx = row.findIndex(h => /status/i.test(h));
-      break;
+    if (!info || !info.first || !info.last || !info.phone || !info.group) {
+      return "Error: First, Last, Phone, and Group are required.";
     }
-  }
+    
+    const targetSheet = getScoreSheetByGroup(info.group);
+    if (!targetSheet) return `Error: Target score tab for group '${info.group}' not found.`;
+    
+    const data = targetSheet.getDataRange().getDisplayValues();
+    if (!data || data.length === 0) return "Error: Target score sheet is empty.";
 
-  // Fallback to row 0 if no explicit header matches found
-  if (headerRowIdx === -1) headerRowIdx = 0;
+    let headerRowIdx = -1;
+    let phoneColIdx = -1;
+    let firstColIdx = -1;
+    let lastColIdx = -1;
+    let nameColIdx = -1;
+    let emailColIdx = -1;
+    let commentColIdx = -1;
+    let statusColIdx = -1;
 
-  Logger.log(`Header Row Index: ${headerRowIdx}`);
-  Logger.log(`Column Mapping -> Phone: ${phoneColIdx}, First: ${firstColIdx}, Last: ${lastColIdx}, Name: ${nameColIdx}`);
+    for (let r = 0; r < Math.min(data.length, 5); r++) {
+      const row = data[r].map(c => String(c || "").toLowerCase().trim());
+      
+      const pIdx = row.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
+      const fIdx = row.findIndex(h => /first/i.test(h));
+      const lIdx = row.findIndex(h => /last/i.test(h));
+      const nIdx = row.findIndex(h => /name|player/i.test(h));
 
-  // Clean and normalize inputs
-  const inputFirst = String(info.first).trim();
-  const inputLast = String(info.last).trim();
-  const inputFirstLower = inputFirst.toLowerCase();
-  const inputLastLower = inputLast.toLowerCase();
-  const fullName = `${inputFirst} ${inputLast}`;
-  
-  const inputPhone = typeof formatPhoneNumber === 'function' ? formatPhoneNumber(info.phone) : String(info.phone);
-  const inputPhoneDigits = String(info.phone).replace(/\D/g, "");
-  
-  const inputEmail = String(info.email || "").trim();
-  const inputGroup = String(info.group).trim();
-  const inputComment = String(info.comment || "").trim();
+      if (pIdx !== -1 || fIdx !== -1 || nIdx !== -1) {
+        headerRowIdx = r;
+        phoneColIdx = pIdx;
+        firstColIdx = fIdx;
+        lastColIdx = lIdx;
+        nameColIdx = nIdx;
+        emailColIdx = row.findIndex(h => /email/i.test(h));
+        commentColIdx = row.findIndex(h => /comment|notes/i.test(h));
+        statusColIdx = row.findIndex(h => /status/i.test(h));
+        break;
+      }
+    }
 
-  Logger.log(`Clean Input Phone Digits: '${inputPhoneDigits}'`);
+    if (headerRowIdx === -1) headerRowIdx = 0;
 
-  // --- 2. ENFORCE UNIQUE PHONE NUMBER (MATCH LAST 7 DIGITS) ---
-  if (phoneColIdx !== -1 && inputPhoneDigits.length >= 7) {
-    const inputTail = inputPhoneDigits.slice(-7);
+    const inputFirst = String(info.first).trim();
+    const inputLast = String(info.last).trim();
+    const fullName = `${inputFirst} ${inputLast}`.trim();
+    const inputNormName = typeof normalizeName === "function" ? normalizeName(fullName) : fullName.toLowerCase();
+    
+    const inputPhone = typeof formatPhoneNumber === 'function' ? formatPhoneNumber(info.phone) : String(info.phone);
+    const inputPhoneDigits = String(info.phone).replace(/\D/g, "");
+    const inputTail = inputPhoneDigits.length >= 7 ? inputPhoneDigits.slice(-7) : "";
+    
+    const inputEmail = String(info.email || "").trim();
+    const inputGroup = String(info.group).trim();
+    const cleanGroup = inputGroup.replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
+    const inputComment = String(info.comment || "").trim();
 
-    for (let r = headerRowIdx + 1; r < data.length; r++) {
-      const rawCellVal = String(data[r][phoneColIdx] || "");
-      const existingPhoneDigits = rawCellVal.replace(/\D/g, "");
+    function invalidateGroupCaches() {
+      if (typeof CacheService !== "undefined") {
+        try {
+          const cache = CacheService.getScriptCache();
+          const keysToClear = [
+            "UNIFIED_ROSTER_CACHE_" + cleanGroup.toUpperCase(),
+            "SCHEDULE_" + cleanGroup,
+            "APP_INIT_DATA"
+          ];
+          if (typeof getCheckInCacheKey === "function") {
+            keysToClear.push(getCheckInCacheKey("Sched " + cleanGroup));
+          }
+          cache.removeAll(keysToClear);
+        } catch (e) {}
+      }
+    }
+      
 
-      if (existingPhoneDigits.length >= 7) {
-        const existingTail = existingPhoneDigits.slice(-7);
-        
-        if (inputTail === existingTail) {
-          // Extract existing registered player name
+
+    // 1. ENFORCE UNIQUE PHONE NUMBER (MATCH LAST 7 DIGITS)
+    if (phoneColIdx !== -1 && inputTail) {
+      for (let r = headerRowIdx + 1; r < data.length; r++) {
+        const rawCellVal = String(data[r][phoneColIdx] || "");
+        const existingPhoneDigits = rawCellVal.replace(/\D/g, "");
+
+        if (existingPhoneDigits.length >= 7 && existingPhoneDigits.slice(-7) === inputTail) {
           const existingFirst = firstColIdx !== -1 ? String(data[r][firstColIdx] || "").trim() : "";
           const existingLast = lastColIdx !== -1 ? String(data[r][lastColIdx] || "").trim() : "";
           let registeredName = `${existingFirst} ${existingLast}`.trim();
@@ -418,90 +474,97 @@ function addNewUser(info) {
           }
           if (!registeredName) registeredName = "an existing player";
 
-          Logger.log(`🛑 BLOCKED: Phone ${inputPhone} matched row ${r + 1} (${registeredName})`);
-
           return `⚠️ Notice: Phone number ${inputPhone} is already registered to '${registeredName}' in group '${inputGroup}'. If you need to update your name or information, please contact your group captain.`;
         }
       }
     }
-  } else {
-    Logger.log(`⚠️ WARNING: Phone check skipped! phoneColIdx = ${phoneColIdx}, inputPhoneDigits = ${inputPhoneDigits}`);
-  }
 
-  // --- 3. CHECK FOR EXACT OR POTENTIAL NAME MATCHES ---
-  let exactMatchRow = -1;
-  let potentialMatchRow = -1;
-  let missingFields = [];
+    // 2. CHECK FOR EXISTING PLAYER BY NORMALIZED NAME (PREVENTS DUPLICATE ROWS)
+    let matchedRowNumber = -1;
+    let updatedMissingFields = false;
 
-  for (let r = headerRowIdx + 1; r < data.length; r++) {
-    const existingFirst = firstColIdx !== -1 ? String(data[r][firstColIdx] || "").trim() : "";
-    const existingLast = lastColIdx !== -1 ? String(data[r][lastColIdx] || "").trim() : "";
+    for (let r = headerRowIdx + 1; r < data.length; r++) {
+      const existingFirst = firstColIdx !== -1 ? String(data[r][firstColIdx] || "").trim() : "";
+      const existingLast = lastColIdx !== -1 ? String(data[r][lastColIdx] || "").trim() : "";
+      const existingCombined = `${existingFirst} ${existingLast}`.trim() || (nameColIdx !== -1 ? String(data[r][nameColIdx] || "").trim() : "");
+      const existingNorm = typeof normalizeName === "function" ? normalizeName(existingCombined) : existingCombined.toLowerCase();
 
-    if (existingFirst.toLowerCase() === inputFirstLower && existingLast.toLowerCase() === inputLastLower) {
-      let missing = [];
-      if (!existingFirst) missing.push("First Name");
-      if (!existingLast) missing.push("Last Name");
-      if (phoneColIdx !== -1 && !String(data[r][phoneColIdx] || "").trim()) missing.push("Phone");
+      if (inputNormName && existingNorm === inputNormName) {
+        matchedRowNumber = r + 1;
 
-      if (missing.length > 0) {
-        potentialMatchRow = r + 1;
-        missingFields = missing;
-        break;
-      } else {
-        exactMatchRow = r + 1;
+        if (phoneColIdx !== -1 && !String(data[r][phoneColIdx] || "").trim() && inputPhone) {
+          targetSheet.getRange(matchedRowNumber, phoneColIdx + 1).setValue(inputPhone);
+          updatedMissingFields = true;
+        }
+        if (emailColIdx !== -1 && !String(data[r][emailColIdx] || "").trim() && inputEmail) {
+          targetSheet.getRange(matchedRowNumber, emailColIdx + 1).setValue(inputEmail);
+          updatedMissingFields = true;
+        }
         break;
       }
     }
-  }
 
-  if (exactMatchRow > -1) {
-    ensurePlayerOnSchedSheet(inputGroup, fullName);
-    return `⚠️ Notice: User '${fullName}' is already registered in '${targetSheet.getName()}' (Row ${exactMatchRow}).`;
-  }
-
-  // --- 4. INSERT NEW PLAYER (NO PHONE OR NAME MATCH FOUND) ---
-  Logger.log("No phone or name match found. Inserting new user: " + fullName);
-  
-  let targetRowNumber = -1;
-  for (let r = headerRowIdx + 1; r < data.length; r++) {
-    const firstVal = firstColIdx !== -1 ? String(data[r][firstColIdx] || "").trim() : "";
-    const lastVal = lastColIdx !== -1 ? String(data[r][lastColIdx] || "").trim() : "";
-    if (firstVal === "" && lastVal === "") {
-      targetRowNumber = r + 1;
-      break;
+    if (matchedRowNumber > -1) {
+      ensurePlayerOnSchedSheet(cleanGroup, fullName);
+      ensurePlayerOnRankingsSheet(cleanGroup, fullName);
+      invalidateGroupCaches();
+      if (updatedMissingFields) {
+        return `⚠️ Notice: User '${fullName}' was already on '${targetSheet.getName()}' (Row ${matchedRowNumber}); updated missing contact details without creating a duplicate.`;
+      }
+      return `⚠️ Notice: User '${fullName}' is already registered in '${targetSheet.getName()}' (Row ${matchedRowNumber}).`;
     }
-  }
 
-  const numCols = data[headerRowIdx].length;
+    // 3. INSERT NEW PLAYER (CLEAR STALE DATA IF REUSING A BLANK ROW, ELSE APPEND)
+    let targetRowNumber = -1;
+    for (let r = headerRowIdx + 1; r < data.length; r++) {
+      const firstVal = firstColIdx !== -1 ? String(data[r][firstColIdx] || "").trim() : "";
+      const lastVal = lastColIdx !== -1 ? String(data[r][lastColIdx] || "").trim() : "";
+      const nameVal = nameColIdx !== -1 ? String(data[r][nameColIdx] || "").trim() : "";
+      if (firstVal === "" && lastVal === "" && nameVal === "") {
+        targetRowNumber = r + 1;
+        break;
+      }
+    }
 
-  if (targetRowNumber > -1) {
-    if (firstColIdx !== -1) targetSheet.getRange(targetRowNumber, firstColIdx + 1).setValue(inputFirst);
-    if (lastColIdx !== -1) targetSheet.getRange(targetRowNumber, lastColIdx + 1).setValue(inputLast);
-    if (phoneColIdx !== -1) targetSheet.getRange(targetRowNumber, phoneColIdx + 1).setValue(inputPhone);
-    if (emailColIdx !== -1 && inputEmail) targetSheet.getRange(targetRowNumber, emailColIdx + 1).setValue(inputEmail);
-    if (statusColIdx !== -1) targetSheet.getRange(targetRowNumber, statusColIdx + 1).setValue("Inactive");
-    if (commentColIdx !== -1 && inputComment) targetSheet.getRange(targetRowNumber, commentColIdx + 1).setValue(inputComment);
+    const numCols = data[headerRowIdx].length;
 
-    targetSheet.getRange(targetRowNumber, 1, 1, numCols).setBackground("#ffff00");
-  } else {
-    let newRow = new Array(numCols).fill("");
-    if (firstColIdx !== -1) newRow[firstColIdx] = inputFirst;
-    if (lastColIdx !== -1) newRow[lastColIdx] = inputLast;
-    if (phoneColIdx !== -1) newRow[phoneColIdx] = inputPhone;
-    if (emailColIdx !== -1) newRow[emailColIdx] = inputEmail;
-    if (statusColIdx !== -1) newRow[statusColIdx] = "Inactive";
-    if (commentColIdx !== -1) newRow[commentColIdx] = inputComment;
+    if (targetRowNumber > -1) {
+      const reuseRange = targetSheet.getRange(targetRowNumber, 1, 1, numCols);
+      reuseRange.clearContent();
 
-    targetSheet.appendRow(newRow);
-    const lastRow = targetSheet.getLastRow();
-    targetSheet.getRange(lastRow, 1, 1, numCols).setBackground("#ffff00");
-  }
+      if (firstColIdx !== -1) targetSheet.getRange(targetRowNumber, firstColIdx + 1).setValue(inputFirst);
+      if (lastColIdx !== -1) targetSheet.getRange(targetRowNumber, lastColIdx + 1).setValue(inputLast);
+      if (nameColIdx !== -1 && firstColIdx === -1 && lastColIdx === -1) targetSheet.getRange(targetRowNumber, nameColIdx + 1).setValue(fullName);
+      if (phoneColIdx !== -1) targetSheet.getRange(targetRowNumber, phoneColIdx + 1).setValue(inputPhone);
+      if (emailColIdx !== -1 && inputEmail) targetSheet.getRange(targetRowNumber, emailColIdx + 1).setValue(inputEmail);
+      if (statusColIdx !== -1) targetSheet.getRange(targetRowNumber, statusColIdx + 1).setValue("Inactive");
+      if (commentColIdx !== -1 && inputComment) targetSheet.getRange(targetRowNumber, commentColIdx + 1).setValue(inputComment);
 
-  ensurePlayerOnSchedSheet(inputGroup, fullName);
-  ensurePlayerOnRankingsSheet(inputGroup, fullName); // ADD THIS LINE
+      reuseRange.setBackground("#ffff00");
+    } else {
+      let newRow = new Array(numCols).fill("");
+      if (firstColIdx !== -1) newRow[firstColIdx] = inputFirst;
+      if (lastColIdx !== -1) newRow[lastColIdx] = inputLast;
+      if (nameColIdx !== -1 && firstColIdx === -1 && lastColIdx === -1) newRow[nameColIdx] = fullName;
+      if (phoneColIdx !== -1) newRow[phoneColIdx] = inputPhone;
+      if (emailColIdx !== -1) newRow[emailColIdx] = inputEmail;
+      if (statusColIdx !== -1) newRow[statusColIdx] = "Inactive";
+      if (commentColIdx !== -1) newRow[commentColIdx] = inputComment;
 
-  return `✅ Success: Added ${fullName} (Inactive) to tab '${targetSheet.getName()}'.`;
+      targetSheet.appendRow(newRow);
+      const lastRow = targetSheet.getLastRow();
+      targetSheet.getRange(lastRow, 1, 1, numCols).setBackground("#ffff00");
+    }
+
+    ensurePlayerOnSchedSheet(cleanGroup, fullName);
+    ensurePlayerOnRankingsSheet(cleanGroup, fullName);
+    invalidateGroupCaches();
+
+    return `✅ Success: Added ${fullName} (Inactive) to tab '${targetSheet.getName()}'.`;
+  });
 }
+
+
 
 
 
@@ -568,14 +631,16 @@ function fetchPlayersFromSheet(targetName) {
   let players = [];
   let playerSet = new Set();
 
+  const normKeyOf = (n) => typeof normalizeName === "function" ? normalizeName(n) : String(n || "").toLowerCase().trim();
+
   // 1. Read players from the current Schedule sheet (Column A)
   if (sheet) {
     let data = sheet.getDataRange().getValues();
-    // Skip header row (index 0)
     for (let i = 1; i < data.length; i++) {
       let name = data[i][0] ? String(data[i][0]).trim() : "";
-      if (name && name !== "Player Name" && !playerSet.has(name)) {
-        playerSet.add(name);
+      let key = normKeyOf(name);
+      if (name && name !== "Player Name" && !name.startsWith("---") && key && !playerSet.has(key)) {
+        playerSet.add(key);
         players.push({
           name: name,
           checkedIn: false
@@ -601,10 +666,10 @@ function fetchPlayersFromSheet(targetName) {
       for (let i = 1; i < rosterData.length; i++) {
         let name = rosterData[i][nameCol] ? String(rosterData[i][nameCol]).trim() : "";
         let group = groupCol !== -1 && rosterData[i][groupCol] ? String(rosterData[i][groupCol]).trim() : "";
+        let key = normKeyOf(name);
 
-        // Include player if group matches or if group filtering isn't present
-        if (name && (!group || group.toLowerCase() === groupName.toLowerCase()) && !playerSet.has(name)) {
-          playerSet.add(name);
+        if (name && (!group || group.toLowerCase() === groupName.toLowerCase()) && key && !playerSet.has(key)) {
+          playerSet.add(key);
           players.push({
             name: name,
             checkedIn: false
@@ -616,6 +681,7 @@ function fetchPlayersFromSheet(targetName) {
 
   return players;
 }
+
 
 
 function calculateStats(row, col) {
@@ -700,6 +766,7 @@ function harvestScoresFromSchedules(ss, data, col, targetWeekIdx, schedSheet, we
 
   if (scoreIdx === -1) return warnings;
 
+let schedPhoneCounts = {};
   let schedMapByPhoneKey = {};
   let schedMapByFirstLastKey = {};
   let schedMapByNameKey = {};
@@ -750,9 +817,13 @@ function harvestScoresFromSchedules(ss, data, col, targetWeekIdx, schedSheet, we
 
     let schedInfo = { score: finalValToUse, court: rawCourt };
 
-    if (phoneDigits && phoneDigits.length >= 7) schedMapByPhoneKey[phoneDigits.slice(-7)] = schedInfo;
-    if (schedFirst && schedLast) schedMapByFirstLastKey[schedFirst + "_" + schedLast] = schedInfo;
     if (normName) schedMapByNameKey[normName] = schedInfo;
+    if (schedFirst && schedLast) schedMapByFirstLastKey[schedFirst + "_" + schedLast] = schedInfo;
+    if (phoneDigits && phoneDigits.length >= 7) {
+      let tail = phoneDigits.slice(-7);
+      schedPhoneCounts[tail] = (schedPhoneCounts[tail] || 0) + 1;
+      schedMapByPhoneKey[tail] = schedInfo;
+    }
     hasAnySchedData = true;
   }
 
@@ -785,12 +856,19 @@ function harvestScoresFromSchedules(ss, data, col, targetWeekIdx, schedSheet, we
     let phoneColIdx = col.phone !== undefined ? col.phone : col.mobile;
     let scorePhoneDigits = phoneColIdx !== undefined ? cleanPhoneDigits(row[phoneColIdx]) : "";
 
-    let schedInfo = undefined;
+      let schedInfo = undefined;
 
-    if (scorePhoneDigits && scorePhoneDigits.length >= 7) schedInfo = schedMapByPhoneKey[scorePhoneDigits.slice(-7)];
-    if (schedInfo === undefined && normFirst && normLast) schedInfo = schedMapByFirstLastKey[normFirst + "_" + normLast];
-    if (schedInfo === undefined && normName) schedInfo = schedMapByNameKey[normName];
-
+    if (normName && schedMapByNameKey[normName] !== undefined) {
+      schedInfo = schedMapByNameKey[normName];
+    } else if (normFirst && normLast && schedMapByFirstLastKey[normFirst + "_" + normLast] !== undefined) {
+      schedInfo = schedMapByFirstLastKey[normFirst + "_" + normLast];
+    } else if (scorePhoneDigits && scorePhoneDigits.length >= 7) {
+      let tail = scorePhoneDigits.slice(-7);
+      if (schedPhoneCounts[tail] === 1) {
+        schedInfo = schedMapByPhoneKey[tail];
+      }
+    }
+      
     if (schedInfo !== undefined) {
       if (scoreCourtIdx !== -1 && schedInfo.court !== undefined) row[scoreCourtIdx] = schedInfo.court;
       if (ptsColIdx !== undefined && schedInfo.score !== null && schedInfo.score !== undefined) {
@@ -1092,17 +1170,22 @@ const MARK_NEW_PLAYERS = false;
 /* ---------- window construction --------------------------------------- */
 
 function applyWindows(items, window, numSlots) {
-  /* The newcomer band depends only on how many newcomers there are,
-   * so it is identical on every iteration of the feasibility search. */
+  /* The newcomer band depends only on how many newcomers (with <= 4 weeks)
+   * there are, so it is identical on every iteration of the feasibility search. */
   let newCount = 0;
-  items.forEach(function (p) { if (p.isNew) newCount++; });
+  items.forEach(function (p) { if (p.isNew && !p.isPctRanked) newCount++; });
 
   const bandStart = (NEW_PLAYER_POLICY === "BOTTOM_BAND" && newCount > 0)
     ? Math.max(1, numSlots - newCount - NEW_PLAYER_SLACK + 1)
     : 1;
 
   items.forEach(function (p) {
-    if (p.isNew && NEW_PLAYER_POLICY === "BOTTOM_BAND") {
+    if (p.isPctRanked) {
+      /* Players with > 4 weeks (> 180 possible points) are ranked purely by
+       * cumulative percentage (scores / possible) without mobility caps. */
+      p.minAllowed = 1;
+      p.maxAllowed = numSlots;
+    } else if (p.isNew && NEW_PLAYER_POLICY === "BOTTOM_BAND") {
       /* Hard band. Deliberately NOT widened by findSmallestFeasibleWindow:
        * newcomer placement takes precedence over returning players' caps. */
       p.minAllowed = bandStart;
@@ -1129,6 +1212,7 @@ function applyWindows(items, window, numSlots) {
   return bandStart;
 }
 
+
 function findSmallestFeasibleWindow(items, baseWindow, numSlots) {
   /* Only returning players' windows grow. The newcomer band is fixed,
    * which is what makes the bottom anchor override the +/- cap. */
@@ -1144,15 +1228,18 @@ function findSmallestFeasibleWindow(items, baseWindow, numSlots) {
 
 function computeBoundedRanks(sourcePlayers, numActive, baseMove, isScaledMode) {
   let returnerCount = 0;
-  sourcePlayers.forEach(function (p) { if (p.hasPrior) returnerCount++; });
+  sourcePlayers.forEach(function (p) {
+    if (p.hasPrior || p.isPctRanked) returnerCount++;
+  });
 
-  /* Returners compete for the slots above the newcomer band, so the
-   * prior standing is scaled into that space, not the whole field. */
+  /* Returners and >4-week players compete for the slots above the newcomer
+   * band, so prior standings for <=4-week returners scale into that pool. */
   const pool = (SCALE_AGAINST_RETURNER_POOL && returnerCount > 0)
     ? returnerCount
     : numActive;
 
   const items = sourcePlayers.map(function (p) {
+    const isPctRanked = Boolean(p.isPctRanked);
     const item = {
       uid: p.rowIndex,
       name: p.name,
@@ -1162,8 +1249,14 @@ function computeBoundedRanks(sourcePlayers, numActive, baseMove, isScaledMode) {
       priorRank: p.priorRank,
       priorNumPeople: p.priorNumPeople,
       priorPercent: p.priorPercent,
-      isNew: !p.hasPrior
+      isPctRanked: isPctRanked,
+      isNew: !isPctRanked && !p.hasPrior
     };
+
+    if (isPctRanked) {
+      item.effectivePrevRank = p.sortVal;
+      return item;
+    }
 
     if (item.isNew) {
       /* Recorded for the log only; the band in applyWindows governs. */
@@ -1210,7 +1303,9 @@ function computeBoundedRanks(sourcePlayers, numActive, baseMove, isScaledMode) {
   items.forEach(function (p) {
     let suffix = "";
 
-    if (p.isNew) {
+    if (p.isPctRanked) {
+      suffix = "";
+    } else if (p.isNew) {
       if (MARK_NEW_PLAYERS) {
         suffix = "-N";
       } else if (p.sortVal < p.minAllowed) {
@@ -1238,6 +1333,7 @@ function computeBoundedRanks(sourcePlayers, numActive, baseMove, isScaledMode) {
     pool: pool
   };
 }
+
 
 
 /* ---------- merit-greedy assignment with feasibility guard ------------ */
@@ -1367,7 +1463,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
       const prevRColIdx   = resolveCol(col, headerRow, ["r" + (weekNum - 1), "R" + (weekNum - 1)]);
 
       // Harvest and sync scores from Sched sheet
-      if (updateScores) {
+      if (doUpdateScores) {
         if (typeof harvestScoresFromSchedules === "function") {
           const warnings = harvestScoresFromSchedules(ss, data, col, targetWeekIdx, schedSheet, weekNum);
           if (warnings && warnings.length > 0) {
@@ -1386,13 +1482,40 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
         }
       }
 
-      let numActive = 0;
+      // Deduplicate by normalized full name ONLY so family members sharing a phone are never dropped
+      const seenByName = {};
+      const uniqueRows = [];
+
       for (let i = 1; i < data.length; i++) {
-        const nm = (col.name !== undefined && data[i][col.name])
-          ? data[i][col.name].toString().trim()
-          : ((data[i][col.first] || "") + " " + (data[i][col.last] || "")).trim();
-        if (!nm) continue;
-        const v = (targetWeekIdx !== undefined) ? data[i][targetWeekIdx] : "";
+        const row = data[i].slice();
+        const firstName = (col.first !== undefined) ? String(row[col.first] || "").trim() : "";
+        const lastName = (col.last !== undefined) ? String(row[col.last] || "").trim() : "";
+        const pName = (col.name !== undefined && row[col.name]) ? row[col.name].toString().trim() : (firstName + " " + lastName).trim();
+        if (!pName) continue;
+
+        const normKey = typeof normalizeName === "function" ? normalizeName(pName) : pName.toLowerCase().trim();
+        const phoneColIdx = col.phone !== undefined ? col.phone : col.mobile;
+        const pPhone = phoneColIdx !== undefined ? cleanPhoneDigits(row[phoneColIdx]) : "";
+
+        const existingEntry = normKey ? seenByName[normKey] : null;
+        if (existingEntry) {
+          for (let w = 1; w <= 10; w++) {
+            const wCol = resolveCol(col, headerRow, ["w" + w, "W" + w]);
+            if (wCol !== undefined && (existingEntry.row[wCol] === "" || existingEntry.row[wCol] === null) && row[wCol] !== "" && row[wCol] !== null) {
+              existingEntry.row[wCol] = row[wCol];
+            }
+          }
+          continue;
+        }
+
+        const entry = { rowIndex: i, row: row, name: pName, firstName: firstName, lastName: lastName, phone: pPhone };
+        if (normKey) seenByName[normKey] = entry;
+        uniqueRows.push(entry);
+      }
+
+      let numActive = 0;
+      for (let idx = 0; idx < uniqueRows.length; idx++) {
+        const v = (targetWeekIdx !== undefined) ? uniqueRows[idx].row[targetWeekIdx] : "";
         if (v !== "" && v !== null && v !== undefined && !isNaN(parseFloat(v))) numActive++;
       }
       if (numActive === 0) throw new Error("No active players this week.");
@@ -1402,41 +1525,55 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
       const inactivePlayers = [];
       const suspectHistory = [];
 
-      for (let i = 1; i < data.length; i++) {
-        const row = data[i];
-        const firstName = (col.first !== undefined) ? String(row[col.first] || "").trim() : "";
-        const lastName = (col.last !== undefined) ? String(row[col.last] || "").trim() : "";
-        const pName = (col.name !== undefined && row[col.name]) ? row[col.name].toString().trim() : (firstName + " " + lastName).trim();
-        if (!pName) continue;
-
-        const phoneColIdx = col.phone !== undefined ? col.phone : col.mobile;
-        const pPhone = phoneColIdx !== undefined ? cleanPhoneDigits(row[phoneColIdx]) : "";
-
+      for (let idx = 0; idx < uniqueRows.length; idx++) {
+        const entry = uniqueRows[idx];
+        const row = entry.row;
         const v = (targetWeekIdx !== undefined) ? row[targetWeekIdx] : "";
         const hasScore = (v !== "" && v !== null && v !== undefined && !isNaN(parseFloat(v)));
 
-        let cumScore = 0; let weeksPlayed = 0;
+        let cumScore = 0;
+        let weeksPlayed = 0;
         for (let w = 1; w <= 10; w++) {
           const wCol = resolveCol(col, headerRow, ["w" + w, "W" + w]);
           if (wCol !== undefined && row[wCol] !== "" && row[wCol] !== null) {
             const val = parseFloat(row[wCol]);
-            if (!isNaN(val)) { cumScore += val; if (val > 0) weeksPlayed++; }
+            if (!isNaN(val)) {
+              cumScore += val;
+              if (val > 0) weeksPlayed++;
+            }
           }
         }
 
         const maxPts = MAX_POINTS_PER_WEEK * weeksPlayed;
         const cumPct = (maxPts > 0) ? (cumScore / maxPts) : 0;
+        const isPctRanked = (maxPts > 180 || weeksPlayed > 4);
+
         const prevCell = (prevRColIdx !== undefined) ? row[prevRColIdx] : "";
         const prev = safeParseRankVal(prevCell, defaultPrevRank, numActive);
 
-        if (prev.isSuspect && prev.rawStr) suspectHistory.push(pName + ": " + prev.rawStr);
+        if (prev.isSuspect && prev.rawStr) suspectHistory.push(entry.name + ": " + prev.rawStr);
 
         const rawStatus = (col.status !== undefined && row[col.status] !== undefined && row[col.status] !== "") ? String(row[col.status]).toUpperCase().trim() : "ACTIVE";
 
         const obj = {
-          rowIndex: i, rowRaw: row.slice(), name: pName, firstName: firstName, lastName: lastName, phone: pPhone, isActive: hasScore, status: rawStatus, 
-          cumScore: cumScore, maxPtsForPlayedWeeks: maxPts, cumPct: cumPct,
-          hasPrior: prev.hasPrior, priorRank: prev.rank, priorNumPeople: prev.numPeople, priorPercent: prev.percent, priorRawStr: prev.rawStr
+          rowIndex: entry.rowIndex,
+          rowRaw: row.slice(),
+          name: entry.name,
+          firstName: entry.firstName,
+          lastName: entry.lastName,
+          phone: entry.phone,
+          isActive: hasScore,
+          status: rawStatus,
+          cumScore: cumScore,
+          weeksPlayed: weeksPlayed,
+          maxPtsForPlayedWeeks: maxPts,
+          cumPct: cumPct,
+          isPctRanked: isPctRanked,
+          hasPrior: prev.hasPrior,
+          priorRank: prev.rank,
+          priorNumPeople: prev.numPeople,
+          priorPercent: prev.percent,
+          priorRawStr: prev.rawStr
         };
 
         if (hasScore) activePlayers.push(obj);
@@ -1447,6 +1584,7 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
 
       activePlayers.sort(function (a, b) {
         if (Math.abs(b.cumPct - a.cumPct) > 0.0001) return b.cumPct - a.cumPct;
+        if (b.cumScore !== a.cumScore) return b.cumScore - a.cumScore;
         const pa = a.hasPrior ? a.priorRank : defaultPrevRank;
         const pb = b.hasPrior ? b.priorRank : defaultPrevRank;
         if (pa !== pb) return pa - pb;
@@ -1497,10 +1635,8 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
       activePlayers.forEach(p => writeRowData(p, "ACTIVE"));
       inactivePlayers.forEach(p => writeRowData(p));
       
-      // Sort Active by computed rank
       activePlayers.sort((a, b) => a.primaryFinalRank - b.primaryFinalRank);
 
-      // Sort Inactive strictly by prior rank
       inactivePlayers.sort((a, b) => {
         const pa = a.hasPrior ? a.priorRank : 99999;
         const pb = b.hasPrior ? b.priorRank : 99999;
@@ -1512,13 +1648,11 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
       activePlayers.forEach(p => finalRows.push(p.rowRaw));
       inactivePlayers.forEach(p => finalRows.push(p.rowRaw));
 
-      // Calculate maximum column width across header and all player rows
       let targetColCount = headerRow.length;
       finalRows.forEach(r => {
         if (r.length > targetColCount) targetColCount = r.length;
       });
 
-      // Normalize every row array to targetColCount
       finalRows.forEach(r => {
         while (r.length < targetColCount) {
           r.push("");
@@ -1531,13 +1665,14 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
       if (currRColIdx !== undefined && currRColIdx < targetColCount) sheet.getRange(1, currRColIdx + 1, finalRows.length, 1).setNumberFormat('@');
       if (lastRColIdx !== undefined && lastRColIdx < targetColCount) sheet.getRange(1, lastRColIdx + 1, finalRows.length, 1).setNumberFormat('@');
 
-      if (typeof updateRankingsSheetForGroup === "function") {
-        updateRankingsSheetForGroup(ss, cleanGroupName, activePlayers, inactivePlayers, weekNum);
-      }
-
       sheet.clearContents();
       sheet.getRange(1, 1, finalRows.length, targetColCount).setValues(finalRows);
       SpreadsheetApp.flush();
+
+      // Update Rankings sheet only after Score sheet commit succeeds
+      if (typeof updateRankingsSheetForGroup === "function") {
+        updateRankingsSheetForGroup(ss, cleanGroupName, activePlayers, inactivePlayers, weekNum);
+      }
 
       try {
         if (backupScore) ss.deleteSheet(backupScore);
@@ -1547,12 +1682,31 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
         Logger.log("Safe ignore: Failed to delete temp backup sheet: " + e.message);
       }
 
-      const primaryName = primaryIsScaled ? "Percentile-scaled" : "Absolute";
-      let msg = "Alert: Processed '" + sheet.getName() + "'. " + numActive + " active, " + inactivePlayers.length + " inactive.";
+ let msg = "Alert: Processed '" + sheet.getName() + "'. " + numActive + " active, " + inactivePlayers.length + " inactive.";
 
-      // Reorder Schedule sheet while keeping scores strictly coupled to player names
+      if (scaled.windowUsed > maxMove || absolute.windowUsed > maxMove) {
+        msg += ` (Note: Movement cap widened from ±${maxMove} to ±${Math.max(scaled.windowUsed, absolute.windowUsed)} for feasibility.)`;
+      }
+      if (suspectHistory.length > 0) {
+        msg += ` Warning — suspect prior ranks ignored/flagged: ${suspectHistory.join(", ")}.`;
+      }
+
       if (typeof rebuildSchedSheetOrder === "function") {
         rebuildSchedSheetOrder(ss, cleanGroupName, activePlayers, inactivePlayers, weekNum);
+      }
+
+      if (typeof CacheService !== "undefined") {
+        try {
+          const keysToClear = [
+            "UNIFIED_ROSTER_CACHE_" + cleanGroupName.toUpperCase(),
+            "SCHEDULE_" + cleanGroupName,
+            "APP_INIT_DATA"
+          ];
+          if (typeof getCheckInCacheKey === "function") {
+            keysToClear.push(getCheckInCacheKey("Sched " + cleanGroupName));
+          }
+          CacheService.getScriptCache().removeAll(keysToClear);
+        } catch (e) {}
       }
 
       return msg;
@@ -1582,6 +1736,8 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
 
 
 
+
+
 /**
  * Writes the Rankings tab for one group.
  *
@@ -1593,98 +1749,87 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
  *
  * p.rjStr is no longer produced and is read only as a legacy fallback.
  */
-function updateRankingsSheetForGroup(ss, groupName, activePlayers,
-                                     inactivePlayers, weekNum) {
-
-  /* Set false to drop the Method 2 comparison column once the
-   * percentile method is accepted by the players. */
-  const SHOW_METHOD2 = false;
-
+function updateRankingsSheetForGroup(ss, groupName, activePlayers, inactivePlayers, weekNum) {
   const rankSheetName = "Rankings " + groupName;
-  const rankSheet = ss.getSheetByName(rankSheetName)
-    || ss.insertSheet(rankSheetName);
+  const rankSheet = ss.getSheetByName(rankSheetName) || ss.insertSheet(rankSheetName);
 
   rankSheet.clear();
 
-  const header = ["Rank %", "#", "Name", "Point %", "Total Points"];
-  if (SHOW_METHOD2) header.push("Method 2");
+  const hasWeek = (weekNum !== undefined && weekNum !== null && String(weekNum).trim() !== "");
+  const rankHeader = hasWeek ? ("Rank (Week " + weekNum + ")") : "Rank";
+
+  // Columns A-D hold the standings table; Column F displays the associated Week badge
+  const header = [rankHeader, "Name", "Point %", "Total Points", "", hasWeek ? ("Standings: Week " + weekNum) : ""];
   const rankOut = [header];
+  const seenNames = new Set();
 
-  function standingOf(p, fallback) {
-    const v = (p.primaryStr !== undefined && p.primaryStr !== null
-               && p.primaryStr !== "")
-      ? p.primaryStr
-      : p.rjStr;                       /* legacy fallback */
-    if (v === null || v === undefined || v === "") return fallback;
-    return String(v).replace(/^'/, "").trim() || fallback;
-  }
+  function pushRow(p, rankCell) {
+    if (!p || !p.name) return;
+    const normKey = typeof normalizeName === "function" ? normalizeName(p.name) : String(p.name).toLowerCase().trim();
+    if (normKey && seenNames.has(normKey)) return;
+    if (normKey) seenNames.add(normKey);
 
-  function method2Of(p) {
-    if (p.method2Str === undefined || p.method2Str === null) return "";
-    return String(p.method2Str).replace(/^'/, "").trim();
-  }
-
-  function pushRow(p, standingFallback, numberCell) {
     const pctVal = (p.cumPct !== undefined) ? p.cumPct : (p.winPct || 0);
     const scoreVal = (p.cumScore !== undefined) ? p.cumScore : (p.total || 0);
 
-    const row = [
-      standingOf(p, standingFallback),
-      numberCell,
+    rankOut.push([
+      rankCell,
       p.name,
       (pctVal * 100).toFixed(1) + "%",
-      scoreVal
-    ];
-    if (SHOW_METHOD2) row.push(method2Of(p));
-    rankOut.push(row);
+      scoreVal,
+      "",
+      ""
+    ]);
   }
 
-  /* Active rows ordered by the primary method, not by merit. */
+  /* Active rows ordered by final rank */
   const actives = (activePlayers || []).slice().sort(function (a, b) {
-    const ra = (a.primaryFinalRank !== undefined)
-      ? a.primaryFinalRank : Number.MAX_SAFE_INTEGER;
-    const rb = (b.primaryFinalRank !== undefined)
-      ? b.primaryFinalRank : Number.MAX_SAFE_INTEGER;
+    const ra = (a.primaryFinalRank !== undefined) ? a.primaryFinalRank : Number.MAX_SAFE_INTEGER;
+    const rb = (b.primaryFinalRank !== undefined) ? b.primaryFinalRank : Number.MAX_SAFE_INTEGER;
     if (ra !== rb) return ra - rb;
     return (b.cumPct || 0) - (a.cumPct || 0);
   });
 
-  actives.forEach(function (p) {
-    pushRow(p, "", (p.primaryFinalRank !== undefined)
-      ? p.primaryFinalRank : "");
+  actives.forEach(function (p, idx) {
+    const orderedRank = (p.primaryFinalRank !== undefined && p.primaryFinalRank !== "") ? p.primaryFinalRank : (idx + 1);
+    pushRow(p, orderedRank);
   });
 
-  /* Inactive rows keep their carried-forward standing, already "-I". */
+  /* Inactive rows listed after active players */
   const inactives = (inactivePlayers || []).slice().sort(function (a, b) {
     return (b.cumPct || 0) - (a.cumPct || 0);
   });
 
   inactives.forEach(function (p) {
-    pushRow(p, "INACTIVE", "");
+    pushRow(p, "INACTIVE");
   });
+
+  // Stamp numeric week in F2 (matching N1:N2 convention on Sched sheets)
+  if (hasWeek) {
+    if (rankOut.length < 2) {
+      rankOut.push(["", "", "", "", "", weekNum]);
+    } else {
+      rankOut[1][5] = weekNum;
+    }
+  }
 
   const width = header.length;
   const range = rankSheet.getRange(1, 1, rankOut.length, width);
 
-  /* Text format on the standing columns only, so "17.9%-R" and "5/28-R"
-   * survive and Total Points stays numeric and sortable. */
   rankSheet.getRange(1, 1, rankOut.length, 1).setNumberFormat("@");
-  rankSheet.getRange(1, 4, rankOut.length, 1).setNumberFormat("@");
-  if (SHOW_METHOD2) {
-    rankSheet.getRange(1, width, rankOut.length, 1).setNumberFormat("@");
-  }
+  rankSheet.getRange(1, 3, rankOut.length, 1).setNumberFormat("@");
 
   range.setValues(rankOut);
-  rankSheet.getRange(1, 1, 1, width).setFontWeight("bold");
+  rankSheet.getRange(1, 1, 1, 4).setFontWeight("bold");
   rankSheet.setFrozenRows(1);
 
-if (weekNum !== undefined && weekNum !== null && weekNum !== "") {
+  if (hasWeek) {
+    rankSheet.getRange(1, 6).setFontWeight("bold").setBackground("#e3f2fd").setFontColor("#0c5460");
+    rankSheet.getRange(2, 6).setHorizontalAlignment("center");
     rankSheet.getRange(1, 1).setNote(
       "Week " + weekNum + " standings.\n" +
-      "Rank column uses the primary method.\n" +
-      "-R upward movement capped, -r drop limited,\n" +
-      "-i active player (but did not play this week),\n" +
-      "-I inactive roster player."
+      "Players with > 4 weeks (> 180 possible points) are ranked by Point % (scores/possible).\n" +
+      "Players with <= 4 weeks use % of active players with +/- 4 mobility limits."
     );
   }
 }
@@ -1697,10 +1842,15 @@ if (weekNum !== undefined && weekNum !== null && weekNum !== "") {
 
 
 
+
 function sortActivePlayersForSheet(sheet) {
   if (typeof logDebug === 'function') logDebug("sortActivePlayersForSheet", "Sorting active players for sheet", sheet.getName());
+  const ss = (typeof getDb === "function") ? getDb() : SpreadsheetApp.getActiveSpreadsheet();
   const data = sheet.getDataRange().getValues();
   if (data.length <= 1) return "⚠️ No player data found on tab: " + sheet.getName();
+
+  const cleanGroup = sheet.getName().replace(/^Score\s*/i, "").trim();
+  const rankInfo = buildAuthoritativeRankLookup(ss, cleanGroup, sheet);
 
   const col = typeof buildColMap === 'function' ? buildColMap(data[0]) : {};
   let headerRow = data[0];
@@ -1708,15 +1858,25 @@ function sortActivePlayersForSheet(sheet) {
 
   let activeRows = [];
   let inactiveRows = [];
+  let seenNames = new Set();
 
   for (let i = 1; i < data.length; i++) {
     let row = data[i];
+    let first = col.first !== undefined ? String(row[col.first] || "").trim() : "";
+    let last = col.last !== undefined ? String(row[col.last] || "").trim() : "";
+    let fullName = (col.name !== undefined && row[col.name]) ? String(row[col.name]).trim() : `${first} ${last}`.trim();
+    if (!fullName) continue;
+
+    let normKey = typeof normalizeName === 'function' ? normalizeName(fullName) : fullName.toLowerCase();
+    if (normKey && seenNames.has(normKey)) continue;
+    if (normKey) seenNames.add(normKey);
+
     let status = (col.status !== undefined && row[col.status] !== "") 
       ? row[col.status].toString().toUpperCase().trim() 
       : "ACTIVE";
-    let recent = typeof getMostRecentRank === 'function' ? getMostRecentRank(row, col, 10) : { rank: i, numPeople: 0 };
-    row._recentRank = recent.rank;
-    row._recentNumPeople = recent.numPeople;
+
+    let rEntry = rankInfo.getRankForPlayer(fullName, i);
+    row._recentRank = rEntry.rank;
     row._origIdx = i;
 
     if (status === "ACTIVE") activeRows.push(row);
@@ -1725,20 +1885,22 @@ function sortActivePlayersForSheet(sheet) {
 
   activeRows.sort((a, b) => {
     if (a._recentRank !== b._recentRank) return a._recentRank - b._recentRank;
-    if (b._recentNumPeople !== a._recentNumPeople) return b._recentNumPeople - a._recentNumPeople;
+    return a._origIdx - b._origIdx;
+  });
+
+  inactiveRows.sort((a, b) => {
+    if (a._recentRank !== b._recentRank) return a._recentRank - b._recentRank;
     return a._origIdx - b._origIdx;
   });
 
   let finalRows = [headerRow, ...activeRows, ...inactiveRows];
   finalRows.forEach(r => {
     delete r._recentRank;
-    delete r._recentNumPeople;
     delete r._origIdx;
 
     if (r.length > scoreWidth) scoreWidth = r.length;
   });
 
-  // Normalize all row widths to scoreWidth
   finalRows.forEach(r => {
     while (r.length < scoreWidth) r.push("");
     r.length = scoreWidth;
@@ -1748,6 +1910,9 @@ function sortActivePlayersForSheet(sheet) {
   sheet.getRange(1, 1, finalRows.length, scoreWidth).setValues(finalRows);
   return `✅ Active players sorted successfully on tab '${sheet.getName()}'!`;
 }
+
+
+
 
 
 
@@ -1907,7 +2072,10 @@ function toggleUnifiedActiveStatus(payload) {
       const group = payload.groupName || payload.group || "";
       const cleanGroup = String(group).replace(/^(Score|Sched)\s*/i, "").trim();
       const targetPhone = String(payload.phone || "").replace(/\D/g, "");
-      const targetName = String(payload.playerName || payload.name || "").trim().toLowerCase();
+      const targetTail = targetPhone.length >= 7 ? targetPhone.slice(-7) : "";
+      const rawTargetName = String(payload.playerName || payload.name || "").trim();
+      const normOf = (s) => typeof normalizeName === "function" ? normalizeName(s) : String(s || "").trim().toLowerCase();
+      const targetNorm = normOf(rawTargetName);
 
       const ss = getDb();
       const scoreSheet = ss.getSheetByName("Score " + cleanGroup);
@@ -1918,60 +2086,77 @@ function toggleUnifiedActiveStatus(payload) {
 
       const headers = data[0].map(h => h.toString().toLowerCase().trim());
       let activeIdx = headers.findIndex(h => h === "status" || h === "active" || h.includes("active"));
-      let phoneIdx = headers.findIndex(h => h.includes("phone") || h.includes("mobile"));
-      let nameIdx = headers.findIndex(h => h.includes("name") || h.includes("player"));
+      let phoneIdx = headers.findIndex(h => h.includes("phone") || h.includes("mobile") || h.includes("cell"));
+      let firstIdx = headers.findIndex(h => /\bfirst\b/i.test(h));
+      let lastIdx = headers.findIndex(h => /\blast\b/i.test(h));
+      let nameIdx = headers.findIndex(h => /(full\s*name|^name$|player\s*name|^player$)/i.test(h) && !/first|last/i.test(h));
 
       if (activeIdx === -1) return { success: false, error: "Status/Active column header not found." };
 
       const lastAvailabilityIdx = getOrAddHeaderColumn(scoreSheet, 0, data[0], "Last Availability Change");
 
+      let matchedRow = -1;
+      let phoneCandidateRows = [];
+
       for (let r = 1; r < data.length; r++) {
+        let fName = firstIdx !== -1 ? String(data[r][firstIdx] || "").trim() : "";
+        let lName = lastIdx !== -1 ? String(data[r][lastIdx] || "").trim() : "";
+        let combinedName = (fName || lName) ? `${fName} ${lName}`.trim() : (nameIdx !== -1 ? String(data[r][nameIdx] || "").trim() : "");
+        let rowNorm = normOf(combinedName);
         let rowPhone = phoneIdx !== -1 ? String(data[r][phoneIdx] || "").replace(/\D/g, "") : "";
-        let rowName = nameIdx !== -1 ? String(data[r][nameIdx] || "").trim().toLowerCase() : "";
 
-        let isPhoneMatch = targetPhone && rowPhone && rowPhone.endsWith(targetPhone.slice(-7));
-        let isNameMatch = targetName && rowName && (rowName === targetName || rowName.includes(targetName));
-
-        if (isPhoneMatch || isNameMatch) {
-          const cell = scoreSheet.getRange(r + 1, activeIdx + 1);
-          const currentStatus = String(cell.getValue() || "").trim().toUpperCase();
-          const newStatus = (currentStatus === "ACTIVE") ? "INACTIVE" : "ACTIVE";
-
-          cell.setValue(newStatus);
-          cell.setBackground(newStatus === "ACTIVE" ? "#d4FF8a" : "#fff366");
-
-          const now = new Date();
-          scoreSheet.getRange(r + 1, lastAvailabilityIdx + 1).setValue(now);
-
-          SpreadsheetApp.flush();
-
-          // Fixed Cache Invalidation for BOTH keys
-          try {
-            const cacheKeyRoster = "UNIFIED_ROSTER_CACHE_" + cleanGroup.toUpperCase();
-            CacheService.getScriptCache().remove(cacheKeyRoster);
-
-            if (typeof getCheckInCacheKey === 'function') {
-              const cacheKeyCheckIn = getCheckInCacheKey("Sched " + cleanGroup);
-              CacheService.getScriptCache().remove(cacheKeyCheckIn);
-            }
-          } catch (cacheErr) {
-            Logger.log("Cache clear warning: " + cacheErr.message);
-          }
-
-          return { 
-            success: true, 
-            newStatus: newStatus, 
-            lastChange: now.toISOString() 
-          };
+        if (targetNorm && rowNorm && rowNorm === targetNorm) {
+          matchedRow = r + 1;
+          break;
+        }
+        if (targetTail && rowPhone.length >= 7 && rowPhone.endsWith(targetTail)) {
+          phoneCandidateRows.push(r + 1);
         }
       }
 
-      return { success: false, error: "Player not found by phone (" + targetPhone + ") or name (" + targetName + ")." };
+      if (matchedRow === -1 && phoneCandidateRows.length === 1) {
+        matchedRow = phoneCandidateRows[0];
+      }
+
+      if (matchedRow !== -1) {
+        const cell = scoreSheet.getRange(matchedRow, activeIdx + 1);
+        const currentStatus = String(cell.getValue() || "").trim().toUpperCase();
+        const newStatus = (currentStatus === "ACTIVE") ? "INACTIVE" : "ACTIVE";
+
+        cell.setValue(newStatus);
+        cell.setBackground(newStatus === "ACTIVE" ? "#d4FF8a" : "#fff366");
+
+        const now = new Date();
+        scoreSheet.getRange(matchedRow, lastAvailabilityIdx + 1).setValue(now);
+
+        SpreadsheetApp.flush();
+
+        try {
+          const cacheKeyRoster = "UNIFIED_ROSTER_CACHE_" + cleanGroup.toUpperCase();
+          CacheService.getScriptCache().remove(cacheKeyRoster);
+
+          if (typeof getCheckInCacheKey === 'function') {
+            const cacheKeyCheckIn = getCheckInCacheKey("Sched " + cleanGroup);
+            CacheService.getScriptCache().remove(cacheKeyCheckIn);
+          }
+        } catch (cacheErr) {
+          Logger.log("Cache clear warning: " + cacheErr.message);
+        }
+
+        return {
+          success: true,
+          newStatus: newStatus,
+          lastChange: now.toISOString()
+        };
+      }
+
+      return { success: false, error: "Player not found by name (" + rawTargetName + ") or unique phone (" + targetPhone + ")." };
     } catch (err) {
       return { success: false, error: err.message };
     }
   });
 }
+
 
 
 
@@ -2040,6 +2225,11 @@ function findPlayerAcrossGroups(payload) {
  * Searches the schedule sheet by Exact Full Name (First + Last) OR Phone,
  * and records check-in status with a timestamp (or clears it to "").
  */
+/**
+ * Searches the schedule sheet by Exact Full Name (First + Last) first,
+ * falling back to unique 7-digit phone tail, and records check-in status
+ * with a timestamp (or clears it to "").
+ */
 function updatePlayerCheckInInSheet(sheetName, targetPlayer, checkedState, timestamp) {
   logDebug("updatePlayerCheckInInSheet", "Updating check-in", { sheetName, targetPlayer, checkedState });
   if (!sheetName || !targetPlayer) return { success: false, message: "Missing parameter" };
@@ -2054,11 +2244,11 @@ function updatePlayerCheckInInSheet(sheetName, targetPlayer, checkedState, times
   if (!data || data.length <= 1) return { success: false, message: "No data in sheet" };
 
   const cleanStr = str => String(str || "").replace(/[\u00A0\s]+/g, " ").trim().toLowerCase();
+  const normOf = str => typeof normalizeName === "function" ? normalizeName(str) : cleanStr(str);
 
-  // Robust Phone Digits Extractor
   const getDigits = val => {
     if (val === null || val === undefined) return "";
-    if (typeof val === 'number') return val.toFixed(0); 
+    if (typeof val === "number") return val.toFixed(0);
     return String(val).replace(/\D/g, "");
   };
 
@@ -2070,7 +2260,7 @@ function updatePlayerCheckInInSheet(sheetName, targetPlayer, checkedState, times
   for (let r = 0; r < Math.min(data.length, 5); r++) {
     const rowHeaders = data[r].map(h => cleanStr(h).replace(/[\s\-_]/g, ""));
     const tempNameIdx = rowHeaders.findIndex(h => h.includes("player") || h.includes("name"));
-    
+
     if (tempNameIdx !== -1) {
       headerRowIdx = r;
       nameIdx = tempNameIdx;
@@ -2082,51 +2272,54 @@ function updatePlayerCheckInInSheet(sheetName, targetPlayer, checkedState, times
 
   if (nameIdx === -1) nameIdx = 0;
   if (checkInIdx === -1) checkInIdx = 2; // Default Col C
-  if (phoneIdx === -1) phoneIdx = 9;    // Default Col J (index 9)
+  if (phoneIdx === -1) phoneIdx = 12;   // Default Col M (index 12)
 
-  // Extract full name and phone number targets
   let targetFullName = "";
   let targetPhone = "";
 
-  if (typeof targetPlayer === 'object' && targetPlayer !== null) {
-    targetFullName = targetPlayer.name || `${targetPlayer.first || ''} ${targetPlayer.last || ''}`.trim();
+  if (typeof targetPlayer === "object" && targetPlayer !== null) {
+    targetFullName = targetPlayer.name || `${targetPlayer.first || ""} ${targetPlayer.last || ""}`.trim();
     targetPhone = targetPlayer.phone || targetPlayer.cell || targetPlayer.mobile || "";
   } else {
     targetFullName = String(targetPlayer || "");
-    targetPhone = targetFullName; // Could be phone string
+    targetPhone = targetFullName;
   }
 
-  const targetNorm = cleanStr(targetFullName);
+  const targetNorm = normOf(targetFullName);
   const targetDigits = getDigits(targetPhone);
-  
-  let found = false;
+  const targetTail = targetDigits.length >= 7 ? targetDigits.slice(-7) : "";
+
   const updateTime = timestamp || new Date();
+  let matchedRow = -1;
+  let phoneCandidateRows = [];
 
   for (let r = headerRowIdx + 1; r < data.length; r++) {
-    let pName = cleanStr(data[r][nameIdx]);
+    let pName = normOf(data[r][nameIdx]);
     let pPhone = phoneIdx !== -1 && data[r][phoneIdx] ? getDigits(data[r][phoneIdx]) : "";
-    
+
     if (!pName && !pPhone) continue;
 
-    // EXACT Full Name Match OR Phone Digits Match (last 7 digits)
-    const nameMatch = targetNorm && pName === targetNorm;
-    const phoneMatch = targetDigits.length >= 7 && pPhone.length >= 7 && pPhone.endsWith(targetDigits.slice(-7));
-
-    if (nameMatch || phoneMatch) {
-      // Write Timestamp when checking in; write blank string "" when checking out
-      const checkInValue = checkedState ? updateTime : "";
-      schedSheet.getRange(r + 1, checkInIdx + 1).setValue(checkInValue);
-      found = true;
+    if (targetNorm && pName === targetNorm) {
+      matchedRow = r + 1;
       break;
+    }
+    if (targetTail && pPhone.length >= 7 && pPhone.endsWith(targetTail)) {
+      phoneCandidateRows.push(r + 1);
     }
   }
 
-  if (!found) {
+  if (matchedRow === -1 && phoneCandidateRows.length === 1) {
+    matchedRow = phoneCandidateRows[0];
+  }
+
+  if (matchedRow === -1) {
     return { success: false, message: `Player '${targetFullName || targetPlayer}' not found on sheet` };
   }
 
-  // Safe execution for Score Sheet timestamp update
-  if (checkedState && typeof updateScoreSheetTimestamp === 'function') {
+  const checkInValue = checkedState ? updateTime : "";
+  schedSheet.getRange(matchedRow, checkInIdx + 1).setValue(checkInValue);
+
+  if (checkedState && typeof updateScoreSheetTimestamp === "function") {
     try {
       updateScoreSheetTimestamp(cleanGroupName, targetFullName || targetPlayer, "Last Check-In", updateTime);
     } catch (e) {
@@ -2136,6 +2329,7 @@ function updatePlayerCheckInInSheet(sheetName, targetPlayer, checkedState, times
 
   return { success: true, message: "Updated check-in" };
 }
+
 
 
 
@@ -2177,14 +2371,6 @@ function getUnifiedRoster(payload) {
       return isNaN(num) ? strVal : num;
     }
 
-    function extractLastName(fullName) {
-      const str = cleanStr(fullName).toLowerCase();
-      if (!str) return "";
-      if (str.includes(",")) return str.split(",")[0].trim();
-      const parts = str.split(/\s+/);
-      return parts.length > 1 ? parts[parts.length - 1] : parts[0];
-    }
-
     function splitName(fullName) {
       const cleaned = cleanStr(fullName);
       if (cleaned.includes(",")) {
@@ -2197,6 +2383,8 @@ function getUnifiedRoster(payload) {
       const first = parts.join(" ");
       return { first, last };
     }
+
+    const getNormFull = (n) => typeof normalizeName === "function" ? normalizeName(n) : cleanStr(n).toLowerCase();
 
     if (!payloadObj.forceRefresh && !payloadObj.autoSync) {
       const cached = cache.get(cacheKey);
@@ -2224,6 +2412,7 @@ function getUnifiedRoster(payload) {
     }
 
     const scorePlayers = [];
+    const seenScoreNames = new Set();
     const scoreUpdates = []; 
     const schedUpdates = []; 
 
@@ -2243,12 +2432,12 @@ function getUnifiedRoster(payload) {
 
         scoreFirstIdx = scoreHeaders.findIndex(h => /\bfirst\b/i.test(h));
         scoreLastIdx = scoreHeaders.findIndex(h => /\blast\b/i.test(h));
-        scoreFullNameIdx = scoreHeaders.findIndex(h => /(full\s*name|^name$|{}^player$|player\s*name)/i.test(h) && !/first|last/i.test(h));
+        scoreFullNameIdx = scoreHeaders.findIndex(h => /(full\s*name|^name$|^player$|player\s*name)/i.test(h) && !/first|last/i.test(h));
         scorePhoneIdx = scoreHeaders.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
         scoreActiveIdx = scoreHeaders.findIndex(h => /status|active/i.test(h));
         scoreEmailIdx = scoreHeaders.findIndex(h => /email|mail/i.test(h));
 
-        const foundPtsIdx = scoreHeaders.findIndex(h => /^pts$|^points$|{}^total$/i.test(h));
+        const foundPtsIdx = scoreHeaders.findIndex(h => /^pts$|^points$|^total$/i.test(h));
         if (foundPtsIdx !== -1) scorePtsIdx = foundPtsIdx;
 
         for (let r = 1; r < scoreData.length; r++) {
@@ -2269,6 +2458,12 @@ function getUnifiedRoster(payload) {
 
           if (!pName) continue;
 
+          const normFull = getNormFull(pName);
+          if (normFull && seenScoreNames.has(normFull)) {
+            continue;
+          }
+          if (normFull) seenScoreNames.add(normFull);
+
           const cleanPhone = scorePhoneIdx !== -1 ? cleanStr(scoreData[r][scorePhoneIdx]).replace(/\D/g, "") : "";
           const cleanEmail = scoreEmailIdx !== -1 ? cleanStr(scoreData[r][scoreEmailIdx]) : "";
 
@@ -2280,8 +2475,7 @@ function getUnifiedRoster(payload) {
 
           scorePlayers.push({
             rawName: pName,
-            normFull: pName.toLowerCase(),
-            normLast: lName ? lName.toLowerCase() : extractLastName(pName),
+            normFull: normFull,
             phone: cleanPhone,
             email: cleanEmail,
             active: isActive,
@@ -2294,8 +2488,10 @@ function getUnifiedRoster(payload) {
     }
 
     const finalRoster = [];
+    const seenFinalNames = new Set();
     let syncedCount = 0;
     const newScoreRowsToAppend = [];
+    const queuedNewNames = new Set();
 
     if (schedSheet) {
       const schedData = schedSheet.getDataRange().getValues();
@@ -2308,8 +2504,8 @@ function getUnifiedRoster(payload) {
         let checkIdx = headers.findIndex(h => /check|checked|x/i.test(h));
         const courtIdx = headers.findIndex(h => /court/i.test(h));
 
-        let totalIdx = headers.findIndex(h => /^total$|^pts$|{}^score$/i.test(h));
-        if (totalIdx === -1) totalIdx = 6;
+        let totalIdx = headers.findIndex(h => /^total$|^pts$|^score$/i.test(h));
+        if (totalIdx === -1) totalIdx = 9;
 
         let hasAnyCourtAssigned = false;
         if (courtIdx !== -1) {
@@ -2330,13 +2526,11 @@ function getUnifiedRoster(payload) {
           if (!pName || pName.startsWith("---") || pName.toLowerCase().startsWith("time:")) continue;
 
           const schedRow = r + 1;
-          const normFull = pName.toLowerCase();
-          const normLast = extractLastName(pName);
+          const normFull = getNormFull(pName);
           const schedPhone = schedPhoneIdx !== -1 ? cleanStr(schedData[r][schedPhoneIdx]).replace(/\D/g, "") : "";
+          const schedPhoneTail = schedPhone.length >= 7 ? schedPhone.slice(-7) : "";
 
           let rawCheck = checkIdx !== -1 ? schedData[r][checkIdx] : false;
-          
-          // NON-BLANK CHECK-IN EVALUATION
           let isCheckedIn = (typeof isCheckInTrue === 'function')
             ? isCheckInTrue(rawCheck)
             : (rawCheck !== null && rawCheck !== undefined && String(rawCheck).trim() !== "");
@@ -2345,18 +2539,15 @@ function getUnifiedRoster(payload) {
           const courtVal = rawCourt || fallbackCourt;
           const schedScore = cleanScore(schedData[r][totalIdx]);
 
-          let match = null;
-
-          match = scorePlayers.find(sp => !sp.used && sp.normFull === normFull);
-          if (!match && schedPhone && schedPhone.length >= 7) {
-            match = scorePlayers.find(sp => !sp.used && sp.phone && sp.phone.endsWith(schedPhone.slice(-7)));
-          }
-          if (!match && normLast && normLast.length >= 3) {
-            const lastMatches = scorePlayers.filter(sp => !sp.used && sp.normLast === normLast);
-            if (lastMatches.length === 1) match = lastMatches[0];
+          // Match by normalized full name first; fall back to phone tail only if unique among unused Score players
+          let match = scorePlayers.find(sp => sp.normFull === normFull);
+          if (!match && schedPhoneTail) {
+            const phoneMatches = scorePlayers.filter(sp => !sp.used && sp.phone && sp.phone.length >= 7 && sp.phone.endsWith(schedPhoneTail));
+            if (phoneMatches.length === 1) match = phoneMatches[0];
           }
 
           if (match) {
+            if (match.used) continue;
             match.used = true;
             let finalScore = "";
 
@@ -2374,6 +2565,7 @@ function getUnifiedRoster(payload) {
               finalScore = "";
             }
 
+            if (normFull) seenFinalNames.add(normFull);
             finalRoster.push({
               name: pName,
               phone: schedPhone || match.phone,
@@ -2385,6 +2577,9 @@ function getUnifiedRoster(payload) {
               score: finalScore
             });
           } else {
+            if (normFull && seenFinalNames.has(normFull)) continue;
+            if (normFull) seenFinalNames.add(normFull);
+
             finalRoster.push({
               name: pName,
               phone: schedPhone,
@@ -2396,7 +2591,11 @@ function getUnifiedRoster(payload) {
               score: schedScore
             });
 
-            if (scoreSheet) {
+            const alreadyQueued = normFull && (seenScoreNames.has(normFull) || queuedNewNames.has(normFull));
+
+            if (scoreSheet && !alreadyQueued) {
+              if (normFull) queuedNewNames.add(normFull);
+
               const numCols = Math.max(scoreSheet.getLastColumn(), scoreHeaders.length, 5);
               const newRow = new Array(numCols).fill("");
               const nameParts = splitName(pName);
@@ -2418,12 +2617,37 @@ function getUnifiedRoster(payload) {
       }
     }
 
-    scoreUpdates.forEach(u => scoreSheet.getRange(u.row, u.col).setValue(u.val));
-    schedUpdates.forEach(u => schedSheet.getRange(u.row, u.col).setValue(u.val));
+    if (scoreUpdates.length > 0 || schedUpdates.length > 0 || newScoreRowsToAppend.length > 0) {
+      executeWithLock(function () {
+        scoreUpdates.forEach(u => scoreSheet.getRange(u.row, u.col).setValue(u.val));
+        schedUpdates.forEach(u => schedSheet.getRange(u.row, u.col).setValue(u.val));
 
-    if (scoreSheet && newScoreRowsToAppend.length > 0) {
-      const startRow = scoreSheet.getLastRow() + 1;
-      scoreSheet.getRange(startRow, 1, newScoreRowsToAppend.length, newScoreRowsToAppend[0].length).setValues(newScoreRowsToAppend);
+        if (scoreSheet && newScoreRowsToAppend.length > 0) {
+          const latestData = scoreSheet.getDataRange().getValues();
+          const latestNames = new Set();
+          for (let r = 1; r < latestData.length; r++) {
+            const f = scoreFirstIdx !== -1 ? cleanStr(latestData[r][scoreFirstIdx]) : "";
+            const l = scoreLastIdx !== -1 ? cleanStr(latestData[r][scoreLastIdx]) : "";
+            const nm = (f || l) ? `${f} ${l}`.trim() : (scoreFullNameIdx !== -1 ? cleanStr(latestData[r][scoreFullNameIdx]) : "");
+            if (nm) latestNames.add(getNormFull(nm));
+          }
+
+          const verifiedRows = newScoreRowsToAppend.filter(row => {
+            const f = scoreFirstIdx !== -1 ? cleanStr(row[scoreFirstIdx]) : "";
+            const l = scoreLastIdx !== -1 ? cleanStr(row[scoreLastIdx]) : "";
+            const nm = (f || l) ? `${f} ${l}`.trim() : (scoreFullNameIdx !== -1 ? cleanStr(row[scoreFullNameIdx]) : cleanStr(row[0]));
+            const norm = getNormFull(nm);
+            if (norm && latestNames.has(norm)) return false;
+            if (norm) latestNames.add(norm);
+            return true;
+          });
+
+          if (verifiedRows.length > 0) {
+            const startRow = scoreSheet.getLastRow() + 1;
+            scoreSheet.getRange(startRow, 1, verifiedRows.length, verifiedRows[0].length).setValues(verifiedRows);
+          }
+        }
+      });
     }
 
     const fallbackCourtForUnassigned = (schedSheet && finalRoster.some(p => p.court && p.court !== "BYE" && p.court !== "NoSchedYet")) 
@@ -2431,7 +2655,8 @@ function getUnifiedRoster(payload) {
       : "NoSchedYet";
 
     scorePlayers.forEach(sp => {
-      if (!sp.used) {
+      if (!sp.used && !(sp.normFull && seenFinalNames.has(sp.normFull))) {
+        if (sp.normFull) seenFinalNames.add(sp.normFull);
         finalRoster.push({
           name: sp.rawName,
           phone: sp.phone,
@@ -2464,6 +2689,8 @@ function getUnifiedRoster(payload) {
     return { success: false, error: err.toString(), players: [] };
   }
 }
+
+
 
 /**
  * Saves bulk check-ins on the Sched sheet.
@@ -2516,10 +2743,18 @@ function saveCheckIns(schedSheetName, checkedPlayerNames) {
     }
   }
 
-  const cacheKey = typeof getCheckInCacheKey === 'function' ? getCheckInCacheKey(schedSheetName) : null;
-  if (cacheKey && typeof CacheService !== 'undefined') {
-    try { CacheService.getScriptCache().remove(cacheKey); } catch (e) {}
-  }
+
+    if (typeof CacheService !== 'undefined') {
+        try {
+            const cache = CacheService.getScriptCache();
+            const keysToClear = ["UNIFIED_ROSTER_CACHE_" + cleanGroupName.toUpperCase()];
+            if (typeof getCheckInCacheKey === 'function') {
+                keysToClear.push(getCheckInCacheKey(schedSheetName));
+            }
+            cache.removeAll(keysToClear);
+        } catch (e) {}
+    }
+    
 
   return `✅ Check-ins saved successfully (${updatedCount} checked in)!`;
 }
@@ -2652,21 +2887,16 @@ function syncScoreSheetPlayersToSched(ss, cleanGroup, schedSheet) {
 
     const scoreHeaders = scoreData[0].map(h => String(h || '').trim().toLowerCase());
 
-    // 1. Locate columns on Score sheet
     let firstIdx = scoreHeaders.findIndex(h => /first|fname|f_name/i.test(h));
     let lastIdx = scoreHeaders.findIndex(h => /last|lname|l_name/i.test(h));
     let singleNameIdx = scoreHeaders.findIndex(h => /player|full\s*name|^name$/i.test(h));
     let statusIdx = scoreHeaders.findIndex(h => /status|active|state/i.test(h));
 
     const isSeparateFirstLast = (firstIdx !== -1 && lastIdx !== -1);
+    const normOf = (str) => typeof normalizeName === "function"
+      ? normalizeName(str)
+      : String(str || "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
 
-    // Token normalize helper ("John Smith" === "smith john")
-    const getTokensKey = (str) => {
-      const tokens = String(str || "").toLowerCase().match(/[a-z0-9]+/g) || [];
-      return tokens.sort().join(" ");
-    };
-
-    // 2. Build Set of valid roster full names currently on Score [Group]
     const validScoreRosterSet = new Set();
     const validScoreRosterList = [];
 
@@ -2674,7 +2904,6 @@ function syncScoreSheetPlayersToSched(ss, cleanGroup, schedSheet) {
       const row = scoreData[r];
       const statusVal = statusIdx !== -1 ? String(row[statusIdx] || '').toUpperCase().trim() : "ACTIVE";
 
-      // Skip non-active statuses if your sheet marks them as QUIT/INACTIVE
       if (/QUIT|DROPPED|REMOVED|INACTIVE/i.test(statusVal)) continue;
 
       let fullName = "";
@@ -2688,14 +2917,13 @@ function syncScoreSheetPlayersToSched(ss, cleanGroup, schedSheet) {
 
       if (!fullName || /^total|^summary|^average|^rank|^court/i.test(fullName)) continue;
 
-      const tokenKey = getTokensKey(fullName);
-      if (tokenKey) {
-        validScoreRosterSet.add(tokenKey);
+      const normKey = normOf(fullName);
+      if (normKey && !validScoreRosterSet.has(normKey)) {
+        validScoreRosterSet.add(normKey);
         validScoreRosterList.push(fullName);
       }
     }
 
-    // 3. Read current Sched sheet rows & PRUNE deleted players
     const schedData = schedSheet.getDataRange().getValues();
     if (schedData.length <= 1) return { addedCount: 0, prunedCount: 0 };
 
@@ -2703,27 +2931,37 @@ function syncScoreSheetPlayersToSched(ss, cleanGroup, schedSheet) {
     let schedNameIdx = schedHeaders.findIndex(h => /player|full\s*name|^name$/i.test(h));
     if (schedNameIdx === -1) schedNameIdx = 0;
 
-    const existingSchedTokens = new Set();
-    let rowsToKeep = [schedData[0]]; // Retain header row
+    let checkInIdx = schedHeaders.findIndex(h => /check|x/i.test(h));
+    let gameIndices = [];
+    schedHeaders.forEach((h, idx) => {
+      if (/^game\s*[1-6]$|^total$/i.test(h)) gameIndices.push(idx);
+    });
+
+    const existingSchedNames = new Set();
+    let rowsToKeep = [schedData[0]];
     let prunedCount = 0;
 
     for (let r = 1; r < schedData.length; r++) {
-      const pName = String(schedData[r][schedNameIdx] || '').trim();
-      const tokenKey = getTokensKey(pName);
+      const row = schedData[r];
+      const pName = String(row[schedNameIdx] || '').trim();
+      const normKey = normOf(pName);
 
       if (!pName) continue;
 
-      // Keep row ONLY if player is still present on Score sheet
-      if (validScoreRosterSet.has(tokenKey)) {
-        existingSchedTokens.add(tokenKey);
-        rowsToKeep.push(schedData[r]);
+      const hasCheckIn = checkInIdx !== -1 && String(row[checkInIdx] || '').trim() !== "";
+      const hasScores = gameIndices.some(idx => String(row[idx] || '').trim() !== "");
+      const hasActivity = hasCheckIn || hasScores;
+
+      // Keep row if it's on the active Score roster OR already has check-in/scores recorded (and isn't a duplicate)
+      if (!existingSchedNames.has(normKey) && (validScoreRosterSet.has(normKey) || hasActivity)) {
+        existingSchedNames.add(normKey);
+        rowsToKeep.push(row);
       } else {
         prunedCount++;
-        Logger.log(`✂️ Pruned deleted player '${pName}' from '${schedSheet.getName()}'.`);
+        Logger.log(`✂️ Pruned deleted/duplicate player '${pName}' from '${schedSheet.getName()}'.`);
       }
     }
 
-    // Rewrite Sched sheet if any ghost rows were pruned
     if (prunedCount > 0) {
       let targetWidth = rowsToKeep[0].length;
       rowsToKeep.forEach(r => {
@@ -2734,9 +2972,14 @@ function syncScoreSheetPlayersToSched(ss, cleanGroup, schedSheet) {
       schedSheet.getRange(1, 1, rowsToKeep.length, targetWidth).setValues(rowsToKeep);
     }
 
-
-    // 4. ADD missing roster players from Score sheet to bottom of Sched sheet
-    const missingPlayers = validScoreRosterList.filter(name => !existingSchedTokens.has(getTokensKey(name)));
+    const missingPlayers = [];
+    validScoreRosterList.forEach(name => {
+      const key = normOf(name);
+      if (key && !existingSchedNames.has(key)) {
+        existingSchedNames.add(key);
+        missingPlayers.push(name);
+      }
+    });
 
     if (missingPlayers.length > 0) {
       const numCols = Math.max(schedSheet.getLastColumn(), 8);
@@ -2759,113 +3002,139 @@ function syncScoreSheetPlayersToSched(ss, cleanGroup, schedSheet) {
   }
 }
 
+
+
 /**
  * Processes check-in strictly isolated to 'Score [cleanGroup]'.
  * Rejects check-in if player is not explicitly on Score [cleanGroup].
  */
 function ensurePlayerCheckedIn(cleanGroup, playerTarget) {
-  try {
-    const ss = getDb();
-    const schedSheetName = "Sched " + cleanGroup;
-    const scoreSheetName = "Score " + cleanGroup;
+  return executeWithLock(function () {
+    try {
+      const ss = getDb();
+      const schedSheetName = "Sched " + cleanGroup;
+      const scoreSheetName = "Score " + cleanGroup;
 
-    const schedSheet = ss.getSheetByName(schedSheetName);
-    if (!schedSheet) {
-      return { status: "failed", success: false, message: `Schedule sheet '${schedSheetName}' not found.` };
-    }
+      const schedSheet = ss.getSheetByName(schedSheetName);
+      if (!schedSheet) {
+        return { status: "failed", success: false, message: `Schedule sheet '${schedSheetName}' not found.` };
+      }
 
-    const cleanTarget = String(playerTarget || "").trim();
-    if (!cleanTarget) {
-      return { status: "failed", success: false, message: "No player name or phone provided." };
-    }
+      const cleanTarget = String(playerTarget || "").trim();
+      if (!cleanTarget) {
+        return { status: "failed", success: false, message: "No player name or phone provided." };
+      }
 
-    const targetDigits = cleanTarget.replace(/\D/g, "");
-    const getTokensKey = (str) => {
-      const tokens = String(str || "").toLowerCase().match(/[a-z0-9]+/g) || [];
-      return tokens.sort().join(" ");
-    };
-    const targetTokenKey = getTokensKey(cleanTarget);
+      const targetDigits = cleanTarget.replace(/\D/g, "");
+      const normOf = (str) => typeof normalizeName === "function"
+        ? normalizeName(str)
+        : String(str || "").toLowerCase().replace(/\s+/g, " ").trim();
+      const targetNormName = normOf(cleanTarget);
 
-    // -------------------------------------------------------------
-    // 1. STRICT ROSTER VERIFICATION (Score [cleanGroup] ONLY)
-    // -------------------------------------------------------------
-    const scoreSheet = ss.getSheetByName(scoreSheetName);
-    if (!scoreSheet) {
-      return { status: "failed", success: false, message: `Score sheet '${scoreSheetName}' not found.` };
-    }
-
-    const scoreData = scoreSheet.getDataRange().getValues();
-    let isRosterMember = false;
-    let matchedOfficialName = "";
-
-    if (scoreData.length > 1) {
-      const scoreHeaders = scoreData[0].map(h => String(h || '').trim().toLowerCase());
-
-      let firstIdx = scoreHeaders.findIndex(h => /first|fname|f_name/i.test(h));
-      let lastIdx = scoreHeaders.findIndex(h => /last|lname|l_name/i.test(h));
-      let singleNameIdx = scoreHeaders.findIndex(h => /player|full\s*name|^name$/i.test(h));
-      let phoneIdx = scoreHeaders.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
-      let statusIdx = scoreHeaders.findIndex(h => /status|active|state/i.test(h));
-
-      for (let r = 1; r < scoreData.length; r++) {
-        const row = scoreData[r];
-        const statusVal = statusIdx !== -1 ? String(row[statusIdx] || '').toUpperCase().trim() : "ACTIVE";
-
-        // Ignore players marked quit/dropped/inactive
-        if (/QUIT|DROPPED|REMOVED|INACTIVE/i.test(statusVal)) continue;
-
-        let rowFirst = firstIdx !== -1 ? String(row[firstIdx] || '').trim() : '';
-        let rowLast = lastIdx !== -1 ? String(row[lastIdx] || '').trim() : '';
-        let rowFullName = (rowFirst || rowLast) ? `${rowFirst} ${rowLast}`.trim() : (singleNameIdx !== -1 ? String(row[singleNameIdx] || '').trim() : '');
-
-        if (!rowFullName || /^total|^summary|^average|^rank/i.test(rowFullName)) continue;
-
-        let rowPhone = phoneIdx !== -1 ? String(row[phoneIdx] || '').replace(/\D/g, '') : '';
-
-        let isPhoneMatch = targetDigits.length >= 7 && rowPhone.length >= 7 && rowPhone.endsWith(targetDigits.slice(-7));
-        let isNameMatch = targetTokenKey && getTokensKey(rowFullName) === targetTokenKey;
-
-        if (isPhoneMatch || isNameMatch) {
-          isRosterMember = true;
-          matchedOfficialName = rowFullName;
-          break;
+      function invalidateCheckInCaches() {
+        if (typeof CacheService !== 'undefined') {
+          try {
+            const cache = CacheService.getScriptCache();
+            const checkInKey = typeof getCheckInCacheKey === 'function' ? getCheckInCacheKey(schedSheetName) : null;
+            if (checkInKey) cache.remove(checkInKey);
+            cache.remove("UNIFIED_ROSTER_CACHE_" + String(cleanGroup).toUpperCase());
+          } catch (e) {}
         }
       }
-    }
 
-    // 🛑 REJECT CHECK-IN IF NOT ON THIS LADDER'S SCORE SHEET
-    if (!isRosterMember) {
-      Logger.log(`⛔ Check-in rejected for '${cleanTarget}': Not on '${scoreSheetName}'.`);
-      return {
-        status: "not_found",
-        success: false,
-        message: `⚠️ Player '${cleanTarget}' is not on the roster for '${cleanGroup}'. If you quit or switched ladders, please contact an administrator.`
-      };
-    }
+      // 1. STRICT ROSTER VERIFICATION (Score [cleanGroup] ONLY)
+      const scoreSheet = ss.getSheetByName(scoreSheetName);
+      if (!scoreSheet) {
+        return { status: "failed", success: false, message: `Score sheet '${scoreSheetName}' not found.` };
+      }
 
-    // -------------------------------------------------------------
-    // 2. CHECK-IN ON SCHED SHEET
-    // -------------------------------------------------------------
-    const timeStamp = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone() || "America/Phoenix", "HH:mm:ss");
-    const schedData = schedSheet.getDataRange().getValues();
+      const scoreData = scoreSheet.getDataRange().getValues();
+      let isRosterMember = false;
+      let matchedOfficialName = "";
+      let matchedOfficialPhone = "";
 
-    if (schedData.length > 1) {
-      const schedHeaders = schedData[0].map(h => String(h || '').trim().toLowerCase());
-      let nameIdx = schedHeaders.findIndex(h => /player|full\s*name|^name$/i.test(h));
-      if (nameIdx === -1) nameIdx = 0;
+      if (scoreData.length > 1) {
+        const scoreHeaders = scoreData[0].map(h => String(h || '').trim().toLowerCase());
 
-      let checkInIdx = schedHeaders.findIndex(h => /check|x/i.test(h));
-      if (checkInIdx === -1) checkInIdx = 2;
+        let firstIdx = scoreHeaders.findIndex(h => /first|fname|f_name/i.test(h));
+        let lastIdx = scoreHeaders.findIndex(h => /last|lname|l_name/i.test(h));
+        let singleNameIdx = scoreHeaders.findIndex(h => /player|full\s*name|^name$/i.test(h));
+        let phoneIdx = scoreHeaders.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
+        let statusIdx = scoreHeaders.findIndex(h => /status|active|state/i.test(h));
 
-      for (let r = 1; r < schedData.length; r++) {
-        const cellName = String(schedData[r][nameIdx] || '').trim();
-        if (cellName && getTokensKey(cellName) === getTokensKey(matchedOfficialName)) {
-          schedSheet.getRange(r + 1, checkInIdx + 1).setValue(timeStamp);
+        for (let r = 1; r < scoreData.length; r++) {
+          const row = scoreData[r];
+          const statusVal = statusIdx !== -1 ? String(row[statusIdx] || '').toUpperCase().trim() : "ACTIVE";
 
-          if (typeof CacheService !== 'undefined') {
-            const cacheKey = typeof getCheckInCacheKey === 'function' ? getCheckInCacheKey(schedSheetName) : null;
-            if (cacheKey) CacheService.getScriptCache().remove(cacheKey);
+          if (/QUIT|DROPPED|REMOVED|INACTIVE/i.test(statusVal)) continue;
+
+          let rowFirst = firstIdx !== -1 ? String(row[firstIdx] || '').trim() : '';
+          let rowLast = lastIdx !== -1 ? String(row[lastIdx] || '').trim() : '';
+          let rowFullName = (rowFirst || rowLast) ? `${rowFirst} ${rowLast}`.trim() : (singleNameIdx !== -1 ? String(row[singleNameIdx] || '').trim() : '');
+
+          if (!rowFullName || /^total|^summary|^average|^rank/i.test(rowFullName)) continue;
+
+          let rowPhone = phoneIdx !== -1 ? String(row[phoneIdx] || '').replace(/\D/g, '') : '';
+
+          let isPhoneMatch = targetDigits.length >= 7 && rowPhone.length >= 7 && rowPhone.endsWith(targetDigits.slice(-7));
+          let isNameMatch = targetNormName && normOf(rowFullName) === targetNormName;
+
+          if (isNameMatch || isPhoneMatch) {
+            isRosterMember = true;
+            matchedOfficialName = rowFullName;
+            matchedOfficialPhone = rowPhone;
+            if (isNameMatch) break; // Prefer exact name match over shared-phone fallback
           }
+        }
+      }
+
+      if (!isRosterMember) {
+        Logger.log(`⛔ Check-in rejected for '${cleanTarget}': Not on '${scoreSheetName}'.`);
+        return {
+          status: "not_found",
+          success: false,
+          message: `⚠️ Player '${cleanTarget}' is not on the roster for '${cleanGroup}'. If you quit or switched ladders, please contact an administrator.`
+        };
+      }
+
+      // 2. CHECK-IN ON SCHED SHEET (MATCH BY NORMALIZED NAME FIRST TO PROTECT SHARED PHONES)
+      const timeStamp = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone() || "America/Phoenix", "HH:mm:ss");
+      const schedData = schedSheet.getDataRange().getValues();
+      const officialNorm = normOf(matchedOfficialName);
+      const officialPhoneTail = matchedOfficialPhone.length >= 7 ? matchedOfficialPhone.slice(-7) : "";
+
+      if (schedData.length > 1) {
+        const schedHeaders = schedData[0].map(h => String(h || '').trim().toLowerCase());
+        let nameIdx = schedHeaders.findIndex(h => /player|full\s*name|^name$/i.test(h));
+        if (nameIdx === -1) nameIdx = 0;
+
+        let phoneIdx = schedHeaders.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
+        let checkInIdx = schedHeaders.findIndex(h => /check|x/i.test(h));
+        if (checkInIdx === -1) checkInIdx = 2;
+
+        let matchedSchedRow = -1;
+        let phoneCandidateRows = [];
+
+        for (let r = 1; r < schedData.length; r++) {
+          const cellName = String(schedData[r][nameIdx] || '').trim();
+          const cellPhone = phoneIdx !== -1 ? String(schedData[r][phoneIdx] || '').replace(/\D/g, '') : "";
+
+          if (cellName && normOf(cellName) === officialNorm) {
+            matchedSchedRow = r + 1;
+            break;
+          }
+          if (officialPhoneTail && cellPhone.length >= 7 && cellPhone.endsWith(officialPhoneTail)) {
+            phoneCandidateRows.push(r + 1);
+          }
+        }
+
+        if (matchedSchedRow === -1 && phoneCandidateRows.length === 1) {
+          matchedSchedRow = phoneCandidateRows[0];
+        }
+
+        if (matchedSchedRow !== -1) {
+          schedSheet.getRange(matchedSchedRow, checkInIdx + 1).setValue(timeStamp);
+          invalidateCheckInCaches();
 
           return {
             status: "success",
@@ -2874,36 +3143,33 @@ function ensurePlayerCheckedIn(cleanGroup, playerTarget) {
           };
         }
       }
+
+      // 3. ROSTER MEMBER IS MISSING FROM SCHED -> APPEND ONCE & MARK CHECKED-IN
+      const numCols = Math.max(schedSheet.getLastColumn(), 13);
+      const newRow = new Array(numCols).fill("");
+
+      newRow[0] = matchedOfficialName;
+      newRow[1] = "";
+      newRow[2] = timeStamp;
+      if (matchedOfficialPhone) newRow[12] = matchedOfficialPhone;
+
+      schedSheet.appendRow(newRow);
+      invalidateCheckInCaches();
+
+      return {
+        status: "success",
+        success: true,
+        message: `✅ ${matchedOfficialName} added to schedule and checked in at ${timeStamp}.`
+      };
+
+    } catch (err) {
+      Logger.log(`❌ Error in ensurePlayerCheckedIn: ${err.message}`);
+      return { status: "error", success: false, message: "Check-in failed: " + err.message };
     }
-
-    // -------------------------------------------------------------
-    // 3. ROSTER MEMBER IS MISSING FROM SCHED -> APPEND & MARK CHECKED-IN
-    // -------------------------------------------------------------
-    const numCols = Math.max(schedSheet.getLastColumn(), 8);
-    const newRow = new Array(numCols).fill("");
-
-    newRow[0] = matchedOfficialName;
-    newRow[1] = "";
-    newRow[2] = timeStamp;
-
-    schedSheet.appendRow(newRow);
-
-    if (typeof CacheService !== 'undefined') {
-      const cacheKey = typeof getCheckInCacheKey === 'function' ? getCheckInCacheKey(schedSheetName) : null;
-      if (cacheKey) CacheService.getScriptCache().remove(cacheKey);
-    }
-
-    return {
-      status: "success",
-      success: true,
-      message: `✅ ${matchedOfficialName} added to schedule and checked in at ${timeStamp}.`
-    };
-
-  } catch (err) {
-    Logger.log(`❌ Error in ensurePlayerCheckedIn: ${err.message}`);
-    return { status: "error", success: false, message: "Check-in failed: " + err.message };
-  }
+  });
 }
+
+
 
 
 
@@ -2990,14 +3256,11 @@ function rebuildSchedSheetOrder(ss, cleanGroupName, activePlayers, inactivePlaye
   let schedData = schedSheet.getDataRange().getValues();
   if (schedData.length <= 1) return;
   
-  const SCHED_COLS = 13; // Columns A through M
+const SCHED_COLS = 13; // Columns A through M
   let headers = ["Player Name", "Court", "Check-In", "Game 1", "Game 2", "Game 3", "Game 4", "Game 5", "Game 6", "Total", "Entered", "W", "Phone"];
-  let schedHeadersLower = headers.map(h => h.trim().toLowerCase());
-  
+
   let nameIdx  = 0;
   let phoneIdx = 12; // Col M
-  let firstIdx = 10; // Col K
-  let lastIdx  = 11; // Col L
 
   let schedRows = [];
   for (let r = 1; r < schedData.length; r++) {
@@ -3007,79 +3270,81 @@ function rebuildSchedSheetOrder(ss, cleanGroupName, activePlayers, inactivePlaye
       continue;
     }
 
-    let rawFirst = String(row[firstIdx] || "").trim();
-    let rawLast  = String(row[lastIdx] || "").trim();
     let phoneDigits = typeof cleanPhoneDigits === 'function' ? cleanPhoneDigits(row[phoneIdx]) : String(row[phoneIdx] || "").replace(/\D/g, "");
-
     let normName = typeof normalizeName === 'function' ? normalizeName(rawName) : rawName.toLowerCase().trim();
-    let normFirst = typeof normalizeName === 'function' ? normalizeName(rawFirst) : rawFirst.toLowerCase().trim();
-    let normLast = typeof normalizeName === 'function' ? normalizeName(rawLast) : rawLast.toLowerCase().trim();
-    let tokenKey = (normName.match(/[a-z0-9]+/g) || []).sort().join(" ");
 
     schedRows.push({
       rawRow: row.slice(0, SCHED_COLS),
       rawName: rawName,
       normName: normName,
-      normFirst: normFirst,
-      normLast: normLast,
-      tokenKey: tokenKey,
       phoneDigits: phoneDigits,
       used: false
     });
   }
+  const writtenNames = new Set();
 
   function findMatchingRow(p) {
     let pNorm = typeof normalizeName === 'function' ? normalizeName(p.name) : String(p.name || '').toLowerCase().trim();
     let pFirstNorm = typeof normalizeName === 'function' ? normalizeName(p.firstName) : String(p.firstName || '').toLowerCase().trim();
     let pLastNorm = typeof normalizeName === 'function' ? normalizeName(p.lastName) : String(p.lastName || '').toLowerCase().trim();
-    let pTokens = (pNorm.match(/[a-z0-9]+/g) || []).sort().join(" ");
     let pPhone = typeof cleanPhoneDigits === 'function' ? cleanPhoneDigits(p.phone) : String(p.phone || "").replace(/\D/g, "");
 
+    if (pNorm && writtenNames.has(pNorm)) return null;
+
     let match = null;
-    if (pPhone && pPhone.length >= 7) {
-      let pTail = pPhone.slice(-7);
-      match = schedRows.find(r => !r.used && r.phoneDigits && r.phoneDigits.endsWith(pTail));
-    }
-    if (!match && pFirstNorm && pLastNorm) {
-      match = schedRows.find(r => !r.used && r.normFirst === pFirstNorm && r.normLast === pLastNorm);
-    }
-    if (!match && pNorm) {
+    if (pNorm) {
       match = schedRows.find(r => !r.used && r.normName === pNorm);
     }
-    if (!match && pTokens) {
-      match = schedRows.find(r => !r.used && r.tokenKey === pTokens);
-    }
-    if (!match && pNorm && pNorm.length >= 3) {
-      match = schedRows.find(r => !r.used && (r.normName.includes(pNorm) || pNorm.includes(r.normName)));
+    if (!match && pPhone && pPhone.length >= 7) {
+      let pTail = pPhone.slice(-7);
+      let phoneCandidates = schedRows.filter(r => !r.used && r.phoneDigits && r.phoneDigits.endsWith(pTail));
+      if (phoneCandidates.length === 1) match = phoneCandidates[0];
     }
 
-    let matchedRow = match ? match.rawRow : new Array(SCHED_COLS).fill("");
+    // Mark exact-name duplicates as used so they aren't appended at the end
+    schedRows.forEach(r => {
+      if (pNorm && r.normName === pNorm) r.used = true;
+    });
     if (match) match.used = true;
 
+    let matchedRow = match ? match.rawRow : new Array(SCHED_COLS).fill("");
     while (matchedRow.length < SCHED_COLS) matchedRow.push("");
     matchedRow.length = SCHED_COLS;
 
     matchedRow[nameIdx] = p.name;
     if (pPhone) matchedRow[phoneIdx] = p.phone;
 
+    if (pNorm) writtenNames.add(pNorm);
     return matchedRow;
   }
 
   let newRows = [headers];
-  (activePlayers || []).forEach(p => newRows.push(findMatchingRow(p)));
-  (inactivePlayers || []).forEach(p => newRows.push(findMatchingRow(p)));
-  schedRows.forEach(r => { if (!r.used) newRows.push(r.rawRow); });
+  (activePlayers || []).forEach(p => {
+    const r = findMatchingRow(p);
+    if (r) newRows.push(r);
+  });
+  (inactivePlayers || []).forEach(p => {
+    const r = findMatchingRow(p);
+    if (r) newRows.push(r);
+  });
+  schedRows.forEach(r => {
+    if (!r.used && !(r.normName && writtenNames.has(r.normName))) {
+      r.used = true;
+      if (r.normName) writtenNames.add(r.normName);
+      newRows.push(r.rawRow);
+    }
+  });
 
-  // Normalize matrix width strictly to 13 columns (Columns A-M)
   newRows.forEach(r => {
     while (r.length < SCHED_COLS) r.push("");
     r.length = SCHED_COLS;
   });
 
   schedSheet.clearContents();
+  schedSheet.getRange(1, 2, newRows.length, 1).setNumberFormat("@");
+  schedSheet.getRange(1, 13, newRows.length, 1).setNumberFormat("@");
   schedSheet.getRange(1, 1, newRows.length, SCHED_COLS).setValues(newRows);
 
-  // Clear & Stamp Column N metadata (N1:N4) independently
   let maxColRows = Math.max(schedSheet.getLastRow(), 20);
   if (maxColRows > 0) {
     schedSheet.getRange(1, 14, maxColRows, 1).clearContent().clearFormat();
@@ -3102,6 +3367,8 @@ function rebuildSchedSheetOrder(ss, cleanGroupName, activePlayers, inactivePlaye
     }
   }
 }
+
+
 
 
 
@@ -3216,7 +3483,17 @@ function submitCourtScores(payload) {
 
       if (dataModified) dataRange.setValues(data);
       if (typeof CacheService !== 'undefined') {
-        try { CacheService.getScriptCache().removeAll([`checkin_cache_Sched_${cleanGroup}`, `SCHEDULE_${cleanGroup}`, `APP_INIT_DATA`]); } catch (e) {}
+        try {
+          const keysToClear = [
+            `UNIFIED_ROSTER_CACHE_${cleanGroup.toUpperCase()}`,
+            `SCHEDULE_${cleanGroup}`,
+            `APP_INIT_DATA`
+          ];
+          if (typeof getCheckInCacheKey === 'function') {
+            keysToClear.push(getCheckInCacheKey("Sched " + cleanGroup));
+          }
+          CacheService.getScriptCache().removeAll(keysToClear);
+        } catch (e) {}
       }
 
       return { success: true, message: `Successfully updated scores.` };
@@ -3306,7 +3583,7 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
       groupName = targetParam;
     }
 
-    groupName = String(groupName || "Womens").replace(/^(Score|Sched)\s*/i, "").trim();
+    groupName = String(groupName || "Womens").replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
     let targetName = "Sched " + groupName;
 
     const ss = getDb();
@@ -3320,27 +3597,21 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
       if (str.toUpperCase() === "BYE") return "BYE";
       let match = str.match(/\d+/); return match ? String(match[0]) : (str.replace(/^(court|crt|score)\s*#?\s*/i, "").trim() || str);
     };
-    const normalizeName = (s) => {
-      if (!s) return ""; let str = String(s).trim().toLowerCase();
-      if (str.includes(",")) { let parts = str.split(",").map(p => p.trim()).filter(Boolean); if (parts.length === 2) str = parts[1] + " " + parts[0]; }
-      return str.replace(/\s+/g, " ");
-    };
-    const extractNumericRank = (val) => {
-      if (val === null || val === undefined || val === "") return 999;
-      if (typeof val === 'number') return val;
-      let str = String(val).trim();
-      let matchPct = str.match(/(\d+(?:\.\d+)?)\s*%/);
-      if (matchPct) return parseFloat(matchPct[1]);
-      let matchNum = str.match(/^(\d+(?:\.\d+)?)/);
-      if (matchNum) return parseFloat(matchNum[1]);
-      return 999;
+    const normPlayerName = (s) => {
+      if (!s) return ""; let str = String(s).trim();
+      if (str.includes(",")) {
+        let parts = str.split(",").map(p => p.trim()).filter(Boolean);
+        if (parts.length === 2) str = parts[1] + " " + parts[0];
+      }
+      return typeof normalizeName === "function"
+        ? normalizeName(str)
+        : str.toLowerCase().replace(/\s+/g, " ");
     };
 
     let sheet = ss.getSheetByName(targetName);
     if (!sheet) return `⚠️ Error: Schedule tab '${targetName}' not found.`;
 
     const currentWeek = typeof calculateCurrentWeekNumber === 'function' ? calculateCurrentWeekNumber() : 1;
-    const prevWeek = Math.max(0, currentWeek - 1);
 
     let existingData = sheet.getDataRange().getValues();
     let existingMap = {};
@@ -3357,85 +3628,63 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
       for (let r = 1; r < existingData.length; r++) {
         let pName = existingData[r][0] ? String(existingData[r][0]).trim() : "";
         if (pName) {
-          let checkInVal = existingData[r][2] !== undefined ? existingData[r][2] : "";
-          existingMap[normalizeName(pName)] = {
-            checkIn: (checkInVal !== null && String(checkInVal).trim() !== "") ? checkInVal : "",
-            g1: g1I !== -1 ? existingData[r][g1I] : "", g2: g2I !== -1 ? existingData[r][g2I] : "", 
-            g3: g3I !== -1 ? existingData[r][g3I] : "", g4: g4I !== -1 ? existingData[r][g4I] : "",
-            g5: g5I !== -1 ? existingData[r][g5I] : "", g6: g6I !== -1 ? existingData[r][g6I] : "",
-            total: totI !== -1 ? existingData[r][totI] : "", 
-            entered: entI !== -1 ? existingData[r][entI] : "", 
-            phone: phI < existingData[r].length ? cleanP(existingData[r][phI]) : ""
-          };
-        }
-      }
-    }
-
-    // Fetch master phone numbers and SINGLE PREVIOUS WEEK RANK from Score [Group] tab
-    let scoreSheetName = "Score " + groupName;
-    let scoreSheet = ss.getSheetByName(scoreSheetName);
-    let rankLookup = {};
-    let masterPhoneLookup = {};
-
-    if (scoreSheet) {
-      let scoreData = scoreSheet.getDataRange().getValues();
-      if (scoreData.length > 1) {
-        let scoreHead = scoreData[0].map(h => String(h || '').toLowerCase().trim());
-        let col = typeof buildColMap === 'function' ? buildColMap(scoreData[0]) : {};
-        let phoneColIdx = scoreHead.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
-        let rankColIdx = scoreHead.indexOf("r" + prevWeek);
-        if (rankColIdx === -1) {
-          rankColIdx = scoreHead.findIndex(h => h === "raw rank" || h === "lastr" || h === "pos" || h === "sortval");
-        }
-
-        for (let r = 1; r < scoreData.length; r++) {
-          let row = scoreData[r];
-          let pName = col.name !== undefined && row[col.name] ? String(row[col.name]).trim() :
-                      ((row[col.first] || "") + " " + (row[col.last] || "")).trim();
-          
-          let rawPhone = phoneColIdx !== -1 ? row[phoneColIdx] : 
-                         (col.phone !== undefined ? row[col.phone] : (col.cell !== undefined ? row[col.cell] : (col.mobile !== undefined ? row[col.mobile] : "")));
-          
-          let cleanedPhone = cleanP(rawPhone);
-
-          if (pName) {
-            let normP = normalizeName(pName);
-            if (cleanedPhone) masterPhoneLookup[normP] = cleanedPhone;
-
-            let rawRankVal = (rankColIdx !== -1 && row[rankColIdx] !== undefined) ? row[rankColIdx] : "";
-            let rankNum = extractNumericRank(rawRankVal);
-            if (rankNum === 999) rankNum = r;
-
-            rankLookup[normP] = { rank: rankNum, origIdx: r };
+          let normKey = normPlayerName(pName);
+          if (!existingMap[normKey]) {
+            let checkInVal = existingData[r][2] !== undefined ? existingData[r][2] : "";
+            existingMap[normKey] = {
+              checkIn: (checkInVal !== null && String(checkInVal).trim() !== "") ? checkInVal : "",
+              g1: g1I !== -1 ? existingData[r][g1I] : "", g2: g2I !== -1 ? existingData[r][g2I] : "", 
+              g3: g3I !== -1 ? existingData[r][g3I] : "", g4: g4I !== -1 ? existingData[r][g4I] : "",
+              g5: g5I !== -1 ? existingData[r][g5I] : "", g6: g6I !== -1 ? existingData[r][g6I] : "",
+              total: totI !== -1 ? existingData[r][totI] : "", 
+              entered: entI !== -1 ? existingData[r][entI] : "", 
+              phone: phI < existingData[r].length ? cleanP(existingData[r][phI]) : ""
+            };
           }
         }
       }
     }
 
-    let players = fetchPlayersFromSheet(targetName);
+    let scoreSheetName = "Score " + groupName;
+    let scoreSheet = ss.getSheetByName(scoreSheetName);
+    const rankInfo = buildAuthoritativeRankLookup(ss, groupName, scoreSheet);
+    const masterPhoneLookup = rankInfo.masterPhoneLookup;
+
+    let rawPlayers = fetchPlayersFromSheet(targetName);
+    let players = [];
+    let seenNames = new Set();
+
+    rawPlayers.forEach((p, idx) => {
+      let normP = normPlayerName(p.name);
+      if (normP && seenNames.has(normP)) return;
+      if (normP) seenNames.add(normP);
+
+      let prev = existingMap[normP] || { checkIn: "", g1: "", g2: "", g3: "", g4: "", g5: "", g6: "", total: "", entered: "", phone: "" };
+      let phoneClean = cleanP(p.phone || p.cell || p.mobile || prev.phone || masterPhoneLookup[normP]);
+
+      p.prev = prev;
+      p.phone = phoneClean;
+      p._sheetIdx = idx;
+      players.push(p);
+    });
+
     let checkedInPlayers = [];
     let uncheckedPlayers = [];
 
     players.forEach(p => {
-      let normP = normalizeName(p.name);
-      let prev = existingMap[normP] || { checkIn: "", g1: "", g2: "", g3: "", g4: "", g5: "", g6: "", total: "", entered: "", phone: "" };
-      let isChecked = Boolean(p.checkedIn || p.checked || (prev.checkIn && String(prev.checkIn).trim() !== ""));
-      p.prev = prev; 
+      let isChecked = Boolean(p.checkedIn || p.checked || (p.prev.checkIn && String(p.prev.checkIn).trim() !== ""));
       p.isChecked = isChecked; 
-
-      p.phone = cleanP(p.phone || p.cell || p.mobile || prev.phone || masterPhoneLookup[normP]);
-
       if (isChecked) checkedInPlayers.push(p); else uncheckedPlayers.push(p);
     });
 
+    // Sort checked-in players strictly by authoritative ladder rank
     checkedInPlayers.sort((a, b) => {
-      let rA = rankLookup[normalizeName(a.name)] || { rank: 999, origIdx: 999 };
-      let rB = rankLookup[normalizeName(b.name)] || { rank: 999, origIdx: 999 };
-      if (rA.rank !== rB.rank) return rA.rank - rB.rank;
+      let rA = rankInfo.getRankForPlayer(a.name, a._sheetIdx);
+      let rB = rankInfo.getRankForPlayer(b.name, b._sheetIdx);
+      if (Math.abs(rA.rank - rB.rank) > 0.0001) return rA.rank - rB.rank;
       return rA.origIdx - rB.origIdx;
     });
 
-    // Resolve and prioritize courts (5-12 first, then 1-4, 13+)
     let rawCourts = courts ? (typeof parseAndSortCourts === 'function' ? parseAndSortCourts(courts) : courts) : (typeof getCourtsForGroup === 'function' ? getCourtsForGroup(groupName) : [5, 6, 7, 8, 9, 10, 11, 12, 3, 4, 13, 14, 15, 16]);
     let cleanedCourts = rawCourts.map(cleanCourtLabel).filter(c => c !== "BYE" && c !== "");
     let prioritizedNums = typeof prioritizeCourts === 'function' ? prioritizeCourts(cleanedCourts) : cleanedCourts;
@@ -3501,17 +3750,23 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
 
     let headers = ["Player Name", "Court", "Check-In", "Game 1", "Game 2", "Game 3", "Game 4", "Game 5", "Game 6", "Total", "Entered", "", "Phone"];
     let rows = [headers];
-    let playerCourtLookup = {};
+    let playerCourtByName = {};
+    let phoneCourtCounts = {};
+    let playerCourtByPhone = {};
     const now = new Date();
 
     const writeRow = (p) => {
       let finalCourt = cleanCourtLabel(p.assignedCourt || (p.isChecked ? "BYE" : ""));
       let checkInVal = p.isChecked ? (p.prev.checkIn || now) : "";
-      let normName = normalizeName(p.name);
+      let normName = normPlayerName(p.name);
       let pPhone = cleanP(p.phone || p.cell || p.mobile || p.prev.phone || masterPhoneLookup[normName]);
 
-      if (normName) playerCourtLookup[normName] = finalCourt;
-      if (pPhone && pPhone.length >= 7) playerCourtLookup[pPhone.slice(-7)] = finalCourt;
+      if (normName) playerCourtByName[normName] = finalCourt;
+      if (pPhone && pPhone.length >= 7) {
+        let tail = pPhone.slice(-7);
+        phoneCourtCounts[tail] = (phoneCourtCounts[tail] || 0) + 1;
+        playerCourtByPhone[tail] = finalCourt;
+      }
 
       rows.push([p.name, finalCourt, checkInVal, p.prev.g1, p.prev.g2, p.prev.g3, p.prev.g4, p.prev.g5, p.prev.g6, p.prev.total, p.prev.entered, "", pPhone]);
     };
@@ -3520,10 +3775,8 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
     uncheckedPlayers.forEach(writeRow);
 
     sheet.clearContents();
-
     sheet.getRange(1, 2, rows.length, 1).setNumberFormat("@");
     sheet.getRange(1, 13, rows.length, 1).setNumberFormat("@");      
-
     sheet.getRange(1, 1, rows.length, headers.length).setValues(rows);
     sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
 
@@ -3532,7 +3785,6 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
     sheet.getRange("N3").setValue("Week " + currentWeek).setHorizontalAlignment("center");
     sheet.getRange("N4").setValue(Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "yyyy-MM-dd")).setHorizontalAlignment("center");
 
-    // Clear Pts column and sync Court assignments on Score sheet
     if (scoreSheet) {
       let scoreData = scoreSheet.getDataRange().getValues();
       if (scoreData.length > 1) {
@@ -3544,7 +3796,6 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
         if (courtIdx === -1) courtIdx = 3;
         if (ptsIdx === -1) ptsIdx = 4;
 
-        // Clear Points column on Score sheet
         scoreSheet.getRange(2, ptsIdx + 1, scoreData.length - 1, 1).clearContent();
 
         let courtValues = [];
@@ -3552,10 +3803,17 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
           let row = scoreData[r];
           let rowName = col.name !== undefined ? row[col.name] : `${row[col.first] || ''} ${row[col.last] || ''}`.trim();
           let rowPhone = col.phone !== undefined ? cleanP(row[col.phone]) : "";
+          let normRowName = normPlayerName(rowName);
           let assignedCourt = "";
 
-          if (rowPhone && rowPhone.length >= 7 && playerCourtLookup[rowPhone.slice(-7)] !== undefined) assignedCourt = playerCourtLookup[rowPhone.slice(-7)];
-          else if (normalizeName(rowName) && playerCourtLookup[normalizeName(rowName)] !== undefined) assignedCourt = playerCourtLookup[normalizeName(rowName)];
+          if (normRowName && playerCourtByName[normRowName] !== undefined) {
+            assignedCourt = playerCourtByName[normRowName];
+          } else if (rowPhone && rowPhone.length >= 7) {
+            let tail = rowPhone.slice(-7);
+            if (phoneCourtCounts[tail] === 1 && playerCourtByPhone[tail] !== undefined) {
+              assignedCourt = playerCourtByPhone[tail];
+            }
+          }
 
           if (assignedCourt && statusIdx !== -1 && String(row[statusIdx]).toUpperCase().trim() !== "ACTIVE") {
             scoreSheet.getRange(r + 1, statusIdx + 1).setValue("Active");
@@ -3580,9 +3838,13 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
     let activeCourtsCount = Object.keys(courtAssignments).filter(c => courtAssignments[c].length >= 4).length;
     let totalByes = rows.filter(r => r[1] === "BYE").length;
     let modeText = forceIntegrateByes ? "Optimized 5/6s" : "Strict 4s";
-    return `✅ Rescheduled '${targetName}' [${modeText}]. Assigned ${activeCourtsCount} courts, ${totalByes} BYEs. Phones written to Col M.`;
+    return `✅ Rescheduled '${targetName}' [${modeText}] using ${rankInfo.sourceLabel}. Assigned ${activeCourtsCount} courts, ${totalByes} BYEs.`;
   });
 }
+
+
+
+
 
 /**
  * Core worker for scheduling all active players.
@@ -3607,25 +3869,15 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
       return String(p).replace(/\D/g, '');
     };
     const cleanStr = (s) => String(s || '').trim().toLowerCase();
+    const normKeyOf = (s) => typeof normalizeName === 'function' ? normalizeName(s) : cleanStr(s);
     const cleanCourtLabel = (c) => {
       if (!c) return ""; let str = String(c).trim();
       if (str.toUpperCase() === "BYE") return "BYE";
       let match = str.match(/\d+/); return match ? String(match[0]) : (str.replace(/^(court|crt|score)\s*#?\s*/i, "").trim() || str);
     };
-    const extractNumericRank = (val) => {
-      if (val === null || val === undefined || val === "") return 999;
-      if (typeof val === 'number') return val;
-      let str = String(val).trim();
-      let matchPct = str.match(/(\d+(?:\.\d+)?)\s*%/);
-      if (matchPct) return parseFloat(matchPct[1]);
-      let matchNum = str.match(/^(\d+(?:\.\d+)?)/);
-      if (matchNum) return parseFloat(matchNum[1]);
-      return 999;
-    };
 
     let groupsToProcess = [];
     const currentWeek = typeof calculateCurrentWeekNumber === 'function' ? calculateCurrentWeekNumber() : 1;
-    const prevWeek = Math.max(0, currentWeek - 1);
 
     if (targetGroup) {
       let cleanGroup = String(targetGroup).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
@@ -3647,16 +3899,14 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
       const data = scoreSheet.getDataRange().getValues();
       if (data.length <= 1) return;
 
+      const rankInfo = buildAuthoritativeRankLookup(ss, groupName, scoreSheet);
       const col = typeof buildColMap === 'function' ? buildColMap(data[0]) : {};
       let scoreHeaders = data[0].map(h => String(h || '').trim().toLowerCase());
       let phoneIdx = scoreHeaders.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
-      let rankColIdx = scoreHeaders.indexOf("r" + prevWeek);
-      if (rankColIdx === -1) {
-        rankColIdx = scoreHeaders.findIndex(h => h === "raw rank" || h === "lastr" || h === "pos" || h === "sortval");
-      }
 
       let activePlayerObjects = [];
       let inactivePlayerObjects = [];
+      let seenNames = new Set();
 
       for (let r = 1; r < data.length; r++) {
         let row = data[r];
@@ -3665,32 +3915,31 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
         let firstVal = (col.first !== undefined && row[col.first]) ? String(row[col.first]).trim() : '';
         let lastVal = (col.last !== undefined && row[col.last]) ? String(row[col.last]).trim() : '';
         let name = (firstVal || lastVal) ? `${firstVal} ${lastVal}`.trim() : (col.name !== undefined ? String(row[col.name]).trim() : '');
-        
+        if (!name) continue;
+
+        let normName = normKeyOf(name);
+        if (normName && seenNames.has(normName)) continue;
+        if (normName) seenNames.add(normName);
+
         let rawPhone = phoneIdx !== -1 ? row[phoneIdx] : (col.phone !== undefined ? row[col.phone] : (col.cell !== undefined ? row[col.cell] : (col.mobile !== undefined ? row[col.mobile] : "")));
+        let cleanedPhone = cleanP(rawPhone);
+        let rEntry = rankInfo.getRankForPlayer(name, r);
 
-        if (name) {
-          let rawRankVal = (rankColIdx !== -1 && row[rankColIdx] !== undefined) ? row[rankColIdx] : "";
-          let rankNum = extractNumericRank(rawRankVal);
-          if (rankNum === 999) rankNum = r;
-
-          let pObj = { name: name, phone: cleanP(rawPhone), rank: rankNum, origIdx: r };
-          if (status === "ACTIVE") {
-            activePlayerObjects.push(pObj);
-          } else {
-            inactivePlayerObjects.push(pObj);
-          }
+        let pObj = { name: name, phone: cleanedPhone, rank: rEntry.rank, origIdx: r };
+        if (status === "ACTIVE") {
+          activePlayerObjects.push(pObj);
+        } else {
+          inactivePlayerObjects.push(pObj);
         }
       }
 
-      // Sort active players strictly by previous week rank
       activePlayerObjects.sort((a, b) => {
-        if (a.rank !== b.rank) return a.rank - b.rank;
+        if (Math.abs(a.rank - b.rank) > 0.0001) return a.rank - b.rank;
         return a.origIdx - b.origIdx;
       });
 
       let activePlayers = activePlayerObjects.map(p => p.name);
 
-      // Resolve and prioritize courts (5-12 first, then 1-4, 13+)
       let rawCourts = courts ? (typeof parseAndSortCourts === 'function' ? parseAndSortCourts(courts) : courts) : (typeof getCourtsForGroup === 'function' ? getCourtsForGroup(groupName) : [5, 6, 7, 8, 9, 10, 11, 12, 3, 4, 13, 14, 15, 16]);
       let cleanedCourts = rawCourts.map(cleanCourtLabel).filter(c => c !== "BYE" && c !== "");
       let prioritizedNums = typeof prioritizeCourts === 'function' ? prioritizeCourts(cleanedCourts) : cleanedCourts;
@@ -3766,14 +4015,21 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
         });
       }
 
-      const courtLookup = {};
+      const courtLookupByName = {};
+      const courtLookupByPhone = {};
+      const phoneCounts = {};
+
       const registerLookupKey = (pName, pPhone, assignedCourt) => {
         if (!pName) return;
         const cleanFull = cleanStr(pName);
-        courtLookup[cleanFull] = assignedCourt;
+        courtLookupByName[cleanFull] = assignedCourt;
         const tokens = cleanFull.match(/[a-z0-9]+/g) || [];
-        if (tokens.length > 0) courtLookup[tokens.sort().join(" ")] = assignedCourt;
-        if (pPhone) courtLookup[pPhone] = assignedCourt;
+        if (tokens.length > 0) courtLookupByName[tokens.sort().join(" ")] = assignedCourt;
+        if (pPhone && pPhone.length >= 7) {
+          const tail = pPhone.slice(-7);
+          phoneCounts[tail] = (phoneCounts[tail] || 0) + 1;
+          courtLookupByPhone[tail] = assignedCourt;
+        }
       };
 
       for (let i = 0; i < numPlayers; i++) {
@@ -3793,11 +4049,8 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
       }
 
       schedSheet.clearContents();
-
-      // FIXED: Used `schedSheet` instead of `sheet`
       schedSheet.getRange(1, 2, rows.length, 1).setNumberFormat("@");        
       schedSheet.getRange(1, 13, rows.length, 1).setNumberFormat("@");
-
       schedSheet.getRange(1, 1, rows.length, headers.length).setValues(rows);
       schedSheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
 
@@ -3817,7 +4070,6 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
       let ptsIdx = scoreHeaders2.findIndex(h => /^pts$|^points$|^total$/i.test(h));
       if (ptsIdx === -1) ptsIdx = 4;
 
-      // Clear Points column on Score sheet
       if (data.length > 1) scoreSheet.getRange(2, ptsIdx + 1, data.length - 1, 1).clearContent();
 
       let scoreCourtValues = [];
@@ -3834,20 +4086,20 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
         let matchedCourt = "";
         let foundInLookup = false;
 
-        if (rowPhone) {
-          for (let k in courtLookup) {
-            if (k.length >= 7 && rowPhone.endsWith(k.slice(-7))) {
-              matchedCourt = courtLookup[k]; foundInLookup = true; break;
-            }
+        if (cleanRowName && courtLookupByName[cleanRowName] !== undefined) {
+          matchedCourt = courtLookupByName[cleanRowName];
+          foundInLookup = true;
+        } else if (tokensKey && courtLookupByName[tokensKey] !== undefined) {
+          matchedCourt = courtLookupByName[tokensKey];
+          foundInLookup = true;
+        } else if (rowPhone && rowPhone.length >= 7) {
+          let tail = rowPhone.slice(-7);
+          if (phoneCounts[tail] === 1 && courtLookupByPhone[tail] !== undefined) {
+            matchedCourt = courtLookupByPhone[tail];
+            foundInLookup = true;
           }
         }
-        if (!foundInLookup) {
-          if (cleanRowName && courtLookup[cleanRowName] !== undefined) {
-            matchedCourt = courtLookup[cleanRowName]; foundInLookup = true;
-          } else if (tokensKey && courtLookup[tokensKey] !== undefined) {
-            matchedCourt = courtLookup[tokensKey]; foundInLookup = true;
-          }
-        }
+
         if (rowStatus !== "ACTIVE") matchedCourt = "";
         else if (!matchedCourt) matchedCourt = "BYE";
 
@@ -3865,12 +4117,15 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
       if (typeof CacheService !== 'undefined') CacheService.getScriptCache().remove("UNIFIED_ROSTER_CACHE_" + groupName.toUpperCase());
 
       let modeText = forceIntegrateByes ? "Optimized 5/6s" : "Strict 4s";
-      summary.push(`Generated schedule for '${groupName}' [${modeText}].${courtWarning}`);
+      summary.push(`Generated schedule for '${groupName}' [${modeText}] using ${rankInfo.sourceLabel}.${courtWarning}`);
     });
 
     return "✅ " + summary.join("\n");
   });
 }
+
+
+
 
 
 /**
@@ -3884,6 +4139,7 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
 function findFoursomeByPhone(payload) {
   try {
     var rawPhone = String(payload.phone || payload.phoneNum || "").replace(/\D/g, "");
+    var targetPlayerHint = String(payload.playerName || payload.name || "").trim();
     var groupName = String(payload.groupName || payload.group || "").replace(/^(Sched|Score)\s*/i, "").trim();
 
     if (!rawPhone || rawPhone.length < 7) {
@@ -3894,7 +4150,7 @@ function findFoursomeByPhone(payload) {
       return { success: false, message: "Target group name is required." };
     }
 
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = getDb();
     var sheetName = "Sched " + groupName;
     var sheet = ss.getSheetByName(sheetName);
 
@@ -3907,69 +4163,67 @@ function findFoursomeByPhone(payload) {
       return { success: false, message: "Schedule sheet is currently empty." };
     }
 
-    // 1. DYNAMIC COLUMN INDEX DETECTION (SUPPORTS UP TO 6 GAMES)
     var colName = 0;
     var colCourt = 1;
-    var colPhone = 2;
-    var gameCols = {}; // Map game numbers (1..6) to column indices
+    var colPhone = 12; // Col M (index 12) in standard 13-col Sched layout
+    var gameCols = { 1: 3, 2: 4, 3: 5, 4: 6, 5: 7, 6: 8 };
 
-    // Default fallbacks if headers are not present:
-    // Col 0: Name, Col 1: Court, Col 2: Phone, Col 3: G1, Col 4: G2, Col 5: G3, Col 6: G4, Col 7: G5, Col 8: G6
-    for (var g = 1; g <= 6; g++) {
-      gameCols[g] = 2 + g;
-    }
-
-    if (data.length > 0) {
-      var headers = data[0].map(function(h) { return String(h || "").trim().toLowerCase(); });
-      for (var i = 0; i < headers.length; i++) {
-        var h = headers[i];
-        if (h.indexOf("name") !== -1 || h.indexOf("player") !== -1) colName = i;
-        else if (h.indexOf("court") !== -1 || h === "ct") colCourt = i;
-        else if (h.indexOf("phone") !== -1 || h.indexOf("cell") !== -1 || h.indexOf("mobile") !== -1) colPhone = i;
-        else {
-          for (var g = 1; g <= 6; g++) {
-            if (h === "g" + g || h === "game " + g || h === "game" + g || h === "score " + g || h === "score" + g || h === "s" + g) {
-              gameCols[g] = i;
-            }
+    var headers = data[0].map(function(h) { return String(h || "").trim().toLowerCase(); });
+    for (var i = 0; i < headers.length; i++) {
+      var h = headers[i];
+      if (h.indexOf("name") !== -1 || h.indexOf("player") !== -1) colName = i;
+      else if (h.indexOf("court") !== -1 || h === "ct") colCourt = i;
+      else if (h.indexOf("phone") !== -1 || h.indexOf("cell") !== -1 || h.indexOf("mobile") !== -1) colPhone = i;
+      else {
+        for (var g = 1; g <= 6; g++) {
+          if (h === "g" + g || h === "game " + g || h === "game" + g || h === "score " + g || h === "score" + g || h === "s" + g) {
+            gameCols[g] = i;
           }
         }
       }
     }
 
     var targetLast7 = rawPhone.slice(-7);
+    var normOf = function(s) {
+      return typeof normalizeName === "function" ? normalizeName(s) : String(s || "").toLowerCase().trim();
+    };
+    var targetNormHint = normOf(targetPlayerHint);
+
     var targetCourtNum = "";
     var targetPlayerName = "";
-    var startRow = 1; // Skip header row
+    var fallbackRow = null;
 
-    // 2. LOCATE TARGET PLAYER & THEIR ASSIGNED COURT NUMBER
-    for (var r = startRow; r < data.length; r++) {
+    for (var r = 1; r < data.length; r++) {
       var row = data[r];
-      var rowText = row.join(" ");
-      var rowDigits = rowText.replace(/\D/g, "");
-
-      if (rowDigits.indexOf(targetLast7) !== -1) {
-        targetPlayerName = String(row[colName] || "Player").trim();
-        var rawCourt = String(row[colCourt] || "").trim();
-        targetCourtNum = rawCourt.replace(/\D/g, ""); // Extract digits
-        break;
+      var cellPhoneDigits = String(row[colPhone] || "").replace(/\D/g, "");
+      if (cellPhoneDigits.length >= 7 && cellPhoneDigits.slice(-7) === targetLast7) {
+        var rowPlayerName = String(row[colName] || "Player").trim();
+        if (!fallbackRow) fallbackRow = row;
+        if (targetNormHint && normOf(rowPlayerName) === targetNormHint) {
+          fallbackRow = row;
+          break;
+        }
       }
     }
 
+    if (fallbackRow) {
+      targetPlayerName = String(fallbackRow[colName] || "Player").trim();
+      var rawCourt = String(fallbackRow[colCourt] || "").trim();
+      targetCourtNum = rawCourt.replace(/\D/g, "");
+    }
+
     if (!targetCourtNum) {
-      return { 
-        success: false, 
-        found: false, 
-        message: "No court assignment found for this phone number." 
+      return {
+        success: false,
+        found: false,
+        message: "No court assignment found for this phone number."
       };
     }
 
-    // 3. GATHER ALL PLAYERS ASSIGNED TO THE SAME COURT NUMBER & EXTRACT G1..G6
     var teammates = [];
-
-    for (var i = startRow; i < data.length; i++) {
+    for (var i = 1; i < data.length; i++) {
       var row = data[i];
-      var cellCourtRaw = String(row[colCourt] || "").trim();
-      var cellCourtNum = cellCourtRaw.replace(/\D/g, "");
+      var cellCourtNum = String(row[colCourt] || "").trim().replace(/\D/g, "");
 
       if (cellCourtNum === targetCourtNum) {
         var pName = String(row[colName] || "").trim();
@@ -3983,7 +4237,6 @@ function findFoursomeByPhone(payload) {
             phone: pPhone
           };
 
-          // Attach Game Scores G1 through G6 to player object
           for (var g = 1; g <= 6; g++) {
             var colIdx = gameCols[g];
             playerObj["g" + g] = (colIdx !== undefined && row[colIdx] !== undefined) ? String(row[colIdx]).trim() : "";
@@ -3994,7 +4247,6 @@ function findFoursomeByPhone(payload) {
       }
     }
 
-    // 4. RETURN CLEANED PAYLOAD
     return {
       success: true,
       found: true,
@@ -4006,10 +4258,10 @@ function findFoursomeByPhone(payload) {
     };
 
   } catch (err) {
-    return { 
-      success: false, 
-      error: err.toString(), 
-      message: "Server exception in findFoursomeByPhone: " + err.message 
+    return {
+      success: false,
+      error: err.toString(),
+      message: "Server exception in findFoursomeByPhone: " + err.message
     };
   }
 }
@@ -4017,3 +4269,253 @@ function findFoursomeByPhone(payload) {
 
 
 
+
+
+function buildAuthoritativeRankLookup(ss, groupName, scoreSheet) {
+  const cleanGroup = String(groupName || "").replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
+  const rankLookup = {};
+  const masterPhoneLookup = {};
+  let sourceLabel = "Score sheet order";
+
+  const cleanP = (p) => {
+    if (p === null || p === undefined) return "";
+    if (typeof p === "number") p = p.toFixed(0);
+    return String(p).replace(/\D/g, "");
+  };
+
+  const canonicalName = (s) => {
+    if (!s) return "";
+    let str = String(s).trim();
+    if (str.includes(",")) {
+      const parts = str.split(",").map(p => p.trim()).filter(Boolean);
+      if (parts.length === 2) str = parts[1] + " " + parts[0];
+    }
+    return typeof normalizeName === "function"
+      ? normalizeName(str)
+      : str.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+  };
+
+  const tokenKeyOf = (s) => {
+    const tokens = canonicalName(s).match(/[a-z0-9]+/g) || [];
+    return tokens.sort().join(" ");
+  };
+
+  // Parses "4.2%", "12.5%-R", "3/24", "3/24-r", or plain integer rank into a normalized 1..poolSize position
+  const parseStandingToPosition = (val, poolSize) => {
+    if (val === null || val === undefined || val === "") return null;
+    if (typeof val === "number") {
+      if (val > 0 && val <= 1) return val * poolSize;
+      return val > 0 ? val : null;
+    }
+    const str = String(val).trim();
+    if (!str || /inactive/i.test(str)) return null;
+
+    const pctMatch = str.match(/^(\d+(?:\.\d+)?)\s*%/);
+    if (pctMatch) {
+      const pct = parseFloat(pctMatch[1]);
+      return isNaN(pct) ? null : (pct / 100) * poolSize;
+    }
+
+    const fracMatch = str.match(/^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)/);
+    if (fracMatch) {
+      const num = parseFloat(fracMatch[1]);
+      const den = parseFloat(fracMatch[2]);
+      if (!isNaN(num) && !isNaN(den) && den > 0) {
+        return (num / den) * poolSize;
+      }
+    }
+
+    const numMatch = str.match(/^(\d+(?:\.\d+)?)/);
+    if (numMatch) {
+      const n = parseFloat(numMatch[1]);
+      return isNaN(n) ? null : n;
+    }
+    return null;
+  };
+
+  const tokenBuckets = {};
+  const registerEntry = (rawName, entry) => {
+    const cName = canonicalName(rawName);
+    if (!cName) return;
+    if (!rankLookup[cName]) {
+      rankLookup[cName] = entry;
+    }
+    const tKey = tokenKeyOf(rawName);
+    if (tKey) {
+      if (!tokenBuckets[tKey]) tokenBuckets[tKey] = [];
+      tokenBuckets[tKey].push(entry);
+    }
+  };
+
+  // 1. PRIMARY AUTHORITY: "Rankings <Group>" sheet (finalized bounded standings)
+  let rankedActiveCount = 0;
+  let rankingsWeek = "";
+  const rankSheet = ss ? ss.getSheetByName("Rankings " + cleanGroup) : null;
+
+  if (rankSheet && rankSheet.getLastRow() > 1) {
+    const rData = rankSheet.getDataRange().getDisplayValues();
+    const rHeaders = rData[0].map(h => String(h || "").trim());
+
+    // Extract associated week from F1/F2 or "Rank (Week X)" header
+    if (rData[0].length >= 6 && String(rData[0][5] || "").trim()) {
+      const m = String(rData[0][5]).match(/\d+/);
+      if (m) rankingsWeek = m[0];
+    }
+    if (!rankingsWeek && rData.length > 1 && rData[1].length >= 6 && String(rData[1][5] || "").trim()) {
+      const m = String(rData[1][5]).match(/\d+/);
+      if (m) rankingsWeek = m[0];
+    }
+    if (!rankingsWeek && rHeaders[0]) {
+      const m = rHeaders[0].match(/week\s*(\d+)/i);
+      if (m) rankingsWeek = m[1];
+    }
+
+    const rRankIdx = rHeaders.findIndex(h => /^rank\b|^#$/i.test(h));
+    const rNameIdx = rHeaders.findIndex(h => /name|player/i.test(h));
+    const rankCol = rRankIdx !== -1 ? rRankIdx : 0;
+    const nameCol = rNameIdx !== -1 ? rNameIdx : 1;
+
+    let seqRank = 1;
+    for (let r = 1; r < rData.length; r++) {
+      const pName = String(rData[r][nameCol] || "").trim();
+      if (!pName || pName === "Name" || pName === "Player Name" || pName.startsWith("---")) continue;
+
+      const rawRank = String(rData[r][rankCol] || "").trim();
+      if (!rawRank || rawRank.toUpperCase() === "INACTIVE") continue;
+
+      const parsedRank = parseInt(rawRank.replace(/\D/g, ""), 10);
+      const effectiveRank = (!isNaN(parsedRank) && parsedRank > 0) ? parsedRank : seqRank;
+
+      registerEntry(pName, {
+        rank: effectiveRank,
+        origIdx: r,
+        source: "Rankings"
+      });
+      rankedActiveCount++;
+      seqRank = effectiveRank + 1;
+    }
+
+    if (rankedActiveCount > 0) {
+      sourceLabel = "Rankings " + cleanGroup + (rankingsWeek ? " (Week " + rankingsWeek + ")" : "");
+    }
+  }
+
+  // 2. FALLBACK / RETURNING INACTIVES: "Score <Group>" sheet
+  if (!scoreSheet && ss && typeof getScoreSheetByGroup === "function") {
+    scoreSheet = getScoreSheetByGroup(cleanGroup);
+  }
+
+  if (scoreSheet && scoreSheet.getLastRow() > 1) {
+    const sData = scoreSheet.getDataRange().getValues();
+    const sHeaders = sData[0].map(h => String(h || "").trim().toLowerCase());
+    const col = typeof buildColMap === "function" ? buildColMap(sData[0]) : {};
+
+    const phoneIdx = sHeaders.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
+    const firstIdx = col.first !== undefined ? col.first : sHeaders.findIndex(h => /first/i.test(h));
+    const lastIdx  = col.last !== undefined ? col.last : sHeaders.findIndex(h => /last/i.test(h));
+    const nameIdx  = col.name !== undefined ? col.name : sHeaders.findIndex(h => /player|full\s*name|^name$/i.test(h));
+    const newLeftIdx = sHeaders.findIndex(h => h === "newleft");
+    const sortValIdx = sHeaders.findIndex(h => h === "sortval");
+    const rawRankIdx = sHeaders.findIndex(h => h === "raw rank" || h === "rawrank");
+
+    // Identify all R1..R10 columns in descending week order
+    const rCols = [];
+    for (let w = 10; w >= 1; w--) {
+      const idx = sHeaders.indexOf("r" + w);
+      if (idx !== -1) rCols.push({ week: w, idx: idx });
+    }
+
+    // Find latest populated R<w> week and active pool size for scaling percentages/fractions
+    let latestPopulatedWeek = 0;
+    let latestActivePool = 0;
+    for (let c = 0; c < rCols.length; c++) {
+      let count = 0;
+      for (let r = 1; r < sData.length; r++) {
+        const val = sData[r][rCols[c].idx];
+        if (val !== "" && val !== null && val !== undefined && !/inactive/i.test(String(val))) {
+          count++;
+        }
+      }
+      if (count > 0) {
+        latestPopulatedWeek = rCols[c].week;
+        latestActivePool = count;
+        break;
+      }
+    }
+
+    const poolSize = rankedActiveCount > 0
+      ? rankedActiveCount
+      : (latestActivePool > 0 ? latestActivePool : Math.max(1, sData.length - 1));
+
+    if (rankedActiveCount === 0 && latestPopulatedWeek > 0) {
+      sourceLabel = "Score " + cleanGroup + " (R" + latestPopulatedWeek + ")";
+    }
+
+    for (let r = 1; r < sData.length; r++) {
+      const row = sData[r];
+      const fName = firstIdx !== -1 ? String(row[firstIdx] || "").trim() : "";
+      const lName = lastIdx !== -1 ? String(row[lastIdx] || "").trim() : "";
+      const pName = (fName || lName) ? `${fName} ${lName}`.trim() : (nameIdx !== -1 ? String(row[nameIdx] || "").trim() : "");
+      if (!pName) continue;
+
+      const cName = canonicalName(pName);
+      const rawPhone = phoneIdx !== -1 ? row[phoneIdx] : (col.phone !== undefined ? row[col.phone] : "");
+      const cleanedPhone = cleanP(rawPhone);
+      if (cName && cleanedPhone && !masterPhoneLookup[cName]) {
+        masterPhoneLookup[cName] = cleanedPhone;
+      }
+
+      // Skip if already ranked from "Rankings <Group>"
+      if (cName && rankLookup[cName]) continue;
+
+      // Walk backwards through R10..R1 to find this player's most recent active standing
+      let derivedPos = null;
+      for (let c = 0; c < rCols.length; c++) {
+        derivedPos = parseStandingToPosition(row[rCols[c].idx], poolSize);
+        if (derivedPos !== null) break;
+      }
+
+      if (derivedPos === null && newLeftIdx !== -1) {
+        derivedPos = parseStandingToPosition(row[newLeftIdx], poolSize);
+      }
+      if (derivedPos === null && sortValIdx !== -1) {
+        derivedPos = parseStandingToPosition(row[sortValIdx], poolSize);
+      }
+      if (derivedPos === null && rawRankIdx !== -1) {
+        derivedPos = parseStandingToPosition(row[rawRankIdx], poolSize);
+      }
+      if (derivedPos === null) {
+        derivedPos = poolSize + r;
+      }
+
+      registerEntry(pName, {
+        rank: derivedPos,
+        origIdx: r,
+        source: "Score"
+      });
+    }
+  }
+
+  // Expose unique token keys as secondary fallback for minor punctuation/middle-initial variations
+  Object.keys(tokenBuckets).forEach(tKey => {
+    if (tokenBuckets[tKey].length === 1 && !rankLookup[tKey]) {
+      rankLookup[tKey] = tokenBuckets[tKey][0];
+    }
+  });
+
+  const getRankForPlayer = (playerName, fallbackIdx) => {
+    const cName = canonicalName(playerName);
+    if (cName && rankLookup[cName]) return rankLookup[cName];
+    const tKey = tokenKeyOf(playerName);
+    if (tKey && rankLookup[tKey]) return rankLookup[tKey];
+    return { rank: 99999, origIdx: fallbackIdx !== undefined ? fallbackIdx : 99999, source: "Unranked" };
+  };
+
+  return {
+    rankLookup: rankLookup,
+    masterPhoneLookup: masterPhoneLookup,
+    getRankForPlayer: getRankForPlayer,
+    sourceLabel: sourceLabel,
+    week: rankingsWeek
+  };
+}
