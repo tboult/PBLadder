@@ -841,17 +841,26 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 });
 
-async function runRescheduleCheckedIn(mode = 'strict') {
-  const group = document.getElementById('adminGroupSelect')?.value || window.currentGroup || 'Tuesday';
-  const courts = Number(document.getElementById('adminCourtCount')?.value) || 0;
+async function runRescheduleCheckedIn(mode) {
+  const group = (typeof getAdminSelectedGroup === 'function')
+    ? getAdminSelectedGroup()
+    : (document.querySelector('input[name="adminGroupRadio"]:checked')?.value || 'Womens');
+
+  const isOptimized = mode
+    ? mode === 'optimized'
+    : Boolean(document.getElementById('optimize-byes-checkbox')?.checked);
+
+  const effectiveMode = isOptimized ? 'optimized' : 'strict';
+  const courtInput = Number(document.getElementById('adminCourtCount')?.value) || 0;
+  const courts = courtInput > 0 ? courtInput : null;
   const statusEl = document.getElementById('adminStatus');
 
-  const action = mode === 'optimized'
+  const action = isOptimized
     ? 'rescheduleCheckedInOptimized'
     : 'rescheduleCheckedInStrict';
 
   if (statusEl) {
-    statusEl.textContent = `Rescheduling checked-in players (${mode}) for ${group}...`;
+    statusEl.textContent = `Rescheduling checked-in players (${effectiveMode}) for ${group}...`;
     statusEl.className = 'status-info';
   }
 
@@ -859,37 +868,54 @@ async function runRescheduleCheckedIn(mode = 'strict') {
     const res = await apiCall(action, { group, courts });
     const msg = typeof res === 'string'
       ? res
-      : (res?.data || res?.message || `✅ Checked-in schedule (${mode}) generated for ${group}.`);
+      : (res?.data || res?.message || `✅ Checked-in schedule (${effectiveMode}) generated for ${group}.`);
 
     const hasWarning = /insufficient courts|warning|⚠️|error/i.test(msg);
 
     if (statusEl) {
       statusEl.textContent = msg;
       statusEl.className = hasWarning ? 'status-warning' : 'status-success';
+    } else {
+      alert(msg);
     }
 
+    if (typeof reloadAdminScores === 'function') {
+      await reloadAdminScores();
+    }
     if (typeof refreshAdminScheduleView === 'function') {
       await refreshAdminScheduleView(group);
     }
   } catch (err) {
+    const errMsg = 'Error: ' + (err.message || err);
     if (statusEl) {
-      statusEl.textContent = 'Error: ' + (err.message || err);
+      statusEl.textContent = errMsg;
       statusEl.className = 'status-error';
+    } else {
+      alert(errMsg);
     }
   }
 }
 
-async function runRescheduleActive(mode = 'strict') {
-  const group = document.getElementById('adminGroupSelect')?.value || window.currentGroup || 'Tuesday';
-  const courts = Number(document.getElementById('adminCourtCount')?.value) || 0;
+async function runRescheduleActive(mode) {
+  const group = (typeof getAdminSelectedGroup === 'function')
+    ? getAdminSelectedGroup()
+    : (document.querySelector('input[name="adminGroupRadio"]:checked')?.value || 'Womens');
+
+  const isOptimized = mode
+    ? mode === 'optimized'
+    : Boolean(document.getElementById('optimize-byes-checkbox')?.checked);
+
+  const effectiveMode = isOptimized ? 'optimized' : 'strict';
+  const courtInput = Number(document.getElementById('adminCourtCount')?.value) || 0;
+  const courts = courtInput > 0 ? courtInput : null;
   const statusEl = document.getElementById('adminStatus');
 
-  const action = mode === 'optimized'
+  const action = isOptimized
     ? 'rescheduleActiveOptimized'
     : 'rescheduleActiveStrict';
 
   if (statusEl) {
-    statusEl.textContent = `Rescheduling active players (${mode}) for ${group}...`;
+    statusEl.textContent = `Rescheduling active players (${effectiveMode}) for ${group}...`;
     statusEl.className = 'status-info';
   }
 
@@ -897,25 +923,36 @@ async function runRescheduleActive(mode = 'strict') {
     const res = await apiCall(action, { group, courts });
     const msg = typeof res === 'string'
       ? res
-      : (res?.data || res?.message || `✅ Active schedule (${mode}) generated for ${group}.`);
+      : (res?.data || res?.message || `✅ Active schedule (${effectiveMode}) generated for ${group}.`);
 
     const hasWarning = /insufficient courts|warning|⚠️|error/i.test(msg);
 
     if (statusEl) {
       statusEl.textContent = msg;
       statusEl.className = hasWarning ? 'status-warning' : 'status-success';
+    } else {
+      alert(msg);
     }
 
+    if (typeof reloadAdminScores === 'function') {
+      await reloadAdminScores();
+    }
     if (typeof refreshAdminScheduleView === 'function') {
       await refreshAdminScheduleView(group);
     }
   } catch (err) {
+    const errMsg = 'Error: ' + (err.message || err);
     if (statusEl) {
-      statusEl.textContent = 'Error: ' + (err.message || err);
+      statusEl.textContent = errMsg;
       statusEl.className = 'status-error';
+    } else {
+      alert(errMsg);
     }
   }
 }
+
+
+
 
 
 
