@@ -1877,7 +1877,8 @@ async function processApiQueue() {
       body: JSON.stringify({ action, ...payload }),
       signal: controller.signal
     });
-      clearTimeout(timeoutId);
+    const rawText = await response.text();
+    clearTimeout(timeoutId);
       
   
     const rawText = await response.text();

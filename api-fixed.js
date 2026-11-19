@@ -620,9 +620,13 @@ function updateGlobalLoaderStatus() {
 
 
 if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js')
-        .then(reg => logDebug('PWA Service Worker registered:', reg.scope))
-        .catch(err => console.warn('Service Worker registration failed:', err));
-    });
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' })
+      .then(reg => {
+        reg.update();
+        logDebug('PWA Service Worker registered:', reg.scope);
+      })
+      .catch(err => console.warn('Service Worker registration failed:', err));
+  });
 }
+
