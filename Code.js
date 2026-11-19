@@ -101,9 +101,12 @@ function getRankingsAndSchedData(groupName) {
   const ss = getDb();
   let cleanGroup = String(groupName).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
 
-  let rankSheet = ss.getSheetByName("Rankings " + cleanGroup) || 
-                  ss.getSheetByName("Score " + cleanGroup) || 
-                  (typeof getScoreSheetByGroup === "function" ? getScoreSheetByGroup(cleanGroup) : null);
+  // 1. Match "Rankings <Group>" or "Ranking <Group>" case-insensitively before falling back to Score
+  const targetRankRe = new RegExp("^rankings?\\s+" + cleanGroup.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "$", "i");
+  let rankSheet = ss.getSheets().find(s => targetRankRe.test(s.getName().trim())) ||
+                  ss.getSheetByName("Score " + cleanGroup) ||
+      (typeof getScoreSheetByGroup === "function" ? getScoreSheetByGroup(cleanGroup) : null);
+    
 
   let detectedWeek = "";
   let scData = null;
@@ -179,11 +182,14 @@ function getRankingsAndSchedData(groupName) {
       return undefined;
     };
 
-    let rankIdx   = findColIdx(["Rank", "#", "Position", "RNum"]);
-    let nameIdx   = findColIdx(["Name", "Player Name", "Player", "First"]);
-    let ptPctIdx  = findColIdx(["Point %", "Win %", "Win%", "WinPct", "Win", "Pct", "Win Rate"]);
-    let totalIdx  = findColIdx(["Total Points", "Total Score", "TotalPoints", "Total", "Points", "Pts", "Tot", "Score"]);
-    let statusIdx = findColIdx(["Status", "Active"]);
+    let rankIdx    = findColIdx(["Rank", "#", "Position", "RNum"]);
+    let nameIdx    = findColIdx(["Name", "Player Name", "Player", "First"]);
+    let ptPctIdx   = findColIdx(["Point %", "Win %", "Win%", "WinPct", "Win", "Pct", "Win Rate"]);
+    let totalIdx   = findColIdx(["Total Points", "Total Score", "TotalPoints", "Total", "Points", "Pts", "Tot", "Score"]);
+    let statusIdx  = findColIdx(["Status", "Active"]);
+    let newLeftIdx = findColIdx(["NewLeft", "New Left"]);
+      let weekRIdx   = detectedWeek ? findColIdx(["R" + detectedWeek]) : undefined;
+      
       
     const movePctLabel = (typeof MAX_MOVEMENT_PCT !== "undefined") ? MAX_MOVEMENT_PCT : 15;
     html += `<h4>Ladder Rankings${weekSubheadingSuffix}. Players with 4 or more weeks of scores (&gt;135 possible points) are ranked by Point % (scores/possible). Players with fewer than 4 weeks use % of active players with ±${movePctLabel}% mobility limits.</h4>
@@ -212,15 +218,26 @@ function getRankingsAndSchedData(groupName) {
       if (normKey) seenNames.add(normKey);
 
       let rawRankCell = (rankIdx !== undefined && row[rankIdx] !== undefined) ? String(row[rankIdx]).trim() : "";
-      let statusVal = statusIdx !== undefined ? String(row[statusIdx] || "").trim().toUpperCase() : "";
+      let statusVal   = statusIdx !== undefined ? String(row[statusIdx] || "").trim().toUpperCase() : "";
+      let newLeftVal  = newLeftIdx !== undefined ? String(row[newLeftIdx] || "").trim() : "";
+      let weekRVal    = weekRIdx !== undefined ? String(row[weekRIdx] || "").trim() : "";
+
+      // If reading from Score <Group> (where statusIdx exists), players with no NewLeft or a -I/-i week rank are INACTIVE
+      let unrankedOnScoreSheet = (statusIdx !== undefined) && (
+        (newLeftIdx !== undefined && newLeftVal === "") ||
+        /-[Ii]$/.test(weekRVal)
+      );
+
       let isInactive = (
         rawRankCell.toUpperCase() === "INACTIVE" ||
         statusVal === "INACTIVE" ||
         statusVal === "QUIT" ||
-        statusVal === "DROPPED"
+        statusVal === "DROPPED" ||
+        unrankedOnScoreSheet
       );
       let rankVal = isInactive ? "INACTIVE" : (rawRankCell || String(rankorder));
 
+        
       let ptPctVal = "0.0%";
       if (ptPctIdx !== undefined && row[ptPctIdx] !== "" && row[ptPctIdx] !== null) {
         let rawWinStr = String(row[ptPctIdx]).replace('%', '').trim();

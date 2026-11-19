@@ -1544,8 +1544,10 @@ function isValidEmail(emailStr) {
  * Loads schedule and rankings data for the active group and renders into viewerContent
  */
 async function loadRankingsAndSched(targetGroup = null) {
-  const groupSelect = document.getElementById('groupViewerSelect');
-  const group = targetGroup || (groupSelect && groupSelect.value ? groupSelect.value : (typeof getSavedGroup === 'function' ? getSavedGroup() : ''));
+  const checkedRadio = document.querySelector('input[name="helpGroupRadio"]:checked, input[name="checkinGroupRadio"]:checked, input[name="adminGroupRadio"]:checked');
+  const group = targetGroup
+    || (checkedRadio ? checkedRadio.value : '')
+    || (typeof getSavedGroup === 'function' ? getSavedGroup() : '');
 
   const statusEl = document.getElementById('viewerStatus');
   const contentEl = document.getElementById('viewerContent');
@@ -1555,23 +1557,18 @@ async function loadRankingsAndSched(targetGroup = null) {
     return;
   }
 
-  // =========================================================================
-  // 📍 BEST INSERTION POINT: Unhide #viewerContent and all parent tab wrappers
-  // =========================================================================
   if (statusEl) statusEl.style.display = 'block';
   contentEl.style.display = 'block';
 
   let parent = contentEl.parentElement;
   while (parent && parent !== document.body) {
     if (window.getComputedStyle(parent).display === 'none') {
-      console.warn(`⚠️ [Visibility Fix] Unhiding parent container <${parent.tagName.toLowerCase()}> (id="${parent.id}", class="${parent.className}")`);
       parent.style.display = 'block';
       parent.classList.add('active', 'show');
       parent.classList.remove('hidden', 'd-none');
     }
     parent = parent.parentElement;
   }
-  // =========================================================================
 
   if (!group) {
     if (statusEl) statusEl.innerText = 'Please select a group.';
@@ -1581,12 +1578,15 @@ async function loadRankingsAndSched(targetGroup = null) {
   if (statusEl) statusEl.innerHTML = '<span class="loading-spinner"></span>Loading schedule & standings...';
 
   try {
-    logDebug(`📊 [Rankings & Sched] Requesting data for group: "${group}"`);
-    const res = await apiCall('getRankingsAndSchedData', { group: group });
+    logDebug(`📊 [Rankings & Sched] Requesting fresh data for group: "${group}"`);
+    const res = await apiCall('getRankingsAndSchedData', {
+      group: group,
+      nocache: true,
+      _t: Date.now()
+    });
 
     if (statusEl) statusEl.innerText = '';
 
-    // Extract payload string
     let htmlContent = '';
     if (typeof res === 'string') {
       htmlContent = res;
@@ -1602,18 +1602,20 @@ async function loadRankingsAndSched(targetGroup = null) {
       htmlContent = `<i>No renderable schedule data returned for group "${group}".</i>`;
     }
 
-    // Inject HTML
     contentEl.innerHTML = htmlContent;
 
-    // Diagnostic check
-    const computed = window.getComputedStyle(contentEl);
-    logDebug('🔍 [DOM Visibility Diagnostic]:', {
-      display: computed.display,
-      visibility: computed.visibility,
-      opacity: computed.opacity,
-      offsetHeight: contentEl.offsetHeight,
-      offsetWidth: contentEl.offsetWidth,
-      injectedCharacterCount: contentEl.innerHTML.length
+    // Ensure INACTIVE cells are never clipped by narrow Rank column CSS and stand out clearly
+    contentEl.querySelectorAll('table tr').forEach(tr => {
+      const firstCell = tr.querySelector('td');
+      if (!firstCell) return;
+      const cellText = firstCell.textContent.trim().toUpperCase();
+      if (cellText === 'INACTIVE') {
+        tr.style.opacity = '0.75';
+        tr.style.backgroundColor = '#f8f9fa';
+        firstCell.style.whiteSpace = 'nowrap';
+        firstCell.style.minWidth = '85px';
+        firstCell.innerHTML = '<span style="display:inline-block; padding:2px 6px; border-radius:4px; background:#6c757d; color:#fff; font-size:0.8rem; font-weight:bold;">INACTIVE</span>';
+      }
     });
 
   } catch (e) {
@@ -1621,6 +1623,7 @@ async function loadRankingsAndSched(targetGroup = null) {
     if (statusEl) statusEl.innerText = e.message || "Network error loading data.";
   }
 }
+
 
 
 // ==========================================
