@@ -57,6 +57,7 @@ function getConstantsConfig() {
     groups: GROUPS,
     scheduleTabs: SCHEDULE_TABS,
     scoreTabs: SCORE_TABS,
+    maxMovementPct: (typeof MAX_MOVEMENT_PCT !== "undefined") ? MAX_MOVEMENT_PCT : 15,
     maxMovement: MAX_MOVEMENT,
     maxPointsPerWeek: MAX_POINTS_PER_WEEK,
     alwaysByeBottom: ALWAYS_BYE_BOTTOM
@@ -184,7 +185,8 @@ function getRankingsAndSchedData(groupName) {
     let totalIdx  = findColIdx(["Total Points", "Total Score", "TotalPoints", "Total", "Points", "Pts", "Tot", "Score"]);
     let statusIdx = findColIdx(["Status", "Active"]);
       
-    html += `<h4>Ladder Rankings${weekSubheadingSuffix}. Players with more than 4 weeks of scores (&gt;180 possible points) are ranked by Point % (scores/possible). Players with 4 or fewer weeks use % of active players with ±4 mobility limits.</h4>
+    const movePctLabel = (typeof MAX_MOVEMENT_PCT !== "undefined") ? MAX_MOVEMENT_PCT : 15;
+    html += `<h4>Ladder Rankings${weekSubheadingSuffix}. Players with 4 or more weeks of scores (&gt;135 possible points) are ranked by Point % (scores/possible). Players with fewer than 4 weeks use % of active players with ±${movePctLabel}% mobility limits.</h4>
              <table class="data-table">
                <thead>
                  <tr>
@@ -1580,7 +1582,10 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
         else inactivePlayers.push(obj);
       }
 
-      const maxMove = (typeof MAX_MOVEMENT !== "undefined") ? Number(MAX_MOVEMENT) : 4;
+      const movePct = (typeof MAX_MOVEMENT_PCT !== "undefined") ? Number(MAX_MOVEMENT_PCT) : 15;
+      const maxMove = Math.max(1, Math.round((movePct / 100) * numActive));
+
+
 
       activePlayers.sort(function (a, b) {
         if (Math.abs(b.cumPct - a.cumPct) > 0.0001) return b.cumPct - a.cumPct;
@@ -1684,9 +1689,11 @@ function processWeeklyScoresForSheet(sheet, forcedWeek, updateScores = true, use
 
  let msg = "Alert: Processed '" + sheet.getName() + "'. " + numActive + " active, " + inactivePlayers.length + " inactive.";
 
-      if (scaled.windowUsed > maxMove || absolute.windowUsed > maxMove) {
-        msg += ` (Note: Movement cap widened from ±${maxMove} to ±${Math.max(scaled.windowUsed, absolute.windowUsed)} for feasibility.)`;
-      }
+        if (scaled.windowUsed > maxMove || absolute.windowUsed > maxMove) {
+            const usedPct = Math.round((Math.max(scaled.windowUsed, absolute.windowUsed) / numActive) * 100);
+            msg += ` (Note: Movement cap widened from ±${movePct}% (±${maxMove}) to ±${usedPct}% (±${Math.max(scaled.windowUsed, absolute.windowUsed)}) for feasibility.)`;
+        }
+        
       if (suspectHistory.length > 0) {
         msg += ` Warning — suspect prior ranks ignored/flagged: ${suspectHistory.join(", ")}.`;
       }
@@ -1826,11 +1833,12 @@ function updateRankingsSheetForGroup(ss, groupName, activePlayers, inactivePlaye
   if (hasWeek) {
     rankSheet.getRange(1, 6).setFontWeight("bold").setBackground("#e3f2fd").setFontColor("#0c5460");
     rankSheet.getRange(2, 6).setHorizontalAlignment("center");
-    rankSheet.getRange(1, 1).setNote(
-      "Week " + weekNum + " standings.\n" +
-      "Players with > 4 weeks (> 180 possible points) are ranked by Point % (scores/possible).\n" +
-      "Players with <= 4 weeks use % of active players with +/- 4 mobility limits."
-    );
+    const movePctLabel = (typeof MAX_MOVEMENT_PCT !== "undefined") ? MAX_MOVEMENT_PCT : 15;
+   rankSheet.getRange(1, 1).setNote(
+  "Week " + weekNum + " standings.\n" +
+  "Players with 4 or more weeks (> 135 possible points) are ranked by Point % (scores/possible).\n" +
+  "Players with < 4 weeks use % of active players with +/- " + movePctLabel + "% mobility limits."
+);
   }
 }
 
