@@ -51,11 +51,13 @@ function filterAdminPlayers() {
     return;
   }
 
-  const filtered = adminPlayersCache.filter(p => {
-    const pName = String(p.name || `${p.first || ''} ${p.last || ''}`).toLowerCase();
-    const pPhone = String(p.phone || p.cell || p.mobile || '').replace(/\D/g, '');
-    return pName.includes(query) || pPhone.includes(query);
-  });
+  const filtered = adminPlayersCache
+    .map((player, cacheIdx) => ({ player, cacheIdx }))
+    .filter(({ player }) => {
+      const pName = String(player.name || `${player.first || ''} ${player.last || ''}`).toLowerCase();
+      const pPhone = String(player.phone || player.cell || player.mobile || '').replace(/\D/g, '');
+      return pName.includes(query) || pPhone.includes(query);
+    });
 
   if (filtered.length === 0) {
     container.innerHTML = '<i style="color:#666;">No matching players found.</i>';
@@ -63,7 +65,7 @@ function filterAdminPlayers() {
     return;
   }
 
-  container.innerHTML = filtered.map(player => {
+  container.innerHTML = filtered.map(({ player, cacheIdx }) => {
     const rawName = player.name || `${player.first || ''} ${player.last || ''}`.trim() || 'Unknown Player';
     const rawPhone = player.phone || player.cell || player.mobile || player.phoneNumber || '';
     const cleanPhone = String(rawPhone).replace(/\D/g, '');
@@ -94,7 +96,7 @@ function filterAdminPlayers() {
   <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; margin-left:auto;">
     <div style="display:flex; align-items:center; gap:0.3rem; white-space:nowrap;">
       <span style="font-size:0.85rem; font-weight:bold;">Total:</span>
-      <input type="number" id="admin_score_${attrPhone}" value="${playerScore}" placeholder="--" style="width: 55px; padding: 0.2rem; border: 1px solid #ccc; border-radius: 4px;">
+      <input type="number" id="admin_score_${cacheIdx}" data-phone="${attrPhone}" data-name="${attrName}" value="${playerScore}" placeholder="--" style="width: 55px; padding: 0.2rem; border: 1px solid #ccc; border-radius: 4px;">
     </div>
     <button type="button" class="btn-main" style="padding:0.35rem 0.6rem; font-size:0.8rem; background-color:${isCheckedIn ? '#2e7d32' : '#757575'}; color:white; white-space:nowrap;" onclick="toggleAdminCheckIn(this, '${attrName}', '${attrPhone}', ${isCheckedIn})">
       ${isCheckedIn ? '✅ Checked In' : '⬜ Check In'}
@@ -108,6 +110,7 @@ function filterAdminPlayers() {
 
   updateAdminDashboard();
 }
+
 
 async function submitAdminRegistration() {
   const first = document.getElementById('adminRegFirst')?.value.trim() || '';
@@ -282,11 +285,8 @@ async function toggleAdminCheckIn(btnEl, playerName, phone, currentCheckedInStat
         const cleanPhone = String(phone || '').replace(/\D/g, '');
         const cleanName = String(playerName || '').trim().toLowerCase();
 
-        const pObj = adminPlayersCache.find(p => {
-          const pPhone = String(p.phone || '').replace(/\D/g, '');
-          const pName = String(p.name || `${p.first || ''} ${p.last || ''}`).trim().toLowerCase();
-          return (cleanPhone && pPhone === cleanPhone) || (cleanName && pName === cleanName);
-        });
+        const pObj = (cleanName && adminPlayersCache.find(p => String(p.name || `${p.first || ''} ${p.last || ''}`).trim().toLowerCase() === cleanName))
+          || (cleanPhone && adminPlayersCache.find(p => String(p.phone || '').replace(/\D/g, '') === cleanPhone));
 
         if (pObj) {
           pObj.checkedIn = newState;
@@ -343,14 +343,12 @@ async function toggleAdminPlayerActive(btnEl, playerName, phone, currentActiveSt
 
       if (Array.isArray(adminPlayersCache)) {
         const targetNameLower = cleanName.toLowerCase();
-        const pObj = adminPlayersCache.find(p => {
-          const pPhone = String(p.phone || p.cell || p.mobile || '').replace(/\D/g, '');
-          const pName = String(p.name || `${p.first || ''} ${p.last || ''}`).trim().toLowerCase();
-          const phoneMatch = cleanPhone.length >= 7 && pPhone.length >= 7 && 
-                            (pPhone.endsWith(cleanPhone.slice(-7)) || cleanPhone.endsWith(pPhone.slice(-7)));
-          const nameMatch = targetNameLower.length > 0 && (pName === targetNameLower || pName.includes(targetNameLower) || targetNameLower.includes(pName));
-          return phoneMatch || nameMatch;
-        });
+        const pObj = (targetNameLower && adminPlayersCache.find(p => String(p.name || `${p.first || ''} ${p.last || ''}`).trim().toLowerCase() === targetNameLower))
+          || adminPlayersCache.find(p => {
+               const pPhone = String(p.phone || p.cell || p.mobile || '').replace(/\D/g, '');
+               return cleanPhone.length >= 7 && pPhone.length >= 7 &&
+                 (pPhone.endsWith(cleanPhone.slice(-7)) || cleanPhone.endsWith(pPhone.slice(-7)));
+             });
 
         if (pObj) {
           pObj.active = newActiveState;
@@ -375,6 +373,9 @@ async function toggleAdminPlayerActive(btnEl, playerName, phone, currentActiveSt
     }
   }
 }
+
+
+
 
 let adminPollingInterval;
 
@@ -578,12 +579,13 @@ async function saveAllAdminScores() {
 
   const updatesToPerform = [];
 
-  for (const player of adminPlayersCache) {
+  for (let cacheIdx = 0; cacheIdx < adminPlayersCache.length; cacheIdx++) {
+    const player = adminPlayersCache[cacheIdx];
     const rawName = player.name || `${player.first || ''} ${player.last || ''}`.trim() || 'Unknown Player';
     const rawPhone = player.phone || player.cell || player.mobile || player.phoneNumber || '';
     const cleanPhone = String(rawPhone).replace(/\D/g, '');
 
-    const scoreInput = document.getElementById(`admin_score_${cleanPhone}`);
+    const scoreInput = document.getElementById(`admin_score_${cacheIdx}`);
     if (!scoreInput) continue;
 
     const rawInputVal = scoreInput.value.trim();
@@ -637,6 +639,9 @@ async function saveAllAdminScores() {
         u.playerRef.points = u.score;
         u.playerRef.total = u.score;
       });
+      if (window.groupRosterCache && groupName) {
+        delete window.groupRosterCache[groupName];
+      }
       alert(`Successfully saved ${updatesToPerform.length} score change(s).`);
     } else {
       alert('Failed to update scores: ' + (res?.message || res?.error || 'Server Error'));
@@ -651,6 +656,7 @@ async function saveAllAdminScores() {
     }
   }
 }
+
 
 async function clearAllAdminScores() {
   const groupName = getAdminSelectedGroup();
@@ -674,16 +680,17 @@ async function clearAllAdminScores() {
 
     if (res && (res.success || !res.error)) {
       if (Array.isArray(adminPlayersCache)) {
-        adminPlayersCache.forEach(player => {
+        adminPlayersCache.forEach((player, cacheIdx) => {
           player.score = '';
           player.points = '';
           player.total = '';
 
-          const rawPhone = player.phone || player.cell || player.mobile || player.phoneNumber || '';
-          const cleanPhone = String(rawPhone).replace(/\D/g, '');
-          const scoreInput = document.getElementById(`admin_score_${cleanPhone}`);
+          const scoreInput = document.getElementById(`admin_score_${cacheIdx}`);
           if (scoreInput) scoreInput.value = '';
         });
+      }
+      if (window.groupRosterCache && groupName) {
+        delete window.groupRosterCache[groupName];
       }
       alert(`Successfully cleared all game scores and totals for group "${groupName}".`);
     } else {
@@ -699,6 +706,7 @@ async function clearAllAdminScores() {
     }
   }
 }
+
 
 async function runSkipWeek(weekTarget = 'current') {
   const groupName = getAdminSelectedGroup();
@@ -912,7 +920,7 @@ async function runAdminDriveBackup() {
   try {
     const res = await apiCall('apiCreateDriveBackup', {});
     if (res && (res.success || !res.error)) {
-      const backupName = res.name || res.message || 'Backup created successfully!';
+      const backupName = res.backupName || res.name || res.message || 'Backup created successfully!';
       if (statusEl) statusEl.innerText = `✅ Backup saved: ${backupName}`;
       alert(`✅ Backup Created Successfully!\n\nSaved: ${backupName}`);
     } else {
@@ -931,6 +939,7 @@ async function runAdminDriveBackup() {
     }
   }
 }
+
 
 /**
  * Triggers a full sheet restore from backup from the Admin UI.

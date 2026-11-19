@@ -3,12 +3,10 @@
 
 
 //  window.API_URL = "https://script.google.com/macros/s/AKfycbweTOjVcY0R1sxXrYfbN2S9jqMz4yr5b1alVoz0gjVy3P3ty42rtHlfgfpdjtFnF4nFaQ/exec";
-window.API_URL =CONFIG.apiUrl;
-const CURRENT_APP_VERSION = "0.9.9";
-const MAX_TOTAL_SCORE=45;
-const MAX_GAME_SCORE=15;
-
-
+window.API_URL = CONFIG.apiUrl;
+const CURRENT_APP_VERSION = "1.0.0";
+const MAX_TOTAL_SCORE = 60;
+const MAX_GAME_SCORE = 15;
 
 const GROUP_COURT_MAP = {
   "Womens": [5, 6, 7, 8, 11, 12, 3, 4, 13, 14, 15, 16, 17, 18, 19, 20],
@@ -16,6 +14,7 @@ const GROUP_COURT_MAP = {
   "Mixed":  [5, 6, 7, 8, 3, 4, 15, 16, 17, 18, 19, 20],
   "Default": [5, 6, 9, 10, 13, 14, 15, 16]
 };
+
 
   logDebug('window.API_URL:', window.API_URL);  
   
