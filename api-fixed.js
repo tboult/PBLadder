@@ -243,19 +243,24 @@ async function handleUserAndAdminState(phone, player) {
 }
 
   
-  async function checkAppVersion() {
-      logDebug(`Checking Version ...`);      
+async function checkAppVersion() {
   try {
-      const res = await apiCall('getAppVersion');
+    const endpoint = window.API_URL;
+    if (!endpoint) return;
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "getAppVersion" })
+    }).then(r => r.json());
+
     if (res && res.version && res.version !== CURRENT_APP_VERSION) {
-      logDebug(`New app version detected (${res.version}). Consider Force resetting caches...`);
-      //forceResetApp();
+      logDebug(`New app version detected (${res.version})`);
     }
   } catch (err) {
-    console.warn('Version check skipped or failed:', err);
+    console.warn('Version check skipped:', err);
   }
-      
 }
+
 
 function forceResetApp() {
   if ('serviceWorker' in navigator) {
@@ -486,15 +491,16 @@ let lastCheckedPhone = "";
           const match = typeof checkPlayerExists === 'function' ? checkPlayerExists(digits, currentGroup) : null;
           const exists = match ? match.exists : false;
           const player = match ? match.player : null;
-
           if (exists) {
-            logDebug("✅ Live player match found:", player);
-            if (typeof savePhoneToCache === "function") savePhoneToCache(digits);
+              logDebug("✅ Live player match found:", player);
+              const pName = `${player.first || ''} ${player.last || ''}`.trim() || player.name || '';
+              if (typeof savePlayerCredentials === "function") {
+              savePlayerCredentials(digits, pName);
+              }
 
             if (typeof handleUserAndAdminState === "function") {
               await handleUserAndAdminState(digits, player);
             }
-
           } else {
             logDebug("🔍 Live lookup: Player not in current group. Executing cross-group lookup...");
             if (typeof handlePlayerNotFoundInCurrentGroup === "function") {

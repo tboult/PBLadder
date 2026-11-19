@@ -1868,13 +1868,19 @@ async function processApiQueue() {
     return;
   }
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+
   try {
     const response = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({ action, ...payload })
+      body: JSON.stringify({ action, ...payload }),
+      signal: controller.signal
     });
-
+      clearTimeout(timeoutId);
+      
+  
     const rawText = await response.text();
     let data;
 
@@ -1928,6 +1934,7 @@ async function processApiQueue() {
         message: data.message || 'User not found/registered'
       });
     } else {
+      clearTimeout(timeoutId);
       logDebug(`✅ [API Response] Raw data returned for "${action}":`, data);
       resolve(data);
     }
@@ -2134,10 +2141,19 @@ async function checkRegistrationStatus(phone) {
 /**
  * Handles checking registration and auto-checking in based on user role
  */
-async function savePhoneToCache() {
+/**
+ * Handles checking registration and auto-checking in based on user role
+ */
+async function savePhoneToCache(explicitPhone) {
   const phoneInput = document.getElementById('phoneInput');
-  let phone = (phoneInput ? phoneInput.value : '') || getSavedPhone();
-  phone = String(phone).replace(/\D/g, '');
+  let rawPhone = (typeof explicitPhone === 'string' && explicitPhone.trim())
+    ? explicitPhone
+    : ((phoneInput ? phoneInput.value : '') || getSavedPhone());
+
+  let phone = String(rawPhone).replace(/\D/g, '');
+  if (phone.length === 11 && phone.startsWith('1')) {
+    phone = phone.slice(1);
+  }
 
   if (phone.length !== 10) {
     alert('Please enter a valid 10-digit phone number.');
@@ -2158,24 +2174,36 @@ async function savePhoneToCache() {
     saveBtn.innerHTML = '⏳ Checking...';
   }
 
+  let isRegisteredMatch = false;
+
   try {
-    // 1. Fetch current roster to check registration
+    // 1. Fetch current roster to check registration (matching last 7 digits)
     const roster = await loadUnifiedRosterData(currentGroup, false) || [];
-    
+    const targetTail = phone.slice(-7);
+
     const matchedPlayer = roster.find(p => {
-      const pPhone = String(p.phone || p.cell || p.id || p.playerId || '').replace(/\D/g, '');
-      return pPhone === phone;
+      const pPhone = String(p.phone || p.cell || p.mobile || p.id || p.playerId || '').replace(/\D/g, '');
+      return pPhone.length >= 7 && pPhone.endsWith(targetTail);
     });
 
     const regAccordion = document.getElementById('registrationAccordion');
 
     if (matchedPlayer) {
-      // --- REGISTERED PLAYER ---
+      isRegisteredMatch = true;
+
       // A. Keep "New Player" detail box collapsed
       if (regAccordion) regAccordion.open = false;
 
-      const pName = `${matchedPlayer.first || ''} ${matchedPlayer.last || ''}`.trim() || matchedPlayer.name || matchedPlayer.playerName || '';
+      const pName = `${matchedPlayer.first || ''} ${matchedPlayer.last || ''}`.trim()
+        || matchedPlayer.name
+        || matchedPlayer.playerName
+        || '';
       savePlayerCredentials(phone, pName);
+
+      // Sync front status badge & welcome banner
+      if (typeof loadPlayerStatusFromCache === 'function') {
+        await loadPlayerStatusFromCache(phone);
+      }
 
       // B. Auto Check-In
       const checkinResult = await triggerAutoCheckIn();
@@ -2187,31 +2215,30 @@ async function savePhoneToCache() {
         switchTab('admin');
       } else {
         switchTab('score');
-        const statusMsg = checkinResult?.message || "✅ Auto-checked in successfully!";
-        updateAutoCheckinBanner(statusMsg, 'success');
+        const bannerType = (checkinResult && checkinResult.success === false) ? 'warning' : 'success';
+        const statusMsg = checkinResult?.message || '✅ Auto-checked in successfully!';
+        if (typeof updateAutoCheckinBanner === 'function') {
+          updateAutoCheckinBanner(statusMsg, bannerType);
+        }
       }
-
-      setSaveButtonState(true);
-
     } else {
       // --- UNREGISTERED PLAYER ---
       // Expand detail box so they can register
       if (regAccordion) regAccordion.open = true;
-      setSaveButtonState(false);
-      alert("⚠️ Phone number not registered. Please complete registration in the box below.");
+      alert(`⚠️ Phone number not registered in ${currentGroup}. Please complete registration in the box below.`);
     }
-
   } catch (err) {
-    console.error("Error checking registration:", err);
+    console.error('Error checking registration:', err);
   } finally {
     if (saveBtn) {
       saveBtn.disabled = false;
-      const savedPhone = getSavedPhone();
-      const isAdmin = (typeof isUserAdmin === 'function') && isUserAdmin(savedPhone);
-      saveBtn.innerHTML = isAdmin ? 'Admin Reg. ✓' : 'Registered ✓';
+    }
+    if (typeof setSaveButtonState === 'function') {
+      setSaveButtonState(isRegisteredMatch);
     }
   }
 }
+
 
 /**
  * Synchronizes group state between localStorage and UI radio inputs across all tabs
