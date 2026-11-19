@@ -335,54 +335,117 @@ async function loadPlayerStatusFromCache(phone) {
 }
 
 
-async function triggerAutoCheckIn() {
+async function triggerAutoCheckIn(options = {}) {
+  const { skipGeofence = false } = options;
   const savedPhone = typeof getSavedPhone === 'function' ? getSavedPhone() : '';
   const savedName = typeof getSavedName === 'function' ? getSavedName() : '';
   const targetPhoneDigits = String(savedPhone || '').replace(/\D/g, '').slice(-10);
   const normalizedTargetName = String(savedName || '').trim().toLowerCase().replace(/\s+/g, ' ');
 
-  if (!targetPhoneDigits && !normalizedTargetName) return;
+  if (!targetPhoneDigits && !normalizedTargetName) {
+    return { success: false, skipped: true, message: 'No saved player credentials.' };
+  }
 
-  const activeGroup = window.currentGroup || document.getElementById('groupSelect')?.value || 'Tuesday';
-  const roster = (window.unifiedRoster && window.unifiedRoster[activeGroup]) || [];
-  if (!roster.length) return;
+  const activeGroup = (typeof getSavedGroup === 'function' && getSavedGroup())
+    || document.querySelector('input[name="helpGroupRadio"]:checked, input[name="checkinGroupRadio"]:checked')?.value
+    || localStorage.getItem('scpb_saved_group')
+    || localStorage.getItem('scpb_selected_group')
+    || '';
+
+  if (!activeGroup) {
+    return { success: false, skipped: true, message: 'No active group selected.' };
+  }
+
+  let roster = (window.groupRosterCache && Array.isArray(window.groupRosterCache[activeGroup]))
+    ? window.groupRosterCache[activeGroup]
+    : (Array.isArray(window.appPlayersCache) && window.appPlayersCache.length > 0
+        ? window.appPlayersCache
+        : (Array.isArray(window.unifiedRoster) ? window.unifiedRoster : []));
+
+  if (!roster.length && typeof loadUnifiedRosterData === 'function') {
+    roster = await loadUnifiedRosterData(activeGroup, false);
+  }
+  if (!Array.isArray(roster) || !roster.length) {
+    return { success: false, skipped: true, message: `No roster loaded for ${activeGroup}.` };
+  }
 
   // 1. Prioritize exact normalized name match (for shared family phone numbers)
   let matchedPlayer = null;
   if (normalizedTargetName) {
     matchedPlayer = roster.find(p =>
-      String(p.name || '').trim().toLowerCase().replace(/\s+/g, ' ') === normalizedTargetName
+      String(p.name || `${p.first || ''} ${p.last || ''}`).trim().toLowerCase().replace(/\s+/g, ' ') === normalizedTargetName
     );
   }
 
-  // 2. Fall back to 10-digit phone match only if no name match was found
+  // 2. Fall back to 10-digit phone match
   if (!matchedPlayer && targetPhoneDigits) {
     matchedPlayer = roster.find(p =>
-      String(p.phone || '').replace(/\D/g, '').slice(-10) === targetPhoneDigits
+      String(p.phone || p.cell || p.mobile || '').replace(/\D/g, '').slice(-10) === targetPhoneDigits
     );
   }
 
-  if (!matchedPlayer) return;
+  if (!matchedPlayer) {
+    return { success: false, skipped: true, message: `Player not found in ${activeGroup}.` };
+  }
 
-  const currentStatus = String(matchedPlayer.checkedIn || '').trim().toLowerCase();
-  if (currentStatus === 'yes' || currentStatus === 'checked in' || currentStatus === 'true') {
-    return;
+  const rawCheck = matchedPlayer.checkedIn ?? matchedPlayer.isCheckedIn ?? '';
+  const currentStatus = String(rawCheck).trim().toLowerCase();
+  const alreadyCheckedIn = rawCheck === true
+    || currentStatus === 'yes'
+    || currentStatus === 'checked in'
+    || currentStatus === 'true'
+    || (typeof rawCheck === 'string' && rawCheck.trim().length > 0 && currentStatus !== 'false' && currentStatus !== 'no');
+
+  if (alreadyCheckedIn) {
+    return { success: true, alreadyCheckedIn: true, player: matchedPlayer, message: `✅ ${matchedPlayer.name} is already checked in for ${activeGroup}.` };
+  }
+
+  // Enforce geofence for non-admin players
+  if (!skipGeofence && typeof checkGeofence === 'function') {
+    const isAdmin = typeof isUserAdmin === 'function' && isUserAdmin(savedPhone);
+    if (!isAdmin) {
+      const allowed = await checkGeofence(savedPhone);
+      if (!allowed) {
+        return { success: false, blockedByGeofence: true, message: 'Check-in blocked: not at courts.' };
+      }
+    }
   }
 
   try {
-    await apiCall('checkInPlayer', {
+    const res = await apiCall('checkInPlayer', {
       group: activeGroup,
+      groupName: activeGroup,
+      sheet: 'Sched ' + activeGroup,
       name: matchedPlayer.name,
+      playerName: matchedPlayer.name,
       phone: matchedPlayer.phone || savedPhone,
       status: 'Yes'
     });
-    if (typeof loadUnifiedRoster === 'function') {
-      await loadUnifiedRoster(true);
+
+    if (res && res.success !== false && !res.error) {
+      if (window.groupRosterCache) {
+        delete window.groupRosterCache[activeGroup];
+      }
+      if (typeof loadUnifiedRosterData === 'function') {
+        await loadUnifiedRosterData(activeGroup, true);
+      }
+      return {
+        success: true,
+        player: matchedPlayer,
+        message: res.message || `✅ Auto-checked in ${matchedPlayer.name} for ${activeGroup}!`
+      };
     }
+
+    return {
+      success: false,
+      message: res?.message || res?.error || 'Auto check-in rejected by server.'
+    };
   } catch (err) {
     console.error('Auto check-in failed:', err);
+    return { success: false, message: err.message || 'Auto check-in network error.' };
   }
 }
+
 
 
 
@@ -408,6 +471,16 @@ async function refreshActiveTabData(forceRefresh = false) {
       await loadUnifiedRosterData(currentGroup, forceRefresh);
     }
 
+   if (activeTab === 'checkin') {
+          if (typeof triggerAutoCheckIn === 'function') {
+              await triggerAutoCheckIn();
+          }
+      const savedPhone = typeof getSavedPhone === 'function' ? getSavedPhone() : '';
+      if (savedPhone && typeof loadPlayerStatusFromCache === 'function') {
+        await loadPlayerStatusFromCache(savedPhone);
+      }
+   }
+      
     if (activeTab === 'checkin') {
       if (typeof triggerAutoCheckIn === 'function') await triggerAutoCheckIn();
     } else if (activeTab === 'admin') {
@@ -1736,8 +1809,9 @@ window.unifiedRosterCache = {
  * Updates status banner display at top of Enter Scores tab
  */
 function updateAutoCheckinBanner(message, type = 'success') {
-  const banner = document.getElementById('autoCheckinStatusBanner');
-  if (!banner) return;
+function updateAutoCheckinBanner(message, type = 'success') {
+  const banner = document.getElementById('scoreAutoCheckinBanner') || document.getElementById('autoCheckinStatusBanner');
+    if (!banner) return;
 
   banner.style.display = 'block';
   if (type === 'success') {
