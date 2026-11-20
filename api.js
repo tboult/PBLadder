@@ -1879,7 +1879,10 @@ async function processApiQueue() {
   }
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  const isBatchAction = ["processWeeklyScoresForSheet", "testWomensRankingsWeeks1To10"].includes(action);
+  const timeoutMs = isBatchAction ? 45000 : 15000;
+  const timeoutId = setTimeout(() => controller.abort(new Error(`Request timeout after ${timeoutMs}ms`)), timeoutMs);
+    
 
   try {
     const response = await fetch(endpoint, {
