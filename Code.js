@@ -4062,40 +4062,51 @@ function safeParseRankVal(cellVal, defaultRank, currentPoolSize) {
 /* =========================================================================
  *  MIXED RANKING ENGINE (> 4 WEEKS BY PT %, <= 4 WEEKS BOUNDED MOVEMENT)
  * ========================================================================= */
-function computeBoundedRanks(players, allActivePlayers, maxWeeklyStep) {
+/* =========================================================================
+ *  BOUNDED RANK & MIXED LADDER ENGINE (> 4 WEEKS BY PT %, <= 4 WEEKS BOUNDED)
+ * ========================================================================= */
+function computeBoundedRanks(provisionalPlayers, allActivePlayers, customStep) {
   const N = allActivePlayers.length;
-  const step = Math.max(1, Number(maxWeeklyStep) || 7);
+  const step = Math.max(1, Number(customStep) || Math.ceil(0.15 * N));
 
-  // Compute each <= 4 week player's natural performance rank against ALL active players
-  const allByPerf = allActivePlayers.slice().sort((a, b) => {
+  // Raw performance rank across all active players (Pt % desc, Total Pts desc, Weeks desc)
+  const byPerf = allActivePlayers.slice().sort((a, b) => {
     if (Math.abs(b.pct - a.pct) > 1e-6) return b.pct - a.pct;
     if (b.total !== a.total) return b.total - a.total;
     return b.weeks - a.weeks;
   });
   const perfRankByName = new Map();
-  allByPerf.forEach((p, idx) => perfRankByName.set(p.name, idx + 1));
+  byPerf.forEach((p, idx) => perfRankByName.set(p.name, idx + 1));
 
-  return players.map(p => {
+  return provisionalPlayers.map(p => {
     const perfRank = perfRankByName.get(p.name) || N;
 
-    if (!p.hasPrior || !p.priorRank || p.priorRank <= 0) {
-      // New entrant with no prior standing: start at natural performance rank (never bottom-anchored)
-      p.targetRank = perfRank;
-      p.restrictionSuffix = p.playedThisWeek ? "" : "-i";
+    // New <= 4 week player with no prior rank starts at bottom of active ladder (N)
+    const anchorRank = (p.hasPrior && p.priorRank > 0)
+      ? Math.max(1, Math.min(N, p.priorRank))
+      : N;
+
+    const minAllowed = Math.max(1, anchorRank - step);
+    const maxAllowed = Math.min(N, anchorRank + step);
+
+    p.rawRank = perfRank;
+    p.anchorRank = anchorRank;
+
+    if (perfRank < minAllowed) {
+      p.isBounded = true;
+      p.targetRank = minAllowed;
+      p.restrictionSuffix = "-R";
+    } else if (perfRank > maxAllowed) {
+      p.isBounded = true;
+      p.targetRank = maxAllowed;
+      p.restrictionSuffix = "-r";
     } else {
-      const minAllowed = Math.max(1, p.priorRank - step);
-      const maxAllowed = Math.min(N, p.priorRank + step);
-      if (perfRank < minAllowed) {
-        p.targetRank = minAllowed;
-        p.restrictionSuffix = "-R";
-      } else if (perfRank > maxAllowed) {
-        p.targetRank = maxAllowed;
-        p.restrictionSuffix = "-r";
-      } else {
-        p.targetRank = perfRank;
-        p.restrictionSuffix = p.playedThisWeek ? "" : "-i";
-      }
+      // Within allowed movement window: insert by Pt % among the > 4 week list
+      p.isBounded = false;
+      p.targetRank = null;
+      p.restrictionSuffix = p.playedThisWeek === false ? "-i" : "";
     }
+
     return p;
   });
 }
@@ -4105,8 +4116,10 @@ function computeMixedRankings(activePlayers) {
 
   const N = activePlayers.length;
   const maxPtsPerWeek = (typeof MAX_POINTS_PER_WEEK !== "undefined") ? MAX_POINTS_PER_WEEK : 45;
-  const established = []; // > 4 weeks (> 180 possible pts): pure Pt %
-  const provisional = []; // <= 4 weeks (<= 180 possible pts): bounded movement
+  const step = Math.ceil(0.15 * N);
+
+  const established = []; // > 4 weeks: ranked strictly by Pt %
+  const provisional = []; // <= 4 weeks: bounded movement
 
   activePlayers.forEach(p => {
     const weeks = Number(p.weeksPlayed ?? p.weeks) || 0;
@@ -4133,18 +4146,19 @@ function computeMixedRankings(activePlayers) {
     }
   });
 
-  // 1. Sort > 4 Weeks players strictly by cumulative Pt % descending, then Total Pts, then Weeks
-  established.sort((a, b) => {
+  // 1. Evaluate bounded movement for <= 4 week players
+  const evaluatedProv = computeBoundedRanks(provisional, activePlayers, step);
+  const unrestrictedProv = evaluatedProv.filter(p => !p.isBounded);
+  const boundedProv      = evaluatedProv.filter(p => p.isBounded);
+
+  // 2. Build the base Pt %-sorted list from (> 4 weeks) + (unrestricted <= 4 weeks)
+  const baseSorted = established.concat(unrestrictedProv).sort((a, b) => {
     if (Math.abs(b.pct - a.pct) > 1e-6) return b.pct - a.pct;
     if (b.total !== a.total) return b.total - a.total;
     return b.weeks - a.weeks;
   });
 
-  // 2. Compute bounded target ranks for <= 4 Weeks players
-  const boundedProv = computeBoundedRanks(provisional, activePlayers, 7);
-
-  // 3. Merge into unified 1..N standings: place <= 4 Weeks players at their bounded target slots,
-  //    then fill all remaining slots in strict Pt % order with > 4 Weeks players.
+  // 3. Insert bounded <= 4 week players (-R / -r) around their bounded target location
   const slots = new Array(N).fill(null);
 
   boundedProv.sort((a, b) => {
@@ -4163,25 +4177,26 @@ function computeMixedRankings(activePlayers) {
     if (idx >= 0 && idx < N) slots[idx] = p;
   });
 
-  let estIdx = 0;
+  let baseIdx = 0;
   for (let i = 0; i < N; i++) {
-    if (slots[i] === null && estIdx < established.length) {
-      slots[i] = established[estIdx++];
+    if (slots[i] === null && baseIdx < baseSorted.length) {
+      slots[i] = baseSorted[baseIdx++];
     }
   }
 
-  // 4. Assign final 1..N ranks & diagnostic sort values
+  // 4. Assign final 1..N ranks
   const result = [];
   for (let i = 0; i < N; i++) {
     const p = slots[i];
     if (!p) continue;
     p.rank = i + 1;
-    p.sortVal = i + 1;
+    p.sortVal = p.rawRank || (i + 1);
     result.push(p);
   }
 
   return result;
 }
+
 
 /* =========================================================================
  *  MAIN WEEKLY SCORE HARVEST & MIXED RANKING PROCESSOR (ALL 10 WEEKS)
