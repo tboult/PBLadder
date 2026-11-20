@@ -1562,79 +1562,13 @@ function isValidEmail(emailStr) {
   }
 })();      
 
-/**
- * Loads schedule and rankings data for the active group and renders into viewerContent
- */
-/**
- * Loads schedule and rankings data for the active group and renders into viewerContent
- */
-/**
- * Loads schedule and rankings data for the active group and renders into viewerContent
- */
-async function loadRankingsAndSched(targetGroup = null) {
-  const checkedRadio = document.querySelector('input[name="helpGroupRadio"]:checked, input[name="checkinGroupRadio"]:checked, input[name="adminGroupRadio"]:checked');
-  const group = targetGroup
-    || (checkedRadio ? checkedRadio.value : '')
-    || (typeof getSavedGroup === 'function' ? getSavedGroup() : '');
-
-  const statusEl = document.getElementById('viewerStatus');
-  const contentEl = document.getElementById('viewerContent');
-
-  if (!contentEl) {
-    console.error('💥 [Rankings Error] Target element "#viewerContent" not found in DOM.');
-    return;
-  }
-
-  if (statusEl) statusEl.style.display = 'block';
-  contentEl.style.display = 'block';
-
-  let parent = contentEl.parentElement;
-  while (parent && parent !== document.body) {
-    if (window.getComputedStyle(parent).display === 'none') {
-      parent.style.display = 'block';
-      parent.classList.add('active', 'show');
-      parent.classList.remove('hidden', 'd-none');
-    }
-    parent = parent.parentElement;
-  }
-
-  if (!group) {
-    if (statusEl) statusEl.innerText = 'Please select a group.';
-    return;
-  }
-
-  if (statusEl) statusEl.innerHTML = '<span class="loading-spinner"></span>Loading schedule & standings...';
-
-  try {
-    logDebug(`📊 [Rankings & Sched] Requesting fresh data for group: "${group}"`);
-    const res = await apiCall('getRankingsAndSchedData', {
-      group: group,
-      nocache: true,
-      _t: Date.now()
-    });
-
-    if (statusEl) statusEl.innerText = '';
-
-    if (!res || (res.success === false && !Array.isArray(res.rankings) && typeof res.html !== 'string')) {
-      const errMsg = (res && (res.message || res.error)) || `No renderable data returned for group "${group}".`;
-      contentEl.innerHTML = `<i>${errMsg}</i>`;
-      return;
-    }
-
-    renderRankingsAndSchedule(res);
-  } catch (e) {
-    console.error("💥 Error loading schedule & standings:", e);
-    if (statusEl) statusEl.innerText = e.message || "Network error loading data.";
-  }
-}
-
 
 
 
 // ==========================================
 // GEOFENCE & ADMIN CONFIGURATION
 // ==========================================
-const GEOFENCE_RADIUS_METERS = 300;
+const GEOFENCE_RADIUS_METERS = 250;
 
 const ALLOWED_GEOFENCE_LOCATIONS = [
   { lat: 33.65362909476011, lng: -112.27699205631843, name: "Marinette Pickleball Courts" },
@@ -2484,154 +2418,7 @@ function submitSingleGameScore(gameNum, btnElement) {
 
 
 /**
- * Renders rankings and omits schedule as requested.
- */
-/**
- * Renders rankings JSON (or legacy HTML string) into #viewerContent.
- */
-/**
- * Renders rankings JSON (or legacy HTML string) into #viewerContent.
- * Columns: Rank | Name | Pt % | Pts | Weeks
- */
-/**
- * Renders rankings JSON (or legacy HTML string) into #viewerContent.
- * Preserves the unified mixed 1..N ranking order returned by the backend.
- * Columns: Rank | Name | Pt % | Pts | Weeks
- */
-function renderRankingsAndSchedule(rawData) {
-  const viewerContent = document.getElementById('viewerContent');
-  if (!viewerContent) return;
 
-  const esc = (val) => String(val ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-
-  const data = (rawData && typeof rawData === 'object' && rawData.data && typeof rawData.data === 'object' && !Array.isArray(rawData.data))
-    ? rawData.data
-    : rawData;
-
-  if (typeof data === 'string') {
-    viewerContent.innerHTML = data;
-    return;
-  }
-
-  if (data && typeof data.html === 'string') {
-    viewerContent.innerHTML = data.html;
-    return;
-  }
-
-  if (data && typeof data.rankingsHtml === 'string') {
-    viewerContent.innerHTML = data.rankingsHtml;
-    return;
-  }
-
-  const rawList = data && (data.rankings || data.ranks || data.standings || data.players);
-
-  if (!Array.isArray(rawList)) {
-    viewerContent.innerHTML = `<pre style="white-space:pre-wrap; word-break:break-word;">${esc(JSON.stringify(data, null, 2))}</pre>`;
-    return;
-  }
-
-  // Keep active players in the exact unified mixed rank order from the backend, with INACTIVE rows at the bottom
-  const activeRows = [];
-  const inactiveRows = [];
-
-  rawList.forEach((r) => {
-    if (!r || typeof r !== 'object') {
-      activeRows.push(r);
-      return;
-    }
-    const statusStr = String(r.status || 'ACTIVE').trim().toUpperCase();
-    if (statusStr === 'INACTIVE') {
-      inactiveRows.push(r);
-    } else {
-      activeRows.push(r);
-    }
-  });
-
-  activeRows.sort((a, b) => (Number(a?.rank) || 9999) - (Number(b?.rank) || 9999));
-  const rankingsList = [...activeRows, ...inactiveRows];
-
-  const groupLabel = data.group ? `${esc(data.group)} ` : '';
-  const weekLabel = data.week ? ` (Through Week ${esc(data.week)})` : '';
-  const ruleNote = data.note
-    || 'Players with > 4 weeks (> 180 possible points) are ranked by Pt %; players with ≤ 4 weeks have bounded weekly movement, mixed into one unified list.';
-
-  let html = `
-    <div style="margin-bottom:0.75rem;">
-      <h4 style="margin:0 0 0.4rem 0;">${groupLabel}Standings${weekLabel}</h4>
-      <div style="font-size:0.9rem; color:#495057; background:#f8f9fa; border-left:4px solid #0d6efd; padding:0.5rem 0.75rem; border-radius:4px;">
-        ${esc(ruleNote)}
-      </div>
-    </div>
-  `;
-
-  if (rankingsList.length === 0) {
-    html += `<p style="color:#666; font-style:italic;">No active rankings recorded yet for ${esc(data.group || 'this group')}.</p>`;
-    viewerContent.innerHTML = html;
-    return;
-  }
-
-  html += `
-    <table class="data-table" style="width:100%; border-collapse:collapse;">
-      <thead>
-        <tr>
-          <th style="text-align:center;">Rank</th>
-          <th style="text-align:left;">Name</th>
-          <th style="text-align:right;">Pt %</th>
-          <th style="text-align:right;">Pts</th>
-          <th style="text-align:center;">Weeks</th>
-        </tr>
-      </thead>
-      <tbody>
-  `;
-
-  rankingsList.forEach((r, idx) => {
-    if (typeof r === 'string') {
-      html += `<tr><td colspan="5">${esc(r)}</td></tr>`;
-      return;
-    }
-
-    const statusStr = String(r.status || 'ACTIVE').trim().toUpperCase();
-    const isInactive = statusStr === 'INACTIVE';
-    const rankNum = r.rank ?? (idx + 1);
-    const rankDisplay = isInactive
-      ? '<span style="display:inline-block; padding:2px 6px; border-radius:4px; background:#6c757d; color:#fff; font-size:0.8rem; font-weight:bold;">INACTIVE</span>'
-      : `<b>${esc(rankNum)}</b>`;
-
-    const name = esc(r.name || `${r.first || ''} ${r.last || ''}`.trim());
-    const weeks = Number(r.weeks ?? 0);
-    const totalPts = Number(r.total ?? r.points ?? r.score ?? 0);
-    const pctNum = typeof r.pct === 'number' ? r.pct : parseFloat(r.pct);
-    const pctDisplay = !isNaN(pctNum) ? `${pctNum.toFixed(1)}%` : '';
-    const isBounded = !isInactive && (r.isPctRanked === false || weeks <= 4);
-    const boundedTag = isBounded
-      ? ' <span title="≤ 4 weeks played (bounded weekly movement)" style="font-size:0.75rem; color:#6c757d;">*</span>'
-      : '';
-
-    html += `
-      <tr style="${isInactive ? 'opacity:0.75; background-color:#f8f9fa;' : ''}">
-        <td style="text-align:center; white-space:nowrap;">${rankDisplay}</td>
-        <td>${name}${boundedTag}</td>
-        <td style="text-align:right; font-weight:600;">${esc(pctDisplay)}</td>
-        <td style="text-align:right;">${esc(totalPts)}</td>
-        <td style="text-align:center;">${esc(weeks)}</td>
-      </tr>
-    `;
-  });
-
-  html += `
-      </tbody>
-    </table>
-    <div style="margin-top:0.5rem; font-size:0.8rem; color:#6c757d;">
-      * ≤ 4 weeks played (bounded weekly movement rule applied within unified standings)
-    </div>
-  `;
-
-  viewerContent.innerHTML = html;
-}
 
 
 
@@ -2907,4 +2694,266 @@ function renderLookupResult(player, foursome, courtScores) {
       </div>
     `;
   }
+}
+
+
+/**
+ * Loads rankings and schedule data for the active group and renders into #viewerContent.
+ */
+async function loadRankingsAndSched(targetGroup = null) {
+  const checkedRadio = document.querySelector('input[name="helpGroupRadio"]:checked, input[name="checkinGroupRadio"]:checked, input[name="adminGroupRadio"]:checked');
+  const group = targetGroup
+    || (checkedRadio ? checkedRadio.value : '')
+    || (typeof getSavedGroup === 'function' ? getSavedGroup() : '');
+
+  const statusEl = document.getElementById('viewerStatus');
+  const contentEl = document.getElementById('viewerContent');
+
+  if (!contentEl) {
+    console.error('💥 [Rankings Error] Target element "#viewerContent" not found in DOM.');
+    return;
+  }
+
+  if (statusEl) statusEl.style.display = 'block';
+  contentEl.style.display = 'block';
+
+  let parent = contentEl.parentElement;
+  while (parent && parent !== document.body) {
+    if (window.getComputedStyle(parent).display === 'none') {
+      parent.style.display = 'block';
+      parent.classList.add('active', 'show');
+      parent.classList.remove('hidden', 'd-none');
+    }
+    parent = parent.parentElement;
+  }
+
+  if (!group) {
+    if (statusEl) statusEl.innerText = 'Please select a group.';
+    return;
+  }
+
+  if (statusEl) statusEl.innerHTML = '<span class="loading-spinner"></span>Loading rankings & schedule...';
+
+  try {
+    logDebug(`📊 [Rankings & Sched] Requesting fresh data for group: "${group}"`);
+    const res = await apiCall('getRankingsAndSchedData', {
+      group: group,
+      nocache: true,
+      _t: Date.now()
+    });
+
+    if (statusEl) statusEl.innerText = '';
+
+    if (!res || (res.success === false && !Array.isArray(res.rankings) && typeof res.html !== 'string')) {
+      const errMsg = (res && (res.message || res.error)) || `No renderable data returned for group "${group}".`;
+      contentEl.innerHTML = `<i>${errMsg}</i>`;
+      return;
+    }
+
+    renderRankingsAndSchedule(res);
+  } catch (e) {
+    console.error("💥 Error loading rankings & schedule:", e);
+    if (statusEl) statusEl.innerText = e.message || "Network error loading data.";
+  }
+}
+
+/**
+ * Renders Rankings first (exact sheet order including inactive players, no Tier column),
+ * followed by the Schedule if one exists.
+ */
+function renderRankingsAndSchedule(rawData) {
+  const viewerContent = document.getElementById('viewerContent');
+  if (!viewerContent) return;
+
+  const esc = (val) => String(val ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+  const data = (rawData && typeof rawData === 'object' && rawData.data && typeof rawData.data === 'object' && !Array.isArray(rawData.data))
+    ? rawData.data
+    : rawData;
+
+  if (typeof data === 'string') {
+    viewerContent.innerHTML = data;
+    return;
+  }
+
+  if (data && typeof data.html === 'string') {
+    viewerContent.innerHTML = data.html;
+    return;
+  }
+
+  const rankingsList = data && (data.rankings || data.ranks || data.standings || data.players);
+
+  if (!Array.isArray(rankingsList)) {
+    viewerContent.innerHTML = `<pre style="white-space:pre-wrap; word-break:break-word;">${esc(JSON.stringify(data, null, 2))}</pre>`;
+    return;
+  }
+
+  const groupLabel = data.group ? `${esc(data.group)} ` : '';
+  const weekLabel = data.week ? ` (Week ${esc(data.week)})` : '';
+
+  // ==========================================
+  // 1. RANKINGS SECTION (EXACT SHEET ORDER)
+  // ==========================================
+  let html = `
+    <div style="margin-bottom:0.75rem;">
+      <h4 style="margin:0 0 0.4rem 0;">🏆 ${groupLabel}Rankings${weekLabel}</h4>
+    </div>
+  `;
+
+  if (rankingsList.length === 0) {
+    html += `<p style="color:#666; font-style:italic;">No rankings recorded yet for ${esc(data.group || 'this group')}.</p>`;
+  } else {
+    html += `
+      <table class="data-table" style="width:100%; border-collapse:collapse; margin-bottom:1.25rem;">
+        <thead>
+          <tr>
+            <th style="text-align:center;">Rank</th>
+            <th style="text-align:left;">Name</th>
+            <th style="text-align:right;">Pt %</th>
+            <th style="text-align:right;">Pts</th>
+            <th style="text-align:center;">Weeks</th>
+          </tr>
+        </thead>
+        <tbody>
+    `;
+
+    rankingsList.forEach((r, idx) => {
+      if (typeof r === 'string') {
+        html += `<tr><td colspan="5">${esc(r)}</td></tr>`;
+        return;
+      }
+
+      const rawRankStr = String(r.rank ?? '').trim();
+      const statusStr = String(r.status || 'ACTIVE').trim().toUpperCase();
+      const isInactive = statusStr === 'INACTIVE' || rawRankStr.toUpperCase() === 'INACTIVE';
+
+      const rankDisplay = isInactive
+        ? '<span style="display:inline-block; padding:2px 6px; border-radius:4px; background:#6c757d; color:#fff; font-size:0.8rem; font-weight:bold;">INACTIVE</span>'
+        : `<b>${esc(rawRankStr || (idx + 1))}</b>`;
+
+      const name = esc(r.name || `${r.first || ''} ${r.last || ''}`.trim());
+      const weeks = Number(r.weeks ?? 0);
+      const totalPts = Number(r.total ?? r.points ?? r.score ?? 0);
+      const pctNum = typeof r.pct === 'number' ? r.pct : parseFloat(r.pct);
+      const pctDisplay = !isNaN(pctNum) ? `${pctNum.toFixed(1)}%` : '';
+
+      html += `
+        <tr style="${isInactive ? 'opacity:0.75; background-color:#f8f9fa;' : ''}">
+          <td style="text-align:center; white-space:nowrap;">${rankDisplay}</td>
+          <td>${name}</td>
+          <td style="text-align:right; font-weight:600;">${esc(pctDisplay)}</td>
+          <td style="text-align:right;">${esc(totalPts)}</td>
+          <td style="text-align:center;">${esc(weeks)}</td>
+        </tr>
+      `;
+    });
+
+    html += `
+        </tbody>
+      </table>
+    `;
+  }
+
+  // ==========================================
+  // 2. SCHEDULE SECTION (IF ONE EXISTS)
+  // ==========================================
+  const schedList = Array.isArray(data.schedule) ? data.schedule : [];
+  const hasSchedule = data.hasSchedule !== false && schedList.length > 0;
+
+  if (hasSchedule) {
+    const dateBadge = data.scheduleDate ? ` — ${esc(data.scheduleDate)}` : '';
+
+    // Group players by court preserving sheet order, keeping BYEs at the bottom
+    const courtOrder = [];
+    const courtGroups = {};
+    const byePlayers = [];
+
+    schedList.forEach((item) => {
+      let pName = '';
+      let court = '';
+      let total = '';
+      let games = [];
+
+      if (Array.isArray(item)) {
+        pName = String(item[0] || '').trim();
+        court = String(item[1] || '').trim();
+        games = [item[3], item[4], item[5], item[6], item[7], item[8]]
+          .filter(v => v !== '' && v !== null && v !== undefined);
+        total = (item[9] !== '' && item[9] !== null && item[9] !== undefined) ? item[9] : '';
+      } else if (item && typeof item === 'object') {
+        pName = String(item.name || '').trim();
+        court = String(item.court || '').trim();
+        games = [item.g1, item.g2, item.g3, item.g4, item.g5, item.g6]
+          .filter(v => v !== '' && v !== null && v !== undefined);
+        total = (item.total !== '' && item.total !== null && item.total !== undefined) ? item.total : '';
+      }
+
+      if (!pName || !court) return;
+
+      const playerEntry = { name: pName, games, total };
+      if (court.toUpperCase() === 'BYE') {
+        byePlayers.push(playerEntry);
+      } else {
+        if (!courtGroups[court]) {
+          courtGroups[court] = [];
+          courtOrder.push(court);
+        }
+        courtGroups[court].push(playerEntry);
+      }
+    });
+
+    if (courtOrder.length > 0 || byePlayers.length > 0) {
+      html += `
+        <div style="margin-top:1.25rem; padding-top:0.75rem; border-top:2px solid #dee2e6;">
+          <h4 style="margin:0 0 0.6rem 0;">📅 ${groupLabel}Schedule${weekLabel}${dateBadge}</h4>
+          <table class="data-table" style="width:100%; border-collapse:collapse;">
+            <thead>
+              <tr>
+                <th style="text-align:center; width:90px;">Court</th>
+                <th style="text-align:left;">Players</th>
+              </tr>
+            </thead>
+            <tbody>
+      `;
+
+      courtOrder.forEach((court) => {
+        const label = /^\d+$/.test(court) ? `Court ${esc(court)}` : esc(court);
+        const playersHtml = courtGroups[court].map(p => {
+          const scoreBadge = (p.total !== '' || p.games.length > 0)
+            ? ` <span style="font-size:0.85rem; color:#495057;">(${p.games.length ? p.games.join(', ') : ''}${p.total !== '' ? `${p.games.length ? ' | ' : ''}Tot: <b>${esc(p.total)}</b>` : ''})</span>`
+            : '';
+          return `<div>${esc(p.name)}${scoreBadge}</div>`;
+        }).join('');
+
+        html += `
+          <tr>
+            <td style="text-align:center; font-weight:bold; vertical-align:top; color:#0d6efd;">${label}</td>
+            <td>${playersHtml}</td>
+          </tr>
+        `;
+      });
+
+      if (byePlayers.length > 0) {
+        const byeHtml = byePlayers.map(p => esc(p.name)).join(', ');
+        html += `
+          <tr style="background-color:#f8f9fa;">
+            <td style="text-align:center; font-weight:bold; color:#6c757d;">BYE</td>
+            <td>${byeHtml}</td>
+          </tr>
+        `;
+      }
+
+      html += `
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+  }
+
+  viewerContent.innerHTML = html;
 }
