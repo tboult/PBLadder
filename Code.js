@@ -4438,23 +4438,126 @@ function getRankingsAndSchedData(groupName) {
 
   const rankSheet  = ss.getSheetByName("Rankings " + cleanGroup);
   const schedSheet = ss.getSheetByName("Sched " + cleanGroup);
+  const scoreSheet = ss.getSheetByName("Score " + cleanGroup);
 
-  // 1. Resolve active week and schedule (only if court assignments exist)
-  let activeWeek = null;
+  const extractWeekNum = (val) => {
+    if (val === null || val === undefined || val === "") return null;
+    if (typeof val === "number" && !isNaN(val) && val > 0) return Math.floor(val);
+    const m = String(val).match(/(?:through\s*week|week|wk|w)\s*#?\s*(\d+)/i) || String(val).trim().match(/^(\d+)$/);
+    return m ? Number(m[1]) : null;
+  };
+
+  // 1. Read "Rankings <Group>" directly in sheet order (including INACTIVE, excluding Tier)
+  const rankings = [];
+  let maxWeeksPlayed = 0;
+  let rankSheetWeek = null;
+
+  if (rankSheet && rankSheet.getLastRow() >= 1) {
+    const rRange = rankSheet.getDataRange();
+    const rData = rRange.getValues();
+    const rDisplay = rRange.getDisplayValues();
+    const rNotes = rRange.getNotes();
+
+    // Check Row 1 values and notes for an explicit week indicator (e.g., "Through Week 6")
+    for (let c = 0; c < rData[0].length; c++) {
+      const fromHeader = extractWeekNum(rDisplay[0][c] || rData[0][c]);
+      if (fromHeader) { rankSheetWeek = fromHeader; break; }
+      const fromNote = extractWeekNum(rNotes[0][c]);
+      if (fromNote) { rankSheetWeek = fromNote; break; }
+    }
+
+    if (rData.length >= 2) {
+      const rHeaders = rData[0].map(h => String(h || "").trim().toLowerCase());
+
+      const rankCol = rHeaders.findIndex(h => h === "rank" || h === "#");
+      const nameCol = rHeaders.findIndex(h => h === "name" || h === "player" || h === "player name");
+      const pctCol  = rHeaders.findIndex(h => h.includes("pt") && h.includes("%"));
+      const ptsCol  = rHeaders.findIndex(h => h === "pts" || h === "points");
+      const wksCol  = rHeaders.findIndex(h => h.startsWith("week"));
+
+      const effRankCol = rankCol !== -1 ? rankCol : 0;
+      const effNameCol = nameCol !== -1 ? nameCol : 1;
+      const effPctCol  = pctCol  !== -1 ? pctCol  : 2;
+      const effPtsCol  = ptsCol  !== -1 ? ptsCol  : 3;
+      const effWksCol  = wksCol  !== -1 ? wksCol  : 4;
+
+      for (let r = 1; r < rData.length; r++) {
+        const row = rData[r];
+        const dispRow = rDisplay[r];
+
+        const name = String(row[effNameCol] || "").trim();
+        if (!name) continue;
+
+        const rawRankStr = String(dispRow[effRankCol] ?? row[effRankCol] ?? "").trim();
+        const isInactive = rawRankStr.toUpperCase() === "INACTIVE";
+        const parsedRank = Number(rawRankStr);
+
+        const weeks = Number(row[effWksCol]) || 0;
+        if (weeks > maxWeeksPlayed) maxWeeksPlayed = weeks;
+
+        const total = Number(row[effPtsCol]) || 0;
+
+        let pct = 0;
+        const dispPctStr = String(dispRow[effPctCol] || "").trim();
+        if (dispPctStr.endsWith("%")) {
+          pct = parseFloat(dispPctStr.replace("%", "")) || 0;
+        } else {
+          pct = Number(row[effPctCol]) || 0;
+          if (pct > 0 && pct <= 1 && total > 0) pct = pct * 100;
+        }
+
+        rankings.push({
+          rank: isInactive ? "INACTIVE" : (!isNaN(parsedRank) && parsedRank > 0 ? parsedRank : rawRankStr),
+          name: name,
+          pct: Number(pct.toFixed(2)),
+          total: total,
+          weeks: weeks,
+          status: isInactive ? "INACTIVE" : "ACTIVE"
+        });
+      }
+    }
+  }
+
+  // 2. Check "Score <Group>" for highest scored week column if needed
+  let scoreSheetWeek = null;
+  if (scoreSheet && scoreSheet.getLastRow() >= 2) {
+    const scData = scoreSheet.getDataRange().getValues();
+    const scHeaders = scData[0];
+    for (let c = 0; c < scHeaders.length; c++) {
+      const wkNum = extractWeekNum(scHeaders[c]);
+      if (wkNum) {
+        const hasScores = scData.slice(1).some(row => row[c] !== "" && row[c] !== null && !isNaN(Number(row[c])));
+        if (hasScores && (!scoreSheetWeek || wkNum > scoreSheetWeek)) {
+          scoreSheetWeek = wkNum;
+        }
+      }
+    }
+  }
+
+  // Resolve the completed week number that Rankings are through
+  let rankingsWeek = rankSheetWeek || scoreSheetWeek || (maxWeeksPlayed > 0 ? maxWeeksPlayed : null);
+
+  if (!rankingsWeek && typeof getActiveWeekInfo === "function") {
+    try {
+      const info = getActiveWeekInfo(cleanGroup) || {};
+      rankingsWeek = Number(info.rankingsWeek || info.completedWeek || info.lastCompletedWeek || info.currentWeek) || null;
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  // 3. Resolve Schedule & Schedule Week (only if court assignments exist)
+  let scheduleWeek = null;
   let scheduleDate = "";
   let schedule = [];
   let hasSchedule = false;
 
   if (schedSheet && schedSheet.getLastRow() >= 1) {
-    const n1Val = schedSheet.getRange("N1").getValue();
-    const n2Val = schedSheet.getRange("N2").getValue();
+    const n1Val = schedSheet.getRange("N1").getDisplayValue();
+    const n2Val = schedSheet.getRange("N2").getDisplayValue();
     const n4Val = schedSheet.getRange("N4").getDisplayValue();
 
-    if (n2Val !== "" && !isNaN(Number(n2Val))) {
-      activeWeek = Number(n2Val);
-    } else if (n1Val !== "" && !isNaN(Number(n1Val))) {
-      activeWeek = Number(n1Val);
-    }
+    scheduleWeek = extractWeekNum(n2Val) || extractWeekNum(n1Val);
     if (n4Val && String(n4Val).trim() !== "") {
       scheduleDate = String(n4Val).trim();
     }
@@ -4485,7 +4588,7 @@ function getRankingsAndSchedData(groupName) {
         if (!pName || pName.startsWith("---") || pName.toLowerCase().startsWith("time:")) continue;
 
         const court = String(row[courtIdx] || "").trim();
-        if (!court) continue; // Only include players assigned a court or BYE
+        if (!court) continue;
 
         hasSchedule = true;
         const entry = {
@@ -4505,83 +4608,17 @@ function getRankingsAndSchedData(groupName) {
     }
   }
 
-  if (!activeWeek && rankSheet) {
-    const note = String(rankSheet.getRange(1, 1).getNote() || "");
-    const weekMatch = note.match(/Week\s*(\d+)/i);
-    if (weekMatch) {
-      activeWeek = Number(weekMatch[1]);
-    }
-  }
-  if (!activeWeek && typeof getActiveWeekInfo === "function") {
-    try {
-      activeWeek = Number(getActiveWeekInfo(cleanGroup).currentWeek) || 1;
-    } catch (e) {
-      activeWeek = 1;
-    }
-  }
-
-  // 2. Read "Rankings <Group>" directly in sheet order (including INACTIVE, excluding Tier)
-  const rankings = [];
-  if (rankSheet && rankSheet.getLastRow() >= 2) {
-    const rRange = rankSheet.getDataRange();
-    const rData = rRange.getValues();
-    const rDisplay = rRange.getDisplayValues();
-    const rHeaders = rData[0].map(h => String(h || "").trim().toLowerCase());
-
-    const rankCol = rHeaders.findIndex(h => h === "rank" || h === "#");
-    const nameCol = rHeaders.findIndex(h => h === "name" || h === "player" || h === "player name");
-    const pctCol  = rHeaders.findIndex(h => h.includes("pt") && h.includes("%"));
-    const ptsCol  = rHeaders.findIndex(h => h === "pts" || h === "points");
-    const wksCol  = rHeaders.findIndex(h => h.startsWith("week"));
-
-    const effRankCol = rankCol !== -1 ? rankCol : 0;
-    const effNameCol = nameCol !== -1 ? nameCol : 1;
-    const effPctCol  = pctCol  !== -1 ? pctCol  : 2;
-    const effPtsCol  = ptsCol  !== -1 ? ptsCol  : 3;
-    const effWksCol  = wksCol  !== -1 ? wksCol  : 4;
-
-    for (let r = 1; r < rData.length; r++) {
-      const row = rData[r];
-      const dispRow = rDisplay[r];
-
-      const name = String(row[effNameCol] || "").trim();
-      if (!name) continue;
-
-      const rawRankStr = String(dispRow[effRankCol] ?? row[effRankCol] ?? "").trim();
-      const isInactive = rawRankStr.toUpperCase() === "INACTIVE";
-      const parsedRank = Number(rawRankStr);
-
-      const weeks = Number(row[effWksCol]) || 0;
-      const total = Number(row[effPtsCol]) || 0;
-
-      let pct = 0;
-      const dispPctStr = String(dispRow[effPctCol] || "").trim();
-      if (dispPctStr.endsWith("%")) {
-        pct = parseFloat(dispPctStr.replace("%", "")) || 0;
-      } else {
-        pct = Number(row[effPctCol]) || 0;
-        if (pct > 0 && pct <= 1 && total > 0) pct = pct * 100;
-      }
-
-      rankings.push({
-        rank: isInactive ? "INACTIVE" : (!isNaN(parsedRank) && parsedRank > 0 ? parsedRank : rawRankStr),
-        name: name,
-        pct: Number(pct.toFixed(2)),
-        total: total,
-        weeks: weeks,
-        status: isInactive ? "INACTIVE" : "ACTIVE"
-      });
-    }
-  }
-
   return {
     success: true,
     group: cleanGroup,
-    week: activeWeek || 1,
+    week: rankingsWeek,
+    rankingsWeek: rankingsWeek,
+    scheduleWeek: scheduleWeek || (rankingsWeek ? rankingsWeek + 1 : null),
     scheduleDate: scheduleDate,
     rankings: rankings,
     hasSchedule: hasSchedule,
     schedule: hasSchedule ? schedule : []
   };
 }
+
 

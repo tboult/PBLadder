@@ -2793,14 +2793,15 @@ function renderRankingsAndSchedule(rawData) {
   }
 
   const groupLabel = data.group ? `${esc(data.group)} ` : '';
-  const weekLabel = data.week ? ` (Week ${esc(data.week)})` : '';
+  const rankWeekNum = Number(data.rankingsWeek ?? data.week);
+  const throughWeekLabel = rankWeekNum > 0 ? ` — Through Week ${esc(rankWeekNum)}` : '';
 
   // ==========================================
   // 1. RANKINGS SECTION (EXACT SHEET ORDER)
   // ==========================================
   let html = `
     <div style="margin-bottom:0.75rem;">
-      <h4 style="margin:0 0 0.4rem 0;">🏆 ${groupLabel}Rankings${weekLabel}</h4>
+      <h4 style="margin:0 0 0.4rem 0;">🏆 ${groupLabel}Rankings${throughWeekLabel}</h4>
     </div>
   `;
 
@@ -2865,9 +2866,10 @@ function renderRankingsAndSchedule(rawData) {
   const hasSchedule = data.hasSchedule !== false && schedList.length > 0;
 
   if (hasSchedule) {
+    const schedWeekNum = Number(data.scheduleWeek ?? data.week);
+    const schedWeekLabel = schedWeekNum > 0 ? ` (Week ${esc(schedWeekNum)})` : '';
     const dateBadge = data.scheduleDate ? ` — ${esc(data.scheduleDate)}` : '';
 
-    // Group players by court preserving sheet order, keeping BYEs at the bottom
     const courtOrder = [];
     const courtGroups = {};
     const byePlayers = [];
@@ -2909,7 +2911,7 @@ function renderRankingsAndSchedule(rawData) {
     if (courtOrder.length > 0 || byePlayers.length > 0) {
       html += `
         <div style="margin-top:1.25rem; padding-top:0.75rem; border-top:2px solid #dee2e6;">
-          <h4 style="margin:0 0 0.6rem 0;">📅 ${groupLabel}Schedule${weekLabel}${dateBadge}</h4>
+          <h4 style="margin:0 0 0.6rem 0;">📅 ${groupLabel}Schedule${schedWeekLabel}${dateBadge}</h4>
           <table class="data-table" style="width:100%; border-collapse:collapse;">
             <thead>
               <tr>
@@ -2957,3 +2959,4 @@ function renderRankingsAndSchedule(rawData) {
 
   viewerContent.innerHTML = html;
 }
+
