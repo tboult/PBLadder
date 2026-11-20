@@ -2757,10 +2757,6 @@ async function loadRankingsAndSched(targetGroup = null) {
   }
 }
 
-/**
- * Renders Rankings first (exact sheet order including inactive players, no Tier column),
- * followed by the Schedule if one exists.
- */
 function renderRankingsAndSchedule(rawData) {
   const viewerContent = document.getElementById('viewerContent');
   if (!viewerContent) return;
@@ -2792,9 +2788,16 @@ function renderRankingsAndSchedule(rawData) {
     return;
   }
 
+  // Diagnostic log: confirms the exact row order returned by the backend
+  console.log('📋 [Rankings Order From Backend]:', rankingsList.map(r => `${r.rank} | ${r.name}`));
+
   const groupLabel = data.group ? `${esc(data.group)} ` : '';
   const rankWeekNum = Number(data.rankingsWeek ?? data.week);
   const throughWeekLabel = rankWeekNum > 0 ? ` — Through Week ${esc(rankWeekNum)}` : '';
+
+  const tableStyle = 'width:100%; border-collapse:collapse; margin-bottom:1.25rem; font-size:0.95rem;';
+  const thStyle = 'padding:8px 6px; border-bottom:2px solid #dee2e6; background:#f8f9fa; font-weight:600;';
+  const tdStyle = 'padding:7px 6px; border-bottom:1px solid #e9ecef;';
 
   // ==========================================
   // 1. RANKINGS SECTION (EXACT SHEET ORDER)
@@ -2809,14 +2812,14 @@ function renderRankingsAndSchedule(rawData) {
     html += `<p style="color:#666; font-style:italic;">No rankings recorded yet for ${esc(data.group || 'this group')}.</p>`;
   } else {
     html += `
-      <table class="data-table" style="width:100%; border-collapse:collapse; margin-bottom:1.25rem;">
+      <table class="rankings-static-table" style="${tableStyle}">
         <thead>
           <tr>
-            <th style="text-align:center;">Rank</th>
-            <th style="text-align:left;">Name</th>
-            <th style="text-align:right;">Pt %</th>
-            <th style="text-align:right;">Pts</th>
-            <th style="text-align:center;">Weeks</th>
+            <th style="${thStyle} text-align:center;">Rank</th>
+            <th style="${thStyle} text-align:left;">Name</th>
+            <th style="${thStyle} text-align:right;">Pt %</th>
+            <th style="${thStyle} text-align:right;">Pts</th>
+            <th style="${thStyle} text-align:center;">Weeks</th>
           </tr>
         </thead>
         <tbody>
@@ -2824,7 +2827,7 @@ function renderRankingsAndSchedule(rawData) {
 
     rankingsList.forEach((r, idx) => {
       if (typeof r === 'string') {
-        html += `<tr><td colspan="5">${esc(r)}</td></tr>`;
+        html += `<tr><td colspan="5" style="${tdStyle}">${esc(r)}</td></tr>`;
         return;
       }
 
@@ -2844,11 +2847,11 @@ function renderRankingsAndSchedule(rawData) {
 
       html += `
         <tr style="${isInactive ? 'opacity:0.75; background-color:#f8f9fa;' : ''}">
-          <td style="text-align:center; white-space:nowrap;">${rankDisplay}</td>
-          <td>${name}</td>
-          <td style="text-align:right; font-weight:600;">${esc(pctDisplay)}</td>
-          <td style="text-align:right;">${esc(totalPts)}</td>
-          <td style="text-align:center;">${esc(weeks)}</td>
+          <td style="${tdStyle} text-align:center; white-space:nowrap;">${rankDisplay}</td>
+          <td style="${tdStyle}">${name}</td>
+          <td style="${tdStyle} text-align:right; font-weight:600;">${esc(pctDisplay)}</td>
+          <td style="${tdStyle} text-align:right;">${esc(totalPts)}</td>
+          <td style="${tdStyle} text-align:center;">${esc(weeks)}</td>
         </tr>
       `;
     });
@@ -2912,11 +2915,11 @@ function renderRankingsAndSchedule(rawData) {
       html += `
         <div style="margin-top:1.25rem; padding-top:0.75rem; border-top:2px solid #dee2e6;">
           <h4 style="margin:0 0 0.6rem 0;">📅 ${groupLabel}Schedule${schedWeekLabel}${dateBadge}</h4>
-          <table class="data-table" style="width:100%; border-collapse:collapse;">
+          <table class="rankings-static-table" style="${tableStyle}">
             <thead>
               <tr>
-                <th style="text-align:center; width:90px;">Court</th>
-                <th style="text-align:left;">Players</th>
+                <th style="${thStyle} text-align:center; width:90px;">Court</th>
+                <th style="${thStyle} text-align:left;">Players</th>
               </tr>
             </thead>
             <tbody>
@@ -2933,8 +2936,8 @@ function renderRankingsAndSchedule(rawData) {
 
         html += `
           <tr>
-            <td style="text-align:center; font-weight:bold; vertical-align:top; color:#0d6efd;">${label}</td>
-            <td>${playersHtml}</td>
+            <td style="${tdStyle} text-align:center; font-weight:bold; vertical-align:top; color:#0d6efd;">${label}</td>
+            <td style="${tdStyle}">${playersHtml}</td>
           </tr>
         `;
       });
@@ -2943,8 +2946,8 @@ function renderRankingsAndSchedule(rawData) {
         const byeHtml = byePlayers.map(p => esc(p.name)).join(', ');
         html += `
           <tr style="background-color:#f8f9fa;">
-            <td style="text-align:center; font-weight:bold; color:#6c757d;">BYE</td>
-            <td>${byeHtml}</td>
+            <td style="${tdStyle} text-align:center; font-weight:bold; color:#6c757d;">BYE</td>
+            <td style="${tdStyle}">${byeHtml}</td>
           </tr>
         `;
       }
@@ -2959,4 +2962,5 @@ function renderRankingsAndSchedule(rawData) {
 
   viewerContent.innerHTML = html;
 }
+
 
