@@ -2788,9 +2788,6 @@ function renderRankingsAndSchedule(rawData) {
     return;
   }
 
-  // Diagnostic log: confirms the exact row order returned by the backend
-  console.log('📋 [Rankings Order From Backend]:', rankingsList.map(r => `${r.rank} | ${r.name}`));
-
   const groupLabel = data.group ? `${esc(data.group)} ` : '';
   const rankWeekNum = Number(data.rankingsWeek ?? data.week);
   const throughWeekLabel = rankWeekNum > 0 ? ` — Through Week ${esc(rankWeekNum)}` : '';
@@ -2800,7 +2797,7 @@ function renderRankingsAndSchedule(rawData) {
   const tdStyle = 'padding:7px 6px; border-bottom:1px solid #e9ecef;';
 
   // ==========================================
-  // 1. RANKINGS SECTION (EXACT SHEET ORDER)
+  // 1. RANKINGS SECTION (EXACT SHEET ORDER, NO WEEKS COLUMN)
   // ==========================================
   let html = `
     <div style="margin-bottom:0.75rem;">
@@ -2819,7 +2816,6 @@ function renderRankingsAndSchedule(rawData) {
             <th style="${thStyle} text-align:left;">Name</th>
             <th style="${thStyle} text-align:right;">Pt %</th>
             <th style="${thStyle} text-align:right;">Pts</th>
-            <th style="${thStyle} text-align:center;">Weeks</th>
           </tr>
         </thead>
         <tbody>
@@ -2827,7 +2823,7 @@ function renderRankingsAndSchedule(rawData) {
 
     rankingsList.forEach((r, idx) => {
       if (typeof r === 'string') {
-        html += `<tr><td colspan="5" style="${tdStyle}">${esc(r)}</td></tr>`;
+        html += `<tr><td colspan="4" style="${tdStyle}">${esc(r)}</td></tr>`;
         return;
       }
 
@@ -2840,7 +2836,6 @@ function renderRankingsAndSchedule(rawData) {
         : `<b>${esc(rawRankStr || (idx + 1))}</b>`;
 
       const name = esc(r.name || `${r.first || ''} ${r.last || ''}`.trim());
-      const weeks = Number(r.weeks ?? 0);
       const totalPts = Number(r.total ?? r.points ?? r.score ?? 0);
       const pctNum = typeof r.pct === 'number' ? r.pct : parseFloat(r.pct);
       const pctDisplay = !isNaN(pctNum) ? `${pctNum.toFixed(1)}%` : '';
@@ -2851,7 +2846,6 @@ function renderRankingsAndSchedule(rawData) {
           <td style="${tdStyle}">${name}</td>
           <td style="${tdStyle} text-align:right; font-weight:600;">${esc(pctDisplay)}</td>
           <td style="${tdStyle} text-align:right;">${esc(totalPts)}</td>
-          <td style="${tdStyle} text-align:center;">${esc(weeks)}</td>
         </tr>
       `;
     });
@@ -2962,5 +2956,6 @@ function renderRankingsAndSchedule(rawData) {
 
   viewerContent.innerHTML = html;
 }
+
 
 

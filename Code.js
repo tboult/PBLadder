@@ -4295,6 +4295,14 @@ function updateRankingsSheetForGroup(groupName, players, inactivePlayers, weekNu
       "<= 4 weeks: bounded weekly movement within unified 1..N standings."
     );
   }
+
+  const stampedWeek = Number(weekNum) || (typeof calculateCurrentWeekNumber === 'function' ? calculateCurrentWeekNumber() : 1);
+
+  rankSheet.getRange("N1").setValue("RANKINGS_WEEK").setFontWeight("bold");
+  rankSheet.getRange("N2").setValue(stampedWeek).setHorizontalAlignment("center");
+  rankSheet.getRange("N3").setValue("Week " + stampedWeek).setHorizontalAlignment("center");
+    rankSheet.getRange("N4").setValue(Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "yyyy-MM-dd")).setHorizontalAlignment("center");
+    
 }
 
 /* =========================================================================
@@ -4432,41 +4440,46 @@ function computeMixedRankings(activePlayers) {
 /* =========================================================================
  *  APP STANDINGS & SCHEDULE LOADER (READS RANKINGS SHEET DIRECTLY, NO RECOMPUTE)
  * ========================================================================= */
+/* =========================================================================
+ *  APP STANDINGS & SCHEDULE LOADER (READS RANKINGS SHEET & COL N DIRECTLY)
+ * ========================================================================= */
 function getRankingsAndSchedData(groupName) {
   const ss = (typeof getDb === "function") ? getDb() : SpreadsheetApp.getActiveSpreadsheet();
   const cleanGroup = String(groupName || "Womens").replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
 
   const rankSheet  = ss.getSheetByName("Rankings " + cleanGroup);
   const schedSheet = ss.getSheetByName("Sched " + cleanGroup);
-  const scoreSheet = ss.getSheetByName("Score " + cleanGroup);
 
-  const extractWeekNum = (val) => {
+  const extractWeekOrNum = (val) => {
     if (val === null || val === undefined || val === "") return null;
     if (typeof val === "number" && !isNaN(val) && val > 0) return Math.floor(val);
-    const m = String(val).match(/(?:through\s*week|week|wk|w)\s*#?\s*(\d+)/i) || String(val).trim().match(/^(\d+)$/);
-    return m ? Number(m[1]) : null;
+    const labeled = String(val).match(/(?:through\s*week|week|wk)\s*#?\s*(\d+)/i);
+    if (labeled) return Number(labeled[1]);
+    const numMatch = String(val).trim().match(/^(\d+)$/);
+    return numMatch ? Number(numMatch[1]) : null;
   };
 
-  // 1. Read "Rankings <Group>" directly in sheet order (including INACTIVE, excluding Tier)
+  // 1. Read "Rankings <Group>" directly (Column N stamp + exact row order)
   const rankings = [];
+  let rankingsWeek = null;
+  let rankingsDate = "";
   let maxWeeksPlayed = 0;
-  let rankSheetWeek = null;
 
   if (rankSheet && rankSheet.getLastRow() >= 1) {
-    const rRange = rankSheet.getDataRange();
-    const rData = rRange.getValues();
-    const rDisplay = rRange.getDisplayValues();
-    const rNotes = rRange.getNotes();
+    // Read Column N stamp (same convention as Sched <Group>)
+    const rN1 = rankSheet.getRange("N1").getDisplayValue();
+    const rN2 = rankSheet.getRange("N2").getDisplayValue();
+    const rN4 = rankSheet.getRange("N4").getDisplayValue();
 
-    // Check Row 1 values and notes for an explicit week indicator (e.g., "Through Week 6")
-    for (let c = 0; c < rData[0].length; c++) {
-      const fromHeader = extractWeekNum(rDisplay[0][c] || rData[0][c]);
-      if (fromHeader) { rankSheetWeek = fromHeader; break; }
-      const fromNote = extractWeekNum(rNotes[0][c]);
-      if (fromNote) { rankSheetWeek = fromNote; break; }
+    rankingsWeek = extractWeekOrNum(rN2) || extractWeekOrNum(rN1);
+    if (rN4 && String(rN4).trim() !== "") {
+      rankingsDate = String(rN4).trim();
     }
 
-    if (rData.length >= 2) {
+    if (rankSheet.getLastRow() >= 2) {
+      const rRange = rankSheet.getDataRange();
+      const rData = rRange.getValues();
+      const rDisplay = rRange.getDisplayValues();
       const rHeaders = rData[0].map(h => String(h || "").trim().toLowerCase());
 
       const rankCol = rHeaders.findIndex(h => h === "rank" || h === "#");
@@ -4516,50 +4529,27 @@ function getRankingsAndSchedData(groupName) {
         });
       }
     }
-  }
 
-  // 2. Check "Score <Group>" for highest scored week column if needed
-  let scoreSheetWeek = null;
-  if (scoreSheet && scoreSheet.getLastRow() >= 2) {
-    const scData = scoreSheet.getDataRange().getValues();
-    const scHeaders = scData[0];
-    for (let c = 0; c < scHeaders.length; c++) {
-      const wkNum = extractWeekNum(scHeaders[c]);
-      if (wkNum) {
-        const hasScores = scData.slice(1).some(row => row[c] !== "" && row[c] !== null && !isNaN(Number(row[c])));
-        if (hasScores && (!scoreSheetWeek || wkNum > scoreSheetWeek)) {
-          scoreSheetWeek = wkNum;
-        }
-      }
+    // Fallback to max Weeks played on Rankings sheet only if Column N is not stamped yet
+    if (!rankingsWeek && maxWeeksPlayed > 0) {
+      rankingsWeek = maxWeeksPlayed;
     }
   }
 
-  // Resolve the completed week number that Rankings are through
-  let rankingsWeek = rankSheetWeek || scoreSheetWeek || (maxWeeksPlayed > 0 ? maxWeeksPlayed : null);
-
-  if (!rankingsWeek && typeof getActiveWeekInfo === "function") {
-    try {
-      const info = getActiveWeekInfo(cleanGroup) || {};
-      rankingsWeek = Number(info.rankingsWeek || info.completedWeek || info.lastCompletedWeek || info.currentWeek) || null;
-    } catch (e) {
-      // ignore
-    }
-  }
-
-  // 3. Resolve Schedule & Schedule Week (only if court assignments exist)
+  // 2. Read "Sched <Group>" independently (Column N stamp + court assignments)
   let scheduleWeek = null;
   let scheduleDate = "";
   let schedule = [];
   let hasSchedule = false;
 
   if (schedSheet && schedSheet.getLastRow() >= 1) {
-    const n1Val = schedSheet.getRange("N1").getDisplayValue();
-    const n2Val = schedSheet.getRange("N2").getDisplayValue();
-    const n4Val = schedSheet.getRange("N4").getDisplayValue();
+    const sN1 = schedSheet.getRange("N1").getDisplayValue();
+    const sN2 = schedSheet.getRange("N2").getDisplayValue();
+    const sN4 = schedSheet.getRange("N4").getDisplayValue();
 
-    scheduleWeek = extractWeekNum(n2Val) || extractWeekNum(n1Val);
-    if (n4Val && String(n4Val).trim() !== "") {
-      scheduleDate = String(n4Val).trim();
+    scheduleWeek = extractWeekOrNum(sN2) || extractWeekOrNum(sN1);
+    if (sN4 && String(sN4).trim() !== "") {
+      scheduleDate = String(sN4).trim();
     }
 
     const schedLastRow = schedSheet.getLastRow();
@@ -4613,12 +4603,14 @@ function getRankingsAndSchedData(groupName) {
     group: cleanGroup,
     week: rankingsWeek,
     rankingsWeek: rankingsWeek,
-    scheduleWeek: scheduleWeek || (rankingsWeek ? rankingsWeek + 1 : null),
+    rankingsDate: rankingsDate,
+    scheduleWeek: scheduleWeek,
     scheduleDate: scheduleDate,
     rankings: rankings,
     hasSchedule: hasSchedule,
     schedule: hasSchedule ? schedule : []
   };
 }
+
 
 
