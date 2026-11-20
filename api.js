@@ -2789,7 +2789,8 @@ function renderRankingsAndSchedule(rawData) {
   }
 
   const groupLabel = data.group ? `${esc(data.group)} ` : '';
-  const rankWeekNum = Number(data.rankingsWeek ?? data.week);
+  const rawRankWeek = data.rankingsWeek !== undefined ? data.rankingsWeek : data.week;
+  const rankWeekNum = Number(rawRankWeek);
   const throughWeekLabel = rankWeekNum > 0 ? ` — Through Week ${esc(rankWeekNum)}` : '';
 
   const tableStyle = 'width:100%; border-collapse:collapse; margin-bottom:1.25rem; font-size:0.95rem;';
@@ -2863,7 +2864,7 @@ function renderRankingsAndSchedule(rawData) {
   const hasSchedule = data.hasSchedule !== false && schedList.length > 0;
 
   if (hasSchedule) {
-    const schedWeekNum = Number(data.scheduleWeek ?? data.week);
+    const schedWeekNum = Number(data.scheduleWeek);
     const schedWeekLabel = schedWeekNum > 0 ? ` (Week ${esc(schedWeekNum)})` : '';
     const dateBadge = data.scheduleDate ? ` — ${esc(data.scheduleDate)}` : '';
 
