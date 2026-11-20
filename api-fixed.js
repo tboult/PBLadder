@@ -515,35 +515,16 @@ let lastCheckedPhone = "";
       }
     });
 
-    // 5. Button Click & Enter Key Event Handlers
-    const actionBtn = document.getElementById('actionButton') || document.getElementById('checkPhoneBtn') || document.getElementById('savePhoneBtn');
-    if (actionBtn) {
-      actionBtn.addEventListener('click', function (e) {
-        e.preventDefault();
-        const phoneVal = phoneInput.value.trim();
-          if (phoneVal) {
-              localStorage.removeItem('scpb_saved_phone'); // Clean up old key as they start typine
-          const digits = phoneVal.replace(/\D/g, "");
-          if (digits.length >= 7 && typeof checkRegistrationStatus === "function") {
-            checkRegistrationStatus(digits);
-          }
-        }
-      });
-    }
-
+   // 5. Enter Key Event Handler (Button click is handled via onclick="savePhoneToCache()")
     phoneInput.addEventListener('keypress', function (e) {
       if (e.key === 'Enter') {
         e.preventDefault();
-        const phoneVal = phoneInput.value.trim();
-        if (phoneVal) {
-          const digits = phoneVal.replace(/\D/g, "");
-          if (digits.length >= 7 && typeof checkRegistrationStatus === "function") {
-            checkRegistrationStatus(digits);
-          }
+        if (typeof savePhoneToCache === "function") {
+          savePhoneToCache();
         }
       }
     });
-  }
+  }      
 
   // 6. Bind UI Components
   if (typeof restoreActiveTabOnLoad === 'function') restoreActiveTabOnLoad();
@@ -559,7 +540,6 @@ let lastCheckedPhone = "";
   }
 
     initAdminView();
-
 
 });
 

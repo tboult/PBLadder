@@ -749,75 +749,77 @@ function showToast(message, type = 'info') {
 async function submitUserRegistration(event) {
   if (event) event.preventDefault();
 
-  const nameInput = document.getElementById('regName');
-  const phoneInput = document.getElementById('regPhone');
-  const groupInput = document.getElementById('regGroup');
-  const statusEl = document.getElementById('regStatus');
+  const first = (document.getElementById('frontRegFirst')?.value || document.getElementById('regFirst')?.value || '').trim();
+  const last = (document.getElementById('frontRegLast')?.value || document.getElementById('regLast')?.value || '').trim();
+  const rawPhone = (document.getElementById('frontRegPhone')?.value || document.getElementById('regPhone')?.value || '').trim();
+  const email = (document.getElementById('frontRegEmail')?.value || document.getElementById('regEmail')?.value || '').trim();
+  const comment = (document.getElementById('frontRegComment')?.value || '').trim();
+  const group = (typeof getSavedGroup === 'function' ? getSavedGroup() : '')
+    || document.getElementById('regGroup')?.value
+    || '';
 
-  const name = (nameInput?.value || '').trim();
-  const phone = (phoneInput?.value || '').trim();
-  const group = groupInput?.value || window.currentGroup || 'Tuesday';
-
-  if (!name || !phone) {
-    if (statusEl) {
-      statusEl.textContent = 'Please enter both your full name and phone number.';
-      statusEl.className = 'status-error';
-    }
+  if (!first || !last || !rawPhone || !group) {
+    showFeedback('⚠️ First name, Last name, Phone, and Group are required.', 'warning');
     return;
   }
 
-  if (statusEl) {
-    statusEl.textContent = 'Submitting registration...';
-    statusEl.className = 'status-info';
+  if (typeof isValidPhone === 'function' && !isValidPhone(rawPhone)) {
+    showFeedback('⚠️ Please enter a valid 10-digit phone number.', 'warning');
+    return;
   }
 
+  if (typeof isValidEmail === 'function' && !isValidEmail(email)) {
+    showFeedback('⚠️ Please enter a valid email address.', 'warning');
+    return;
+  }
+
+  const cleanDigits = rawPhone.replace(/\D/g, '').slice(-10);
+  const fullName = `${first} ${last}`.trim();
+
   try {
-    const res = await apiCall('addNewUser', { name, phone, group });
+    const res = await apiCall('addNewUser', {
+      first,
+      last,
+      name: fullName,
+      phone: cleanDigits,
+      email,
+      comment,
+      group
+    });
+
     const responseMsg = typeof res === 'string'
       ? res
       : (res?.data || res?.message || res?.result || '');
 
-    const isError = /^error\b/i.test(responseMsg) || Boolean(res?.error);
-    const isNotice = /^⚠️|^notice\b/i.test(responseMsg) || Boolean(res?.notice);
-
-    if (isError) {
-      if (statusEl) {
-        statusEl.textContent = responseMsg || 'Registration failed.';
-        statusEl.className = 'status-error';
-      }
+    if (/^error\b/i.test(responseMsg) || Boolean(res?.error)) {
+      showFeedback(responseMsg || 'Registration failed.', 'danger');
       return;
     }
 
-    if (isNotice) {
-      if (statusEl) {
-        statusEl.textContent = responseMsg;
-        statusEl.className = 'status-warning';
-      }
+    if (/^⚠️|^notice\b/i.test(responseMsg) || Boolean(res?.notice)) {
+      showFeedback(responseMsg, 'warning');
       return;
     }
 
-    if (typeof saveUserCredentials === 'function') {
-      saveUserCredentials(name, phone);
+    if (typeof savePlayerCredentials === 'function') {
+      savePlayerCredentials(cleanDigits, fullName);
     }
+    const phoneInput = document.getElementById('phoneInput');
+    if (phoneInput) phoneInput.value = cleanDigits;
 
-    if (statusEl) {
-      statusEl.textContent = responseMsg || '✅ Registration complete!';
-      statusEl.className = 'status-success';
-    }
+    showFeedback(responseMsg || '✅ Registration complete!', 'success');
 
-    const regSection = document.getElementById('registrationSection');
-    if (regSection) regSection.style.display = 'none';
+    const regAccordion = document.getElementById('registrationAccordion');
+    if (regAccordion) regAccordion.open = false;
 
-    if (typeof loadUnifiedRoster === 'function') {
-      await loadUnifiedRoster(true);
-    }
+    if (window.groupRosterCache) delete window.groupRosterCache[group];
+    await loadUnifiedRosterData(group, true);
+    await loadPlayerStatusFromCache(cleanDigits);
   } catch (err) {
-    if (statusEl) {
-      statusEl.textContent = 'Error: ' + (err.message || err);
-      statusEl.className = 'status-error';
-    }
+    showFeedback('Error: ' + (err.message || err), 'danger');
   }
 }
+
 
 
 async function toggleStatus() {
@@ -1342,22 +1344,30 @@ function setAppViewState(isFound, playerData) {
   const userCheckinBtn = document.getElementById("userCheckinBtn");
 
   if (isFound && playerData && typeof playerData === 'object') {
-    // Player found in current group
     const displayName = playerData.name || playerData.playerName || `${playerData.first || ''} ${playerData.last || ''}`.trim();
+    const isChecked = Boolean(playerData.checkedIn || playerData.isCheckedIn);
+
     if (checkinName) checkinName.innerText = displayName;
-    if (checkinStatus) checkinStatus.innerText = ""; // Reset/clear status text
+    if (checkinStatus) checkinStatus.innerText = "";
+    if (checkinBadge) {
+      checkinBadge.innerText = isChecked ? "Checked In ✓" : "Not Checked In";
+      checkinBadge.style.backgroundColor = isChecked ? "#198754" : "#6c757d";
+      checkinBadge.style.color = "#ffffff";
+    }
     if (userCheckinBtn) {
       userCheckinBtn.disabled = false;
-      const isChecked = playerData.checkedIn || playerData.isCheckedIn;
-      userCheckinBtn.innerText = isChecked ? "Cancel Check-in" : "Check In";
+      userCheckinBtn.setAttribute('data-phone', playerData.phone || '');
+      userCheckinBtn.setAttribute('data-name', displayName);
+      userCheckinBtn.setAttribute('data-checked', String(isChecked));
+      userCheckinBtn.innerText = isChecked ? "Cancel Check-In" : "Check In";
     }
   } else {
-    // Player NOT found in current group
     if (checkinName) checkinName.innerText = "No player found for this group";
     if (checkinStatus) checkinStatus.innerText = "Please select a valid player or switch groups.";
     if (checkinBadge) {
       checkinBadge.innerText = "NOT FOUND";
-      checkinBadge.className = "status-badge status-secondary";
+      checkinBadge.style.backgroundColor = "#6c757d";
+      checkinBadge.style.color = "#ffffff";
     }
     if (userCheckinBtn) {
       userCheckinBtn.disabled = true;
@@ -1365,6 +1375,7 @@ function setAppViewState(isFound, playerData) {
     }
   }
 }
+
 
 
 // ==========================================
@@ -1881,7 +1892,6 @@ async function processApiQueue() {
     clearTimeout(timeoutId);
       
   
-    const rawText = await response.text();
     let data;
 
     try {
@@ -2709,83 +2719,64 @@ function handleManualRefresh() {
  * Handles phone lookup execution and mapping to UI.
  * Supports passing either boolean (forceRefresh) or string (phone number).
  */
-async function lookupPhone() {
-  const phoneInput = document.getElementById('lookupPhoneInput');
-  const statusEl = document.getElementById('lookupStatus');
-  const regSection = document.getElementById('registrationSection');
-  const foursomeContainer = document.getElementById('foursomeResult');
-
-  const rawPhone = (phoneInput?.value || '').trim();
-  const phoneDigits = rawPhone.replace(/\D/g, '').slice(-10);
-  const group = window.currentGroup || document.getElementById('groupSelect')?.value || 'Tuesday';
+async function lookupPhone(forceRefresh = false) {
+  const phoneInput = document.getElementById('phoneInput') || document.getElementById('lookupPhoneInput');
+  const rawPhone = (typeof getSavedPhone === 'function' ? getSavedPhone() : '') || (phoneInput?.value || '').trim();
+  const phoneDigits = String(rawPhone).replace(/\D/g, '').slice(-10);
+  const group = (typeof getSavedGroup === 'function' ? getSavedGroup() : '')
+    || document.querySelector('input[name="helpGroupRadio"]:checked, input[name="checkinGroupRadio"]:checked, input[name="adminGroupRadio"]:checked')?.value
+    || '';
   const savedName = typeof getSavedName === 'function' ? getSavedName() : '';
 
-  if (phoneDigits.length < 10) {
-    if (statusEl) {
-      statusEl.textContent = 'Please enter a valid 10-digit phone number.';
-      statusEl.className = 'status-error';
-    }
-    return;
-  }
-
-  if (typeof saveUserCredentials === 'function' && savedName) {
-    saveUserCredentials(savedName, rawPhone);
-  }
-
-  if (statusEl) {
-    statusEl.textContent = 'Looking up assignment...';
-    statusEl.className = 'status-info';
-  }
+  if (phoneDigits.length < 7 || !group) return;
 
   try {
-    const res = await apiCall('lookupPhone', { phone: rawPhone, group, name: savedName });
-    const data = res?.data && typeof res.data === 'object' ? res.data : res;
+    const res = await apiCall('findFoursomeByPhone', {
+      phone: phoneDigits,
+      group: group,
+      sheet: 'Sched ' + group,
+      name: savedName,
+      forceRefresh: Boolean(forceRefresh)
+    });
 
-    if (data?.found) {
-      if (regSection) regSection.style.display = 'none';
-      if (statusEl) statusEl.textContent = '';
-      if (typeof renderFoursomeAssignment === 'function') {
-        renderFoursomeAssignment(data);
-      }
+    const data = (res && res.data && typeof res.data === 'object') ? res.data : res;
+
+    if (data && (data.found || Array.isArray(data.foursome) || Array.isArray(data.players))) {
+      const playerObj = data.player || window.activeLookupPlayer || {
+        name: savedName || 'Player',
+        phone: phoneDigits,
+        group: group,
+        court: data.court || '',
+        status: 'ACTIVE'
+      };
+      if (!playerObj.group) playerObj.group = group;
+      const foursomeList = data.foursome || data.players || [];
+      renderLookupResult(playerObj, foursomeList, data.courtScores || null);
       return;
     }
 
-    // Check if player exists on roster (e.g., on BYE or schedule not yet posted)
-    const roster = (window.unifiedRoster && window.unifiedRoster[group]) || [];
-    const rosterMatch = roster.find(p =>
-      String(p.phone || '').replace(/\D/g, '').slice(-10) === phoneDigits
-    );
-    const isRegistered = Boolean(
-      window.activeLookupPlayer?.existsOnRoster || data?.registered || data?.onBye || rosterMatch
-    );
+    // Fallback: derive court mates from cached/live unified roster if schedule is posted
+    const roster = await loadUnifiedRosterData(group, Boolean(forceRefresh));
+    const me = Array.isArray(roster) ? roster.find(p => {
+      const pName = String(p.name || '').trim().toLowerCase();
+      if (savedName && pName === savedName.trim().toLowerCase()) return true;
+      const pDigits = String(p.phone || '').replace(/\D/g, '').slice(-10);
+      return pDigits && pDigits === phoneDigits;
+    }) : null;
 
-    if (isRegistered) {
-      const playerName = data?.name || rosterMatch?.name || savedName || 'Player';
-      if (regSection) regSection.style.display = 'none';
-      if (foursomeContainer) foursomeContainer.innerHTML = '';
-      if (statusEl) {
-        statusEl.textContent = `${playerName} is registered for ${group}, but has no court assignment yet (on BYE or schedule pending).`;
-        statusEl.className = 'status-info';
-      }
-      return;
-    }
-
-    // Truly unregistered phone number
-    if (foursomeContainer) foursomeContainer.innerHTML = '';
-    if (statusEl) {
-      statusEl.textContent = 'Phone number not registered. Please complete registration below.';
-      statusEl.className = 'status-warning';
-    }
-    if (regSection) {
-      regSection.style.display = 'block';
-      const regPhone = document.getElementById('regPhone');
-      if (regPhone) regPhone.value = rawPhone;
+    if (me) {
+      const courtStr = String(me.court || '').trim();
+      const courtGroup = (courtStr && courtStr !== 'BYE' && courtStr !== 'NoSchedYet')
+        ? roster.filter(p => String(p.court || '').trim() === courtStr)
+        : [];
+      renderLookupResult({
+        ...me,
+        group: group,
+        status: me.active === false ? 'INACTIVE' : 'ACTIVE'
+      }, courtGroup, null);
     }
   } catch (err) {
-    if (statusEl) {
-      statusEl.textContent = 'Lookup error: ' + (err.message || err);
-      statusEl.className = 'status-error';
-    }
+    console.error('Lookup error:', err);
   }
 }
 
