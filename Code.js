@@ -1138,13 +1138,13 @@ function computeMixedRankings(activePlayers) {
 function sortActivePlayersForSheet(sheet) {
   const ss = (typeof getDb === "function") ? getDb() : SpreadsheetApp.getActiveSpreadsheet();
   if (typeof sheet === "string") {
-    const clean = sheet.replace(/^(Score|Sched|Rankings)\s+/i, "").trim();
+    const clean = sheet.replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
     sheet = ss.getSheetByName("Score " + clean) || ss.getSheetByName(sheet);
   }
   if (!sheet) return "⚠️ Error: Target Score sheet not found.";
 
   if (typeof logDebug === "function") {
-    logDebug("sortActivePlayersForSheet", "Sorting active players using mixed ranking algorithm (>4 wks Pt %, <=4 wks bounded)", sheet.getName());
+    logDebug("sortActivePlayersForSheet", "Sorting active players via bounded rankings (ignoring current week play status)", sheet.getName());
   }
 
   const dataRange = sheet.getDataRange();
@@ -1155,7 +1155,7 @@ function sortActivePlayersForSheet(sheet) {
   const formulas = dataRange.getFormulas();
   const backgrounds = dataRange.getBackgrounds();
 
-  const cleanGroup = sheet.getName().replace(/^(Score|Sched|Rankings)\s+/i, "").trim();
+  const cleanGroup = sheet.getName().replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
   const headerRow = data[0];
   let scoreWidth = headerRow.length;
 
@@ -1165,19 +1165,13 @@ function sortActivePlayersForSheet(sheet) {
 
   const maxPtsPerWeek = (typeof MAX_POINTS_PER_WEEK !== "undefined") ? MAX_POINTS_PER_WEEK : 45;
 
-  // Determine current/latest week number so we can resolve prior standing R(week-1) for <= 4 week players
-  let weekNum = (typeof getActiveWeekInfo === "function")
-    ? getActiveWeekInfo(cleanGroup).currentWeek
-    : ((typeof calculateCurrentWeekNumber === "function") ? calculateCurrentWeekNumber() : 1);
-  weekNum = Math.max(1, Math.min(10, weekNum));
-
   const weekColIndices = [];
   for (let w = 1; w <= 10; w++) {
     const wCol = resolveCol(col, headerRow, ["w" + w, "W" + w, "Week " + w]);
     if (hasCol(wCol)) weekColIndices.push({ week: w, idx: wCol });
   }
 
-  // Find latest populated week column if current week has no scores yet
+  // Find the latest week that has any scores entered, so prior standing strictly comes from weeks BEFORE it
   let latestScoredWeek = 0;
   for (let k = weekColIndices.length - 1; k >= 0; k--) {
     const wObj = weekColIndices[k];
@@ -1187,14 +1181,13 @@ function sortActivePlayersForSheet(sheet) {
       break;
     }
   }
-  const refWeek = latestScoredWeek > 0 ? latestScoredWeek : weekNum;
-  const prevRColIdx = resolveCol(col, headerRow, ["r" + (refWeek - 1), "R" + (refWeek - 1)]);
+  const refWeek = latestScoredWeek > 0 ? latestScoredWeek : 1;
 
-  // Fallback R columns in descending order (R10..R0) for returning players who skipped refWeek-1
-  const allRCols = [];
-  for (let w = 10; w >= 0; w--) {
+  // Prior R columns strictly BEFORE refWeek (e.g., for Week 10: r9, r8, r7, ..., r0)
+  const priorRCols = [];
+  for (let w = refWeek - 1; w >= 0; w--) {
     const rIdx = resolveCol(col, headerRow, ["r" + w, "R" + w]);
-    if (hasCol(rIdx)) allRCols.push({ week: w, idx: rIdx });
+    if (hasCol(rIdx)) priorRCols.push(rIdx);
   }
 
   const adjustRowFormula = (formulaStr, oldRow, newRow) => {
@@ -1214,7 +1207,6 @@ function sortActivePlayersForSheet(sheet) {
   let inactiveEntries = [];
   let seenNames = new Set();
 
-  // 1. Parse all players, compute cumulative Pt % across W1..W10, and split ACTIVE vs INACTIVE
   for (let i = 1; i < data.length; i++) {
     const row = data[i];
     const dispRow = displayData[i];
@@ -1249,17 +1241,13 @@ function sortActivePlayersForSheet(sheet) {
       }
     }
 
-    const phoneColIdx = hasCol(col.phone) ? col.phone : col.mobile;
-    const pPhone = hasCol(phoneColIdx) ? cleanPhoneDigits(row[phoneColIdx]) : "";
-
     const entry = {
       name: fullName,
       firstName: first,
       lastName: last,
-      phone: pPhone,
       status: isActive ? "ACTIVE" : rawStatus,
       isActive: isActive,
-      playedThisWeek: isActive,
+      playedThisWeek: true, // Ignore whether they played this week
       cumScore: cumScore,
       total: cumScore,
       weeksPlayed: weeksPlayed,
@@ -1275,22 +1263,18 @@ function sortActivePlayersForSheet(sheet) {
     else inactiveEntries.push(entry);
   }
 
-  // 2. Parse prior standings R(refWeek - 1) scaled to active pool size N, then run computeMixedRankings
+  // Resolve prior standing strictly from r(refWeek - 1) .. r0 (never current Rankings or R(refWeek))
   const numActive = activeEntries.length;
   activeEntries.forEach(p => {
     const maxPts = maxPtsPerWeek * p.weeksPlayed;
     const cumPct = maxPts > 0 ? (p.cumScore / maxPts) : 0;
 
-    let priorCell = hasCol(prevRColIdx) ? p.dispRow[prevRColIdx] : "";
-    if (!priorCell || String(priorCell).trim() === "") {
-      for (let c = 0; c < allRCols.length; c++) {
-        if (allRCols[c].week < refWeek) {
-          const candidate = String(p.dispRow[allRCols[c].idx] || "").trim();
-          if (candidate !== "") {
-            priorCell = candidate;
-            break;
-          }
-        }
+    let priorCell = "";
+    for (let c = 0; c < priorRCols.length; c++) {
+      const candidate = String(p.dispRow[priorRCols[c]] || "").trim();
+      if (candidate !== "") {
+        priorCell = candidate;
+        break;
       }
     }
 
@@ -1307,7 +1291,7 @@ function sortActivePlayersForSheet(sheet) {
     p.priorRawStr = prev.rawStr;
   });
 
-  // Execute exact same ranking algorithm as Rankings <Group> (>4 wks Pt %, <=4 wks bounded)
+  // Compute bounded rankings across all active players
   const rankedActive = computeMixedRankings(activeEntries);
   rankedActive.sort((a, b) => a.rank - b.rank);
 
@@ -1324,7 +1308,6 @@ function sortActivePlayersForSheet(sheet) {
     return a.origIdx - b.origIdx;
   });
 
-  // 3. Write sorted rows back to Score <Group> (preserving formulas & formatting)
   const orderedEntries = [...rankedActive, ...inactiveEntries];
   orderedEntries.forEach(e => {
     if (e.row.length > scoreWidth) scoreWidth = e.row.length;
@@ -1377,31 +1360,15 @@ function sortActivePlayersForSheet(sheet) {
   writeRange.setValues(finalValues);
   writeRange.setBackgrounds(finalBackgrounds);
 
-  // 4. Keep Rankings <Group> and Sched <Group> synchronized to the exact same rank order
-  if (typeof updateRankingsSheetForGroup === "function") {
-    try {
-      updateRankingsSheetForGroup(cleanGroup, rankedActive, inactiveEntries, refWeek);
-    } catch (e) {
-      Logger.log("sortActivePlayersForSheet: updateRankingsSheetForGroup warning: " + e.message);
-    }
-  }
-
-  if (typeof rebuildSchedSheetOrder === "function") {
-    try {
-      rebuildSchedSheetOrder(ss, cleanGroup, rankedActive, inactiveEntries, Math.max(0, refWeek - 1));
-    } catch (e) {
-      Logger.log("sortActivePlayersForSheet: rebuildSchedSheetOrder warning: " + e.message);
-    }
-  }
-
   if (typeof CacheService !== "undefined") {
     try {
       CacheService.getScriptCache().remove("UNIFIED_ROSTER_CACHE_" + cleanGroup.toUpperCase());
     } catch (e) {}
   }
 
-  return `✅ Sorted '${sheet.getName()}' using the Rankings algorithm (>4 wks Pt %, <=4 wks bounded): ${rankedActive.length} active, ${inactiveEntries.length} inactive.`;
+  return `✅ Sorted '${sheet.getName()}' using bounded rankings: ${rankedActive.length} active, ${inactiveEntries.length} inactive.`;
 }
+
 
 
 
