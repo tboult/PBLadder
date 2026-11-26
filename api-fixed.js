@@ -544,6 +544,10 @@ let lastCheckedPhone = "";
 });
 
 
+function isUnknownPlayerName(name) {
+  if (name === null || name === undefined) return false;
+  return /^unknown(\s*\d+|\s+player(\s*\d+)?)?$/i.test(String(name).trim());
+}
 
 
 

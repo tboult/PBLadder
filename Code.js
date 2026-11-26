@@ -472,7 +472,13 @@ function getMostRecentRank(row, col, maxWeekNum = 10) {
 
 
 
-
+/**
+ * Helper to identify temporary Unknown court-filler placeholders.
+ */
+function isUnknownPlayerName(name) {
+  if (name === null || name === undefined) return false;
+  return /^unknown(\s*\d+|\s+player(\s*\d+)?)?$/i.test(String(name).trim());
+}
 
 
 /**
@@ -497,7 +503,7 @@ function fetchPlayersFromSheet(targetName) {
     for (let i = 1; i < data.length; i++) {
       let name = data[i][0] ? String(data[i][0]).trim() : "";
       let key = normKeyOf(name);
-      if (name && name !== "Player Name" && !name.startsWith("---") && key && !playerSet.has(key)) {
+      if (name && name !== "Player Name" && !name.startsWith("---") && !isUnknownPlayerName(name) && key && !playerSet.has(key)) {
         playerSet.add(key);
         players.push({
           name: name,
@@ -526,7 +532,7 @@ function fetchPlayersFromSheet(targetName) {
         let group = groupCol !== -1 && rosterData[i][groupCol] ? String(rosterData[i][groupCol]).trim() : "";
         let key = normKeyOf(name);
 
-        if (name && (!group || group.toLowerCase() === groupName.toLowerCase()) && key && !playerSet.has(key)) {
+        if (name && !isUnknownPlayerName(name) && (!group || group.toLowerCase() === groupName.toLowerCase()) && key && !playerSet.has(key)) {
           playerSet.add(key);
           players.push({
             name: name,
@@ -591,6 +597,7 @@ function cleanPhoneDigits(phoneVal) {
 /**
  * Harvests scores and court assignments from Schedule sheets into Score sheets.
  * Evaluates Game 1 through Game 6 and calculates the scaled 3-game average total.
+ * Ignores Unknown court-filler placeholders.
  */
 function harvestScoresFromSchedules(ss, data, col, targetWeekIdx, schedSheet, weekNum) {
   let warnings = [];
@@ -624,7 +631,7 @@ function harvestScoresFromSchedules(ss, data, col, targetWeekIdx, schedSheet, we
 
   if (scoreIdx === -1) return warnings;
 
-let schedPhoneCounts = {};
+  let schedPhoneCounts = {};
   let schedMapByPhoneKey = {};
   let schedMapByFirstLastKey = {};
   let schedMapByNameKey = {};
@@ -633,7 +640,7 @@ let schedPhoneCounts = {};
 
   for (let r = 1; r < schedData.length; r++) {
     let rawSchedName = schedData[r][nameIdx];
-    if (!rawSchedName || String(rawSchedName).startsWith("---") || String(rawSchedName).toLowerCase().startsWith("time:")) continue;
+    if (!rawSchedName || String(rawSchedName).startsWith("---") || String(rawSchedName).toLowerCase().startsWith("time:") || isUnknownPlayerName(rawSchedName)) continue;
 
     let normName = normalizeName(rawSchedName);
     let schedFirst = firstIdx !== -1 ? normalizeName(schedData[r][firstIdx]) : "";
@@ -685,15 +692,14 @@ let schedPhoneCounts = {};
     hasAnySchedData = true;
   }
 
-    if (schedModified) {
-        let targetWidth = schedData[0].length;
-        schedData.forEach(r => {
-            while (r.length < targetWidth) r.push("");
-            r.length = targetWidth;
-        });
-        schedSheet.getRange(1, 1, schedData.length, targetWidth).setValues(schedData);
-    }
-    
+  if (schedModified) {
+    let targetWidth = schedData[0].length;
+    schedData.forEach(r => {
+      while (r.length < targetWidth) r.push("");
+      r.length = targetWidth;
+    });
+    schedSheet.getRange(1, 1, schedData.length, targetWidth).setValues(schedData);
+  }
 
   if (!hasAnySchedData) return warnings;
 
@@ -714,7 +720,7 @@ let schedPhoneCounts = {};
     let phoneColIdx = col.phone !== undefined ? col.phone : col.mobile;
     let scorePhoneDigits = phoneColIdx !== undefined ? cleanPhoneDigits(row[phoneColIdx]) : "";
 
-      let schedInfo = undefined;
+    let schedInfo = undefined;
 
     if (normName && schedMapByNameKey[normName] !== undefined) {
       schedInfo = schedMapByNameKey[normName];
@@ -1033,20 +1039,46 @@ function assignRanksWithinWindows(items, numSlots) {
 
 
 function sortActivePlayersForSheet(sheet) {
-  if (typeof logDebug === 'function') logDebug("sortActivePlayersForSheet", "Sorting active players for sheet", sheet.getName());
   const ss = (typeof getDb === "function") ? getDb() : SpreadsheetApp.getActiveSpreadsheet();
-  const data = sheet.getDataRange().getValues();
+  if (typeof sheet === "string") {
+    const clean = sheet.replace(/^Score\s*/i, "").trim();
+    sheet = ss.getSheetByName("Score " + clean) || ss.getSheetByName(sheet);
+  }
+  if (!sheet) return "⚠️ Error: Target Score sheet not found.";
+
+  if (typeof logDebug === "function") {
+    logDebug("sortActivePlayersForSheet", "Sorting active players for sheet", sheet.getName());
+  }
+
+  const dataRange = sheet.getDataRange();
+  const data = dataRange.getValues();
   if (data.length <= 1) return "⚠️ No player data found on tab: " + sheet.getName();
+
+  const formulas = dataRange.getFormulas();
+  const backgrounds = dataRange.getBackgrounds();
 
   const cleanGroup = sheet.getName().replace(/^Score\s*/i, "").trim();
   const rankInfo = buildAuthoritativeRankLookup(ss, cleanGroup, sheet);
 
-  const col = typeof buildColMap === 'function' ? buildColMap(data[0]) : {};
+  const col = typeof buildColMap === "function" ? buildColMap(data[0]) : {};
   let headerRow = data[0];
   let scoreWidth = headerRow.length;
 
-  let activeRows = [];
-  let inactiveRows = [];
+  const adjustRowFormula = (formulaStr, oldRow, newRow) => {
+    if (!formulaStr || !String(formulaStr).startsWith("=") || oldRow === newRow) return formulaStr;
+    return String(formulaStr).replace(/(\$?[A-Z]{1,3})(\$?)(\d+)\b/g, (match, colPart, rowDollar, rowDigits, offset, fullStr) => {
+      if (rowDollar === "$") return match;
+      const prevChar = offset > 0 ? fullStr[offset - 1] : "";
+      if (/[A-Za-z0-9_]/.test(prevChar)) return match;
+      if (parseInt(rowDigits, 10) === oldRow) {
+        return colPart + String(newRow);
+      }
+      return match;
+    });
+  };
+
+  let activeEntries = [];
+  let inactiveEntries = [];
   let seenNames = new Set();
 
   for (let i = 1; i < data.length; i++) {
@@ -1054,51 +1086,103 @@ function sortActivePlayersForSheet(sheet) {
     let first = col.first !== undefined ? String(row[col.first] || "").trim() : "";
     let last = col.last !== undefined ? String(row[col.last] || "").trim() : "";
     let fullName = (col.name !== undefined && row[col.name]) ? String(row[col.name]).trim() : `${first} ${last}`.trim();
-    if (!fullName) continue;
+    if (!fullName || (typeof isUnknownPlayerName === "function" && isUnknownPlayerName(fullName))) continue;
 
-    let normKey = typeof normalizeName === 'function' ? normalizeName(fullName) : fullName.toLowerCase();
+    let normKey = typeof normalizeName === "function" ? normalizeName(fullName) : fullName.toLowerCase();
     if (normKey && seenNames.has(normKey)) continue;
     if (normKey) seenNames.add(normKey);
 
-    let status = (col.status !== undefined && row[col.status] !== "") 
-      ? row[col.status].toString().toUpperCase().trim() 
+    let rawStatus = (col.status !== undefined && row[col.status] !== "" && row[col.status] !== null && row[col.status] !== undefined)
+      ? String(row[col.status]).toUpperCase().trim()
       : "ACTIVE";
+    let isActive = (rawStatus !== "INACTIVE" && rawStatus !== "FALSE" && rawStatus !== "NO" && rawStatus !== "QUIT" && rawStatus !== "DROPPED");
 
     let rEntry = rankInfo.getRankForPlayer(fullName, i);
-    row._recentRank = rEntry.rank;
-    row._origIdx = i;
+    let entry = {
+      row: row.slice(),
+      formulas: formulas[i] ? formulas[i].slice() : [],
+      backgrounds: backgrounds[i] ? backgrounds[i].slice() : [],
+      recentRank: rEntry.rank,
+      origIdx: i
+    };
 
-    if (status === "ACTIVE") activeRows.push(row);
-    else inactiveRows.push(row);
+    if (isActive) activeEntries.push(entry);
+    else inactiveEntries.push(entry);
   }
 
-  activeRows.sort((a, b) => {
-    if (a._recentRank !== b._recentRank) return a._recentRank - b._recentRank;
-    return a._origIdx - b._origIdx;
+  activeEntries.sort((a, b) => {
+    if (Math.abs(a.recentRank - b.recentRank) > 0.0001) return a.recentRank - b.recentRank;
+    return a.origIdx - b.origIdx;
   });
 
-  inactiveRows.sort((a, b) => {
-    if (a._recentRank !== b._recentRank) return a._recentRank - b._recentRank;
-    return a._origIdx - b._origIdx;
+  inactiveEntries.sort((a, b) => {
+    if (Math.abs(a.recentRank - b.recentRank) > 0.0001) return a.recentRank - b.recentRank;
+    return a.origIdx - b.origIdx;
   });
 
-  let finalRows = [headerRow, ...activeRows, ...inactiveRows];
-  finalRows.forEach(r => {
-    delete r._recentRank;
-    delete r._origIdx;
-
-    if (r.length > scoreWidth) scoreWidth = r.length;
+  const orderedEntries = [...activeEntries, ...inactiveEntries];
+  orderedEntries.forEach(e => {
+    if (e.row.length > scoreWidth) scoreWidth = e.row.length;
   });
 
-  finalRows.forEach(r => {
-    while (r.length < scoreWidth) r.push("");
-    r.length = scoreWidth;
+  const padRow = (arr, fillVal) => {
+    const copy = arr.slice();
+    while (copy.length < scoreWidth) copy.push(fillVal);
+    copy.length = scoreWidth;
+    return copy;
+  };
+
+  const headerCells = padRow(headerRow, "");
+  for (let c = 0; c < scoreWidth; c++) {
+    if (formulas[0] && formulas[0][c] && String(formulas[0][c]).startsWith("=")) {
+      headerCells[c] = formulas[0][c];
+    }
+  }
+
+  const finalValues = [headerCells];
+  const finalBackgrounds = [padRow(backgrounds[0] || [], "#ffffff")];
+
+  orderedEntries.forEach((entry, idx) => {
+    const oldSheetRow = entry.origIdx + 1;
+    const newSheetRow = idx + 2;
+    const mergedRow = padRow(entry.row, "");
+
+    for (let c = 0; c < scoreWidth; c++) {
+      const f = entry.formulas[c];
+      if (f && String(f).startsWith("=")) {
+        mergedRow[c] = adjustRowFormula(f, oldSheetRow, newSheetRow);
+      }
+    }
+
+    finalValues.push(mergedRow);
+    finalBackgrounds.push(padRow(entry.backgrounds, "#ffffff"));
   });
 
   sheet.clearContents();
-  sheet.getRange(1, 1, finalRows.length, scoreWidth).setValues(finalRows);
-  return `✅ Active players sorted successfully on tab '${sheet.getName()}'!`;
+
+  // Preserve plain-text formatting on rank/standing & phone columns so "3/24" isn't parsed as a Date
+  const textCols = [col.lastr, col.phone];
+  for (let w = 0; w <= 10; w++) textCols.push(col["r" + w]);
+  textCols.forEach(cIdx => {
+    if (typeof cIdx === "number" && cIdx >= 0 && cIdx < scoreWidth) {
+      sheet.getRange(1, cIdx + 1, finalValues.length, 1).setNumberFormat("@");
+    }
+  });
+
+  const writeRange = sheet.getRange(1, 1, finalValues.length, scoreWidth);
+  writeRange.setValues(finalValues);
+  writeRange.setBackgrounds(finalBackgrounds);
+
+  if (typeof CacheService !== "undefined") {
+    try {
+      CacheService.getScriptCache().remove("UNIFIED_ROSTER_CACHE_" + cleanGroup.toUpperCase());
+    } catch (e) {}
+  }
+
+  return `✅ Active players sorted successfully on tab '${sheet.getName()}' (${activeEntries.length} active, ${inactiveEntries.length} inactive)!`;
 }
+
+
 
 
 
@@ -1528,6 +1612,7 @@ function updatePlayerCheckInInSheet(sheetName, targetPlayer, checkedState, times
 
 /**
  * Unified function to get roster data with score sync and auto-register missing players.
+ * Keeps Unknown court-filler placeholders in finalRoster for court lookups without adding them to Score sheets.
  */
 function getUnifiedRoster(payload) {
   try {
@@ -1714,8 +1799,29 @@ function getUnifiedRoster(payload) {
           const pName = cleanStr(schedData[r][nameIdx]);
           if (!pName || pName.startsWith("---") || pName.toLowerCase().startsWith("time:")) continue;
 
-          const schedRow = r + 1;
           const normFull = getNormFull(pName);
+          const rawCourt = courtIdx !== -1 ? cleanStr(schedData[r][courtIdx]) : "";
+          const courtVal = rawCourt || fallbackCourt;
+
+          // Keep temporary Unknown players in finalRoster for court lookups, but never add to Score sheet
+          if (isUnknownPlayerName(pName)) {
+            if (normFull && seenFinalNames.has(normFull)) continue;
+            if (normFull) seenFinalNames.add(normFull);
+            finalRoster.push({
+              name: pName,
+              phone: "",
+              email: "",
+              active: false,
+              isUnknown: true,
+              checkedIn: false,
+              timestamp: null,
+              court: courtVal,
+              score: ""
+            });
+            continue;
+          }
+
+          const schedRow = r + 1;
           const schedPhone = schedPhoneIdx !== -1 ? cleanStr(schedData[r][schedPhoneIdx]).replace(/\D/g, "") : "";
           const schedPhoneTail = schedPhone.length >= 7 ? schedPhone.slice(-7) : "";
 
@@ -1724,8 +1830,6 @@ function getUnifiedRoster(payload) {
             ? isCheckInTrue(rawCheck)
             : (rawCheck !== null && rawCheck !== undefined && String(rawCheck).trim() !== "");
 
-          const rawCourt = courtIdx !== -1 ? cleanStr(schedData[r][courtIdx]) : "";
-          const courtVal = rawCourt || fallbackCourt;
           const schedScore = cleanScore(schedData[r][totalIdx]);
 
           // Match by normalized full name first; fall back to phone tail only if unique among unused Score players
@@ -2055,13 +2159,8 @@ function runMenuClearSchedule(groupSelection) {
 
 /**
  * Synchronizes 'Sched [Group]' against 'Score [Group]':
- * 1. PRUNES rows on Sched sheet for players who were DELETED or marked INACTIVE/QUIT on Score sheet.
+ * 1. PRUNES rows on Sched sheet for players who were DELETED or marked INACTIVE/QUIT on Score sheet (and temporary Unknown placeholders).
  * 2. SYNCS valid players from Score sheet who are missing from Sched sheet.
- *
- * @param {Spreadsheet} ss - Active Spreadsheet object
- * @param {string} cleanGroup - Clean group name (e.g., "Mens", "Womens")
- * @param {Sheet} schedSheet - Target 'Sched [Group]' sheet object
- * @returns {Object} { addedCount, prunedCount }
  */
 function syncScoreSheetPlayersToSched(ss, cleanGroup, schedSheet) {
   try {
@@ -2130,26 +2229,31 @@ function syncScoreSheetPlayersToSched(ss, cleanGroup, schedSheet) {
     let rowsToKeep = [schedData[0]];
     let prunedCount = 0;
 
-    for (let r = 1; r < schedData.length; r++) {
-      const row = schedData[r];
-      const pName = String(row[schedNameIdx] || '').trim();
-      const normKey = normOf(pName);
+      for (let r = 1; r < schedData.length; r++) {
+          const row = schedData[r];
+          const pName = String(row[schedNameIdx] || '').trim();
+          const normKey = normOf(pName);
+          
+          if (!pName) continue;
+          if (isUnknownPlayerName(pName)) {
+              prunedCount++;
+              continue;
+          }
+          
+          const hasCheckIn = checkInIdx !== -1 && String(row[checkInIdx] || '').trim() !== "";
+          const hasScores = gameIndices.some(idx => String(row[idx] || '').trim() !== "");
+          const hasActivity = hasCheckIn || hasScores;
 
-      if (!pName) continue;
-
-      const hasCheckIn = checkInIdx !== -1 && String(row[checkInIdx] || '').trim() !== "";
-      const hasScores = gameIndices.some(idx => String(row[idx] || '').trim() !== "");
-      const hasActivity = hasCheckIn || hasScores;
-
-      // Keep row if it's on the active Score roster OR already has check-in/scores recorded (and isn't a duplicate)
-      if (!existingSchedNames.has(normKey) && (validScoreRosterSet.has(normKey) || hasActivity)) {
-        existingSchedNames.add(normKey);
-        rowsToKeep.push(row);
-      } else {
-        prunedCount++;
-        Logger.log(`✂️ Pruned deleted/duplicate player '${pName}' from '${schedSheet.getName()}'.`);
+          if (!existingSchedNames.has(normKey) && (validScoreRosterSet.has(normKey) || hasActivity)) {
+              existingSchedNames.add(normKey);
+              rowsToKeep.push(row);
+          } else {
+              prunedCount++;
+              Logger.log(`✂️ Pruned deleted/duplicate player '${pName}' from '${schedSheet.getName()}'.`);
+          }
       }
-    }
+      
+
 
     if (prunedCount > 0) {
       let targetWidth = rowsToKeep[0].length;
@@ -2428,15 +2532,7 @@ function handleCheckInPlayer(payload) {
 /**
  * Reorders the Sched sheet to match new rankings while preserving scores,
  * courts, check-ins, and submitter info strictly coupled to each player.
- * Clears old Column I week metadata prior to writing new week information.
- */
-/**
- * Reorders the Sched sheet to match new rankings while preserving scores,
- * courts, check-ins, and submitter info strictly coupled to each player.
- */
-/**
- * Reorders the Sched sheet to match new rankings while preserving scores,
- * courts, check-ins, and submitter info strictly coupled to each player.
+ * Drops temporary Unknown court-filler placeholders.
  */
 function rebuildSchedSheetOrder(ss, cleanGroupName, activePlayers, inactivePlayers, prevWeekNum) {
   let schedSheet = ss.getSheetByName("Sched " + cleanGroupName);
@@ -2445,7 +2541,7 @@ function rebuildSchedSheetOrder(ss, cleanGroupName, activePlayers, inactivePlaye
   let schedData = schedSheet.getDataRange().getValues();
   if (schedData.length <= 1) return;
   
-const SCHED_COLS = 13; // Columns A through M
+  const SCHED_COLS = 13; // Columns A through M
   let headers = ["Player Name", "Court", "Check-In", "Game 1", "Game 2", "Game 3", "Game 4", "Game 5", "Game 6", "Total", "Entered", "W", "Phone"];
 
   let nameIdx  = 0;
@@ -2455,7 +2551,7 @@ const SCHED_COLS = 13; // Columns A through M
   for (let r = 1; r < schedData.length; r++) {
     let row = schedData[r];
     let rawName = String(row[nameIdx] || "").trim();
-    if (!rawName || rawName.startsWith("---") || rawName.toLowerCase().startsWith("time:") || rawName.startsWith("SCHEDULE_WEEK")) {
+    if (!rawName || rawName.startsWith("---") || rawName.toLowerCase().startsWith("time:") || rawName.startsWith("SCHEDULE_WEEK") || isUnknownPlayerName(rawName)) {
       continue;
     }
 
@@ -2752,14 +2848,6 @@ function prioritizeCourts(courts) {
 }
 
 
-// ==========================================
-// CORE WORKER IMPLEMENTATIONS
-// ==========================================
-
-/**
- * Core worker for rescheduling based on check-ins.
- * Clears Pts on Score sheet and fills Court assignments.
- */
 function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes) {
   return executeWithLock(function() {
     let groupName = "";
@@ -2816,7 +2904,7 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
       
       for (let r = 1; r < existingData.length; r++) {
         let pName = existingData[r][0] ? String(existingData[r][0]).trim() : "";
-        if (pName) {
+        if (pName && !isUnknownPlayerName(pName)) {
           let normKey = normPlayerName(pName);
           if (!existingMap[normKey]) {
             let checkInVal = existingData[r][2] !== undefined ? existingData[r][2] : "";
@@ -2844,6 +2932,7 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
     let seenNames = new Set();
 
     rawPlayers.forEach((p, idx) => {
+      if (isUnknownPlayerName(p.name)) return;
       let normP = normPlayerName(p.name);
       if (normP && seenNames.has(normP)) return;
       if (normP) seenNames.add(normP);
@@ -2866,7 +2955,6 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
       if (isChecked) checkedInPlayers.push(p); else uncheckedPlayers.push(p);
     });
 
-    // Sort checked-in players strictly by authoritative ladder rank
     checkedInPlayers.sort((a, b) => {
       let rA = rankInfo.getRankForPlayer(a.name, a._sheetIdx);
       let rB = rankInfo.getRankForPlayer(b.name, b._sheetIdx);
@@ -2883,6 +2971,7 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
     availableCourts.forEach(c => courtAssignments[c] = []);
     let playersCopy = [...checkedInPlayers];
     let playersForBye = [];
+    let unknownPlayers = [];
     let courtNumber = 0;
 
     if (forceIntegrateByes && playersCopy.length >= 4) {
@@ -2922,16 +3011,47 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
       playersCopy.forEach(p => { p.assignedCourt = "BYE"; playersForBye.push(p); });
 
     } else {
-      let maxFullCourts = Math.min(Math.floor(playersCopy.length / 4), availableCourts.length);
+      let fullCourtsCount = Math.floor(playersCopy.length / 4);
+      let maxFullCourts = Math.min(fullCourtsCount, availableCourts.length);
       let totalPlayingAllowed = maxFullCourts * 4;
       let playersToAssign = playersCopy.slice(0, totalPlayingAllowed);
-      playersForBye = playersCopy.slice(totalPlayingAllowed);
+      let leftoverPlayers = playersCopy.slice(totalPlayingAllowed);
 
       playersToAssign.forEach((p, idx) => {
         let assignedCrt = availableCourts[Math.floor(idx / 4)];
         p.assignedCourt = assignedCrt;
         courtAssignments[assignedCrt].push(p);
       });
+
+      // Only pair leftover players with Unknowns if at least 1 full court exists OR at least 2 real players are playing
+      if (
+        leftoverPlayers.length > 0 &&
+        leftoverPlayers.length < 4 &&
+        maxFullCourts < availableCourts.length &&
+        (maxFullCourts > 0 || leftoverPlayers.length >= 2)
+      ) {
+        let extraCourt = availableCourts[maxFullCourts];
+        leftoverPlayers.forEach(p => {
+          p.assignedCourt = extraCourt;
+          courtAssignments[extraCourt].push(p);
+        });
+
+        let unknownNeeded = 4 - leftoverPlayers.length;
+        for (let u = 1; u <= unknownNeeded; u++) {
+          let uPlayer = {
+            name: "Unknown " + u,
+            assignedCourt: extraCourt,
+            isChecked: false,
+            isUnknown: true,
+            phone: "",
+            prev: { checkIn: "", g1: "", g2: "", g3: "", g4: "", g5: "", g6: "", total: "", entered: "", phone: "" }
+          };
+          unknownPlayers.push(uPlayer);
+          courtAssignments[extraCourt].push(uPlayer);
+        }
+      } else {
+        playersForBye = leftoverPlayers;
+      }
     }
 
     playersForBye.forEach(p => p.assignedCourt = "BYE");
@@ -2945,6 +3065,11 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
     const now = new Date();
 
     const writeRow = (p) => {
+      if (p.isUnknown || isUnknownPlayerName(p.name)) {
+        rows.push([p.name, cleanCourtLabel(p.assignedCourt), "", "", "", "", "", "", "", "", "", "", ""]);
+        return;
+      }
+
       let finalCourt = cleanCourtLabel(p.assignedCourt || (p.isChecked ? "BYE" : ""));
       let checkInVal = p.isChecked ? (p.prev.checkIn || now) : "";
       let normName = normPlayerName(p.name);
@@ -2961,6 +3086,7 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
     };
 
     checkedInPlayers.forEach(writeRow);
+    unknownPlayers.forEach(writeRow);
     uncheckedPlayers.forEach(writeRow);
 
     sheet.clearContents();
@@ -3027,18 +3153,11 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
     let activeCourtsCount = Object.keys(courtAssignments).filter(c => courtAssignments[c].length >= 4).length;
     let totalByes = rows.filter(r => r[1] === "BYE").length;
     let modeText = forceIntegrateByes ? "Optimized 5/6s" : "Strict 4s";
-    return `✅ Rescheduled '${targetName}' [${modeText}] using ${rankInfo.sourceLabel}. Assigned ${activeCourtsCount} courts, ${totalByes} BYEs.`;
+    let unknownNote = unknownPlayers.length > 0 ? ` (paired with ${unknownPlayers.length} Unknown)` : "";
+    return `✅ Rescheduled '${targetName}' [${modeText}] using ${rankInfo.sourceLabel}. Assigned ${activeCourtsCount} courts, ${totalByes} BYEs${unknownNote}.`;
   });
 }
 
-
-
-
-
-/**
- * Core worker for scheduling all active players.
- * Clears Pts on Score sheet and fills Court assignments.
- */
 function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
   return executeWithLock(function() {
     let targetGroup = "";
@@ -3063,6 +3182,11 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
       if (!c) return ""; let str = String(c).trim();
       if (str.toUpperCase() === "BYE") return "BYE";
       let match = str.match(/\d+/); return match ? String(match[0]) : (str.replace(/^(court|crt|score)\s*#?\s*/i, "").trim() || str);
+    };
+    const isRowActive = (rawVal) => {
+      if (rawVal === "" || rawVal === null || rawVal === undefined) return true;
+      const s = String(rawVal).toUpperCase().trim();
+      return s !== "INACTIVE" && s !== "FALSE" && s !== "NO" && s !== "QUIT" && s !== "DROPPED";
     };
 
     let groupsToProcess = [];
@@ -3099,12 +3223,12 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
 
       for (let r = 1; r < data.length; r++) {
         let row = data[r];
-        let status = (col.status !== undefined && row[col.status]) ? String(row[col.status]).toUpperCase().trim() : "ACTIVE";
+        let activeFlag = col.status !== undefined ? isRowActive(row[col.status]) : true;
         
         let firstVal = (col.first !== undefined && row[col.first]) ? String(row[col.first]).trim() : '';
         let lastVal = (col.last !== undefined && row[col.last]) ? String(row[col.last]).trim() : '';
         let name = (firstVal || lastVal) ? `${firstVal} ${lastVal}`.trim() : (col.name !== undefined ? String(row[col.name]).trim() : '');
-        if (!name) continue;
+        if (!name || isUnknownPlayerName(name)) continue;
 
         let normName = normKeyOf(name);
         if (normName && seenNames.has(normName)) continue;
@@ -3115,7 +3239,7 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
         let rEntry = rankInfo.getRankForPlayer(name, r);
 
         let pObj = { name: name, phone: cleanedPhone, rank: rEntry.rank, origIdx: r };
-        if (status === "ACTIVE") {
+        if (activeFlag) {
           activePlayerObjects.push(pObj);
         } else {
           inactivePlayerObjects.push(pObj);
@@ -3148,6 +3272,7 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
       let playingIndices = [];
       let byeIndices = new Set();
       let playerCourtMap = {};
+      let unknownRows = [];
 
       if (forceIntegrateByes && numPlayers >= 4) {
         let indicesCopy = Array.from({ length: numPlayers }, (_, i) => i);
@@ -3194,14 +3319,34 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
         
         let assignedCourtsCount = Math.min(foursomesCount, availableCourts.length);
         let totalPlayingCount = assignedCourtsCount * 4;
+        let leftoverCount = numPlayers - totalPlayingCount;
 
         for (let i = 0; i < totalPlayingCount; i++) playingIndices.push(i);
-        for (let i = totalPlayingCount; i < numPlayers; i++) byeIndices.add(i);
 
         playingIndices.forEach((playerIdx, orderIdx) => {
           let courtNumIdx = Math.floor(orderIdx / 4);
           playerCourtMap[playerIdx] = String(availableCourts[courtNumIdx]);
         });
+
+        // Only pair leftover players with Unknowns if at least 1 full court exists OR at least 2 real players are playing
+        if (
+          leftoverCount > 0 &&
+          leftoverCount < 4 &&
+          assignedCourtsCount < availableCourts.length &&
+          (assignedCourtsCount > 0 || leftoverCount >= 2)
+        ) {
+          let extraCourt = String(availableCourts[assignedCourtsCount]);
+          for (let i = totalPlayingCount; i < numPlayers; i++) {
+            playingIndices.push(i);
+            playerCourtMap[i] = extraCourt;
+          }
+          let unknownNeeded = 4 - leftoverCount;
+          for (let u = 1; u <= unknownNeeded; u++) {
+            unknownRows.push(["Unknown " + u, extraCourt, "", "", "", "", "", "", "", "", "", "", ""]);
+          }
+        } else {
+          for (let i = totalPlayingCount; i < numPlayers; i++) byeIndices.add(i);
+        }
       }
 
       const courtLookupByName = {};
@@ -3229,6 +3374,8 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
         registerLookupKey(pName, pPhone, assignedCourt);
         rows.push([pName, assignedCourt, "", "", "", "", "", "", "", "", "", "", pPhone]);
       }
+
+      unknownRows.forEach(r => rows.push(r));
 
       for (let i = 0; i < inactivePlayerObjects.length; i++) {
         let pName = inactivePlayerObjects[i].name;
@@ -3270,26 +3417,21 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
         let rowFullName = (rowFirst || rowLast) ? `${rowFirst} ${rowLast}`.trim() : (nameIdx !== -1 ? String(row[nameIdx] || '').trim() : '');
         let cleanRowName = cleanStr(rowFullName);
         let tokensKey = (cleanRowName.match(/[a-z0-9]+/g) || []).sort().join(" ");
-        let rowStatus = (col.status !== undefined && row[col.status]) ? String(row[col.status]).toUpperCase().trim() : "ACTIVE";
+        let activeFlag = col.status !== undefined ? isRowActive(row[col.status]) : true;
 
         let matchedCourt = "";
-        let foundInLookup = false;
-
         if (cleanRowName && courtLookupByName[cleanRowName] !== undefined) {
           matchedCourt = courtLookupByName[cleanRowName];
-          foundInLookup = true;
         } else if (tokensKey && courtLookupByName[tokensKey] !== undefined) {
           matchedCourt = courtLookupByName[tokensKey];
-          foundInLookup = true;
         } else if (rowPhone && rowPhone.length >= 7) {
           let tail = rowPhone.slice(-7);
           if (phoneCounts[tail] === 1 && courtLookupByPhone[tail] !== undefined) {
             matchedCourt = courtLookupByPhone[tail];
-            foundInLookup = true;
           }
         }
 
-        if (rowStatus !== "ACTIVE") matchedCourt = "";
+        if (!activeFlag) matchedCourt = "";
         else if (!matchedCourt) matchedCourt = "BYE";
 
         scoreCourtValues.push([matchedCourt]);
@@ -3312,7 +3454,6 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
     return "✅ " + summary.join("\n");
   });
 }
-
 
 
 
@@ -3419,12 +3560,14 @@ function findFoursomeByPhone(payload) {
         var pPhone = String(row[colPhone] || "").trim();
 
         if (pName && pName.toLowerCase() !== "bye" && pName !== "--") {
-          var playerObj = {
-            name: pName,
-            first: pName.split(" ")[0] || pName,
-            last: pName.split(" ").slice(1).join(" ") || "",
-            phone: pPhone
-          };
+            var playerObj = {
+                name: pName,
+                first: pName.split(" ")[0] || pName,
+                last: pName.split(" ").slice(1).join(" ") || "",
+                phone: pPhone,
+                isUnknown: typeof isUnknownPlayerName === "function" ? isUnknownPlayerName(pName) : false
+            };
+            
 
           for (var g = 1; g <= 6; g++) {
             var colIdx = gameCols[g];
@@ -3489,12 +3632,12 @@ function buildAuthoritativeRankLookup(ss, groupName, scoreSheet) {
     return tokens.sort().join(" ");
   };
 
-  // Parses "4.2%", "12.5%-R", "3/24", "3/24-r", or plain integer rank into a normalized 1..poolSize position
+  // Parses "4.2%", "12.5%-R", "3/24", "3/24-r", or plain integer rank into a 1..poolSize position
   const parseStandingToPosition = (val, poolSize) => {
     if (val === null || val === undefined || val === "") return null;
     if (typeof val === "number") {
-      if (val > 0 && val <= 1) return val * poolSize;
-      return val > 0 ? val : null;
+      if (val > 0 && val < 1) return val * poolSize;
+      return val >= 1 ? val : null;
     }
     const str = String(val).trim();
     if (!str || /inactive/i.test(str)) return null;
@@ -3517,7 +3660,8 @@ function buildAuthoritativeRankLookup(ss, groupName, scoreSheet) {
     const numMatch = str.match(/^(\d+(?:\.\d+)?)/);
     if (numMatch) {
       const n = parseFloat(numMatch[1]);
-      return isNaN(n) ? null : n;
+      if (isNaN(n) || n <= 0) return null;
+      return n < 1 ? n * poolSize : n;
     }
     return null;
   };
@@ -3545,7 +3689,6 @@ function buildAuthoritativeRankLookup(ss, groupName, scoreSheet) {
     const rData = rankSheet.getDataRange().getDisplayValues();
     const rHeaders = rData[0].map(h => String(h || "").trim());
 
-    // Extract associated week from F1/F2 or "Rank (Week X)" header
     if (rData[0].length >= 6 && String(rData[0][5] || "").trim()) {
       const m = String(rData[0][5]).match(/\d+/);
       if (m) rankingsWeek = m[0];
@@ -3589,13 +3732,13 @@ function buildAuthoritativeRankLookup(ss, groupName, scoreSheet) {
     }
   }
 
-  // 2. FALLBACK / RETURNING INACTIVES: "Score <Group>" sheet
+  // 2. FALLBACK / RETURNING INACTIVES: "Score <Group>" sheet (use getDisplayValues to preserve % vs integer 1)
   if (!scoreSheet && ss && typeof getScoreSheetByGroup === "function") {
     scoreSheet = getScoreSheetByGroup(cleanGroup);
   }
 
   if (scoreSheet && scoreSheet.getLastRow() > 1) {
-    const sData = scoreSheet.getDataRange().getValues();
+    const sData = scoreSheet.getDataRange().getDisplayValues();
     const sHeaders = sData[0].map(h => String(h || "").trim().toLowerCase());
     const col = typeof buildColMap === "function" ? buildColMap(sData[0]) : {};
 
@@ -3606,22 +3749,22 @@ function buildAuthoritativeRankLookup(ss, groupName, scoreSheet) {
     const newLeftIdx = sHeaders.findIndex(h => h === "newleft");
     const sortValIdx = sHeaders.findIndex(h => h === "sortval");
     const rawRankIdx = sHeaders.findIndex(h => h === "raw rank" || h === "rawrank");
+    const rNumIdx    = col.rnum !== undefined ? col.rnum : sHeaders.findIndex(h => h === "rnum" || h === "rank");
 
-    // Identify all R1..R10 columns in descending week order
+    // Identify all R10..R0 columns in descending week order
     const rCols = [];
-    for (let w = 10; w >= 1; w--) {
+    for (let w = 10; w >= 0; w--) {
       const idx = sHeaders.indexOf("r" + w);
       if (idx !== -1) rCols.push({ week: w, idx: idx });
     }
 
-    // Find latest populated R<w> week and active pool size for scaling percentages/fractions
-    let latestPopulatedWeek = 0;
+    let latestPopulatedWeek = -1;
     let latestActivePool = 0;
     for (let c = 0; c < rCols.length; c++) {
       let count = 0;
       for (let r = 1; r < sData.length; r++) {
-        const val = sData[r][rCols[c].idx];
-        if (val !== "" && val !== null && val !== undefined && !/inactive/i.test(String(val))) {
+        const val = String(sData[r][rCols[c].idx] || "").trim();
+        if (val !== "" && !/inactive/i.test(val)) {
           count++;
         }
       }
@@ -3636,7 +3779,7 @@ function buildAuthoritativeRankLookup(ss, groupName, scoreSheet) {
       ? rankedActiveCount
       : (latestActivePool > 0 ? latestActivePool : Math.max(1, sData.length - 1));
 
-    if (rankedActiveCount === 0 && latestPopulatedWeek > 0) {
+    if (rankedActiveCount === 0 && latestPopulatedWeek >= 0) {
       sourceLabel = "Score " + cleanGroup + " (R" + latestPopulatedWeek + ")";
     }
 
@@ -3654,10 +3797,8 @@ function buildAuthoritativeRankLookup(ss, groupName, scoreSheet) {
         masterPhoneLookup[cName] = cleanedPhone;
       }
 
-      // Skip if already ranked from "Rankings <Group>"
       if (cName && rankLookup[cName]) continue;
 
-      // Walk backwards through R10..R1 to find this player's most recent active standing
       let derivedPos = null;
       for (let c = 0; c < rCols.length; c++) {
         derivedPos = parseStandingToPosition(row[rCols[c].idx], poolSize);
@@ -3666,6 +3807,9 @@ function buildAuthoritativeRankLookup(ss, groupName, scoreSheet) {
 
       if (derivedPos === null && newLeftIdx !== -1) {
         derivedPos = parseStandingToPosition(row[newLeftIdx], poolSize);
+      }
+      if (derivedPos === null && rNumIdx !== -1) {
+        derivedPos = parseStandingToPosition(row[rNumIdx], poolSize);
       }
       if (derivedPos === null && sortValIdx !== -1) {
         derivedPos = parseStandingToPosition(row[sortValIdx], poolSize);
@@ -3685,7 +3829,6 @@ function buildAuthoritativeRankLookup(ss, groupName, scoreSheet) {
     }
   }
 
-  // Expose unique token keys as secondary fallback for minor punctuation/middle-initial variations
   Object.keys(tokenBuckets).forEach(tKey => {
     if (tokenBuckets[tKey].length === 1 && !rankLookup[tKey]) {
       rankLookup[tKey] = tokenBuckets[tKey][0];
@@ -3708,9 +3851,6 @@ function buildAuthoritativeRankLookup(ss, groupName, scoreSheet) {
     week: rankingsWeek
   };
 }
-
-
-
 
 
 
@@ -4507,3 +4647,5 @@ function updateRankingsSheetForGroup(groupName, players, inactivePlayers, weekNu
   rankSheet.getRange("N3").setValue("Week " + stampedWeek).setHorizontalAlignment("center");
   rankSheet.getRange("N4").setValue(Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "yyyy-MM-dd")).setHorizontalAlignment("center");
 }
+
+

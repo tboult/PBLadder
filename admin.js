@@ -40,6 +40,7 @@ function getSelectedCourts() {
   return courts.length > 0 ? courts : [1, 2, 3, 4];
 }
 
+
 function filterAdminPlayers() {
   const query = (document.getElementById('adminPlayerSearch')?.value || '').toLowerCase().trim();
   const container = document.getElementById('adminPlayerStatusList');
@@ -51,9 +52,12 @@ function filterAdminPlayers() {
     return;
   }
 
+  const isUnknown = (p) => Boolean(p && p.isUnknown) || /^unknown(\s*\d+|\s+player(\s*\d+)?)?$/i.test(String(p?.name || '').trim());
+
   const filtered = adminPlayersCache
     .map((player, cacheIdx) => ({ player, cacheIdx }))
     .filter(({ player }) => {
+      if (isUnknown(player)) return false;
       const pName = String(player.name || `${player.first || ''} ${player.last || ''}`).toLowerCase();
       const pPhone = String(player.phone || player.cell || player.mobile || '').replace(/\D/g, '');
       return pName.includes(query) || pPhone.includes(query);
@@ -110,6 +114,7 @@ function filterAdminPlayers() {
 
   updateAdminDashboard();
 }
+
 
 
 async function submitAdminRegistration(event) {
@@ -771,35 +776,9 @@ async function runSkipWeek(weekTarget = 'current') {
   }
 }
 
-function updateAdminDashboard() {
-  if (!Array.isArray(adminPlayersCache)) return;
 
-  const checkedInCount = adminPlayersCache.filter(player => {
-    const checkInVal = player.checkedIn ?? player.isCheckedIn ?? player.checked ?? player.checkIn;
-    return checkInVal === true 
-      || String(checkInVal).toLowerCase() === 'true' 
-      || String(checkInVal).toUpperCase() === 'X' 
-      || (typeof checkInVal === 'string' && checkInVal.trim().length > 0 && checkInVal.trim().toLowerCase() !== 'false')
-      || String(player.status).toLowerCase() === 'checked in';
-  }).length;
 
-  const isOptimized = Boolean(document.getElementById('optimize-byes-checkbox')?.checked);
-  let projectedByes = 0;
 
-  if (isOptimized) {
-    if (checkedInCount < 4) projectedByes = checkedInCount;
-    else if (checkedInCount === 7) projectedByes = 3;
-    else projectedByes = 0;
-  } else {
-    projectedByes = checkedInCount % 4;
-  }
-
-  const liveCountElem = document.getElementById('live-player-count');
-  if (liveCountElem) liveCountElem.textContent = checkedInCount;
-
-  const byesElem = document.getElementById('projected-byes');
-  if (byesElem) byesElem.textContent = projectedByes;
-}
 
 
 
@@ -1037,4 +1016,50 @@ async function runAdminRestoreSheet() {
       restoreBtn.innerText = '⏮️ Restore Sheet From Backup';
     }
   }
+}
+
+
+function updateAdminDashboard() {
+  if (!Array.isArray(adminPlayersCache)) return;
+
+  const isUnknown = (p) => Boolean(p && p.isUnknown) || /^unknown(\s*\d+|\s+player(\s*\d+)?)?$/i.test(String(p?.name || '').trim());
+
+  const checkedInCount = adminPlayersCache.filter(player => {
+    if (isUnknown(player)) return false;
+    const checkInVal = player.checkedIn ?? player.isCheckedIn ?? player.checked ?? player.checkIn;
+    return checkInVal === true
+      || String(checkInVal).toLowerCase() === 'true'
+      || String(checkInVal).toLowerCase() === 'yes'
+      || (typeof checkInVal === 'string' && checkInVal.trim().length > 0 && checkInVal.toLowerCase() !== 'false' && checkInVal.toLowerCase() !== 'no');
+  }).length;
+
+  const distributeCheckbox = document.getElementById('distributeByesCheckbox');
+  const distributeByes = distributeCheckbox ? distributeCheckbox.checked : false;
+
+  let projectedByes = 0;
+  if (distributeByes) {
+    if (checkedInCount < 4) projectedByes = checkedInCount;
+    else if (checkedInCount === 7) projectedByes = 3;
+    else projectedByes = 0;
+  } else {
+    const remainder = checkedInCount % 4;
+    const fullCourts = Math.floor(checkedInCount / 4);
+    const courtsList = typeof getSelectedCourts === 'function' ? getSelectedCourts() : [];
+
+    if (courtsList.length > 0) {
+      if (remainder > 0 && fullCourts < courtsList.length && (fullCourts > 0 || remainder >= 2)) {
+        projectedByes = 0; // Leftover players will play on an extra court with Unknown players
+      } else {
+        projectedByes = Math.max(0, checkedInCount - Math.min(fullCourts, courtsList.length) * 4);
+      }
+    } else {
+      projectedByes = remainder;
+    }
+  }
+
+  const liveCountElem = document.getElementById('live-player-count');
+  const projectedByesElem = document.getElementById('projected-byes-count');
+
+  if (liveCountElem) liveCountElem.textContent = checkedInCount;
+  if (projectedByesElem) projectedByesElem.textContent = projectedByes;
 }

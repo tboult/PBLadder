@@ -449,123 +449,12 @@ async function triggerAutoCheckIn(options = {}) {
 
 
 
-// Single Consolidated Tab Refresh Handler
-async function refreshActiveTabData(forceRefresh = false) {
-  const activeTab = localStorage.getItem('activeTab') || 'help';
-  const currentGroup = getSavedGroup();
-
-  if (typeof renderHelpGroupRadios === 'function') {
-    renderHelpGroupRadios();
-  }
-
-  // Ensure radio buttons reflect stored group
-  if (currentGroup) {
-    setSavedGroup(currentGroup);
-  }
-
-  if (typeof updateGlobalLoaderStatus === 'function') updateGlobalLoaderStatus();
-
-  try {
-    // FIX: Always ensure roster is fetched FIRST before attempting child tab updates
-    if (currentGroup && typeof loadUnifiedRosterData === 'function') {
-      await loadUnifiedRosterData(currentGroup, forceRefresh);
-    }
-
-   if (activeTab === 'checkin') {
-          if (typeof triggerAutoCheckIn === 'function') {
-              await triggerAutoCheckIn();
-          }
-      const savedPhone = typeof getSavedPhone === 'function' ? getSavedPhone() : '';
-      if (savedPhone && typeof loadPlayerStatusFromCache === 'function') {
-        await loadPlayerStatusFromCache(savedPhone);
-      }
-   }
-      
-    if (activeTab === 'checkin') {
-      if (typeof triggerAutoCheckIn === 'function') await triggerAutoCheckIn();
-    } else if (activeTab === 'admin') {
-      if (typeof triggerAutoCheckIn === 'function') await triggerAutoCheckIn();
-      if (typeof renderAdminCourts === 'function') await renderAdminCourts(currentGroup);
-      if (typeof loadAdminTabData === 'function') await loadAdminTabData(currentGroup);
-      if (typeof loadAdminPlayerStatusCache === 'function') await loadAdminPlayerStatusCache(currentGroup);
-    } else if (activeTab === 'ranksched' || activeTab === 'schedule') {
-      if (typeof loadRankingsAndSched === 'function') {
-        await loadRankingsAndSched(currentGroup);
-      }
-    } else if (activeTab === 'scoreTab' || activeTab === 'score' || activeTab === 'phone') {
-      if (typeof triggerAutoCheckIn === 'function') await triggerAutoCheckIn();
-      if (typeof lookupPhone === 'function') {
-        await lookupPhone();
-      }
-    } else if (activeTab === 'help') {
-      const savedPhone = typeof getSavedPhone === 'function' ? getSavedPhone() : '';
-      if (savedPhone && typeof loadPlayerStatusFromCache === 'function') {
-        await loadPlayerStatusFromCache(savedPhone);
-      }
-    }
-  } catch (err) {
-    console.error(`💥 [Tab Refresh Error] Failed rendering tab "${activeTab}":`, err);
-  } finally {
-    if (typeof updateGlobalLoaderStatus === 'function') updateGlobalLoaderStatus();
-  }
-}
 
 
 let checkInPlayersCache = [];
 
 
-// Replace renderCheckInPlayers to display just the auto-checked user
-function renderCheckInPlayers(players) {
-  const container = document.getElementById('checkInList');
-  if (!container) return;
 
-  const savedPhoneDigits = String((typeof getSavedPhone === 'function' ? getSavedPhone() : '') || '')
-    .replace(/\D/g, '')
-    .slice(-10);
-  const normalizedSavedName = String((typeof getSavedName === 'function' ? getSavedName() : '') || '')
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, ' ');
-
-  // Match by name first so shared family phones highlight the right player
-  let selfPlayer = null;
-  if (normalizedSavedName) {
-    selfPlayer = (players || []).find(p =>
-      String(p.name || '').trim().toLowerCase().replace(/\s+/g, ' ') === normalizedSavedName
-    );
-  }
-  if (!selfPlayer && savedPhoneDigits) {
-    selfPlayer = (players || []).find(p =>
-      String(p.phone || '').replace(/\D/g, '').slice(-10) === savedPhoneDigits
-    );
-  }
-
-  container.innerHTML = '';
-
-  (players || []).forEach(player => {
-    const isSelf = selfPlayer && player.name === selfPlayer.name;
-    const isCheckedIn = ['yes', 'checked in', 'true'].includes(
-      String(player.checkedIn || '').trim().toLowerCase()
-    );
-
-    const row = document.createElement('div');
-    row.className = 'checkin-row' + (isSelf ? ' highlight-self' : '');
-
-    const label = document.createElement('span');
-    label.className = 'player-name';
-    label.textContent = player.name + (isSelf ? ' (You)' : '');
-
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = isCheckedIn ? 'btn-checked-in' : 'btn-check-in';
-    btn.textContent = isCheckedIn ? 'Checked In ✓' : 'Check In';
-    btn.onclick = () => togglePlayerCheckIn(player.name, player.phone, !isCheckedIn);
-
-    row.appendChild(label);
-    row.appendChild(btn);
-    container.appendChild(row);
-  });
-}
 
 
 // Add the new check-in functionality handler for the single user view
@@ -612,6 +501,9 @@ async function toggleUserCheckin() {
      btnEl.disabled = false;
    }
 }
+
+
+
 
 
 
@@ -1018,19 +910,29 @@ function onGroupContextUpdated(groupName) {
 
 
 
-
-
-/**
- * Helper: Escapes strings safely for placement inside HTML attribute strings
- */
-function escapeHtmlAttr(str) {
-  return String(str || '')
-    .replace(/&/g, '&amp;')
-    .replace(/'/g, '&#39;')
-    .replace(/"/g, '&quot;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+function isUnknownPlayerName(name) {
+  if (name === null || name === undefined) return false;
+  return /^unknown(\s*\d+|\s+player(\s*\d+)?)?$/i.test(String(name).trim());
 }
+
+function escapeHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function escapeJsAttr(str) {
+  return String(str ?? '')
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/"/g, '\\"')
+    .replace(/\r/g, '\\r')
+    .replace(/\n/g, '\\n');
+}
+
 
 
 
@@ -2280,144 +2182,6 @@ function getCourtMatchups(numPlayers) {
   return [];
 }
 
-function submitSingleGameScore(gameNum, btnElement) {
-  const btn = btnElement || (typeof event !== 'undefined' ? event.target : null);
-  const numPlayers = activeLookupFoursome ? activeLookupFoursome.length : 0;
-
-  if (numPlayers < 4 || numPlayers > 6) {
-    showFeedback("⚠️ Active 4, 5, or 6-player court match assignment required.", "warning");
-    return;
-  }
-
-  const scAInput = document.getElementById(`sc${gameNum}_p1`);
-  const scBInput = document.getElementById(`sc${gameNum}_p2`);
-
-  if (!scAInput || !scBInput) return;
-
-  const scoreAVal = scAInput.value.trim();
-  const scoreBVal = scBInput.value.trim();
-
-  if (scoreAVal === "" || scoreBVal === "") {
-    showFeedback(`⚠️ Please enter scores for both teams in Game ${gameNum}.`, "warning");
-    return;
-  }
-
-  const scoreA = parseInt(scoreAVal, 10);
-  const scoreB = parseInt(scoreBVal, 10);
-
-  if (isNaN(scoreA) || isNaN(scoreB)) {
-    showFeedback("⚠️ Scores must be valid numbers.", "warning");
-    return;
-  }
-
-  const getPName = p => (typeof p === 'object' && p !== null ? (p.name || `${p.first || ''} ${p.last || ''}`.trim()) : String(p || ''));
-  const matchups = getCourtMatchups(numPlayers);
-  const match = matchups[gameNum - 1];
-  let scoresPayload = [];
-
-  match.t1.forEach(idx => {
-    scoresPayload.push({ name: getPName(activeLookupFoursome[idx]), [`g${gameNum}`]: scoreA });
-  });
-  
-  match.t2.forEach(idx => {
-    scoresPayload.push({ name: getPName(activeLookupFoursome[idx]), [`g${gameNum}`]: scoreB });
-  });
-
-  const groupName = (activeLookupPlayer && activeLookupPlayer.group) || 
-                    (typeof getSavedGroup === 'function' ? getSavedGroup() : '');
-  
-  const submitterName = getPName(activeLookupPlayer) || 
-                        (activeLookupPlayer && activeLookupPlayer.phone) || '';
-
-  const originalText = btn ? btn.innerText : `📤 Submit G${gameNum}`;
-  const originalBg = btn ? btn.style.background : "#0d6efd";
-
-  if (btn) {
-    btn.innerText = "⏳ Submitting...";
-    btn.disabled = true;
-    btn.style.background = "#6c757d";
-  }
-
-  let handled = false;
-
-  const handleResponse = (rawRes) => {
-    if (handled) return; 
-    handled = true;
-
-    try {
-      const res = (rawRes && rawRes.result) ? rawRes.result : ((rawRes && rawRes.data) ? rawRes.data : rawRes);
-      let isSuccess = false;
-      let msg = "";
-
-      if (typeof res === 'string') {
-        isSuccess = res.includes("Successfully") || res.includes("✅");
-        msg = res;
-      } else if (res && typeof res === 'object') {
-        isSuccess = Boolean(res.success);
-        msg = res.message || (isSuccess ? `✅ Game ${gameNum} scores saved!` : "Error submitting scores.");
-      }
-
-      if (isSuccess && groupName && window.groupRosterCache) {
-        delete window.groupRosterCache[groupName];
-      }
-
-      showFeedback(msg, isSuccess ? "success" : "danger");
-
-      if (btn) {
-        if (isSuccess) {
-          btn.innerText = `✅ G${gameNum} Submitted`;
-          btn.style.background = "#198754";
-          btn.style.color = "#ffffff";
-          btn.disabled = true;
-        } else {
-          btn.innerText = originalText;
-          btn.style.background = originalBg;
-          btn.disabled = false;
-        }
-      }        
-
-    } catch (err) {
-      console.error("Response handling error:", err);
-      if (btn) {
-        btn.innerText = originalText;
-        btn.style.background = originalBg;
-        btn.disabled = false;
-      }
-    }
-  };
-
-  const payload = {
-    group: groupName,
-    submittedByName: submitterName,
-    scores: scoresPayload
-  };
-
-  try {
-    if (typeof apiCall === 'function') {
-      const promiseOrResult = apiCall('submitCourtScores', payload);
-      if (promiseOrResult && typeof promiseOrResult.then === 'function') {
-        promiseOrResult
-          .then(handleResponse)
-          .catch(err => handleResponse({ success: false, message: (err && err.message) || String(err) }));
-      }
-    } else if (typeof google !== 'undefined' && google.script && google.script.run) {
-      google.script.run
-        .withSuccessHandler(handleResponse)
-        .withFailureHandler(err => handleResponse({ success: false, message: (err && err.message) || String(err) }))
-        .submitCourtScores(payload);
-    } else {
-      handleResponse({ success: false, message: "Backend communication interface unavailable." });
-    }
-  } catch (err) {
-    handleResponse({ success: false, message: "Execution error: " + err.message });
-  }
-}
-
-
-
-
-
-/**
 
 
 
@@ -2429,50 +2193,6 @@ function submitSingleGameScore(gameNum, btnElement) {
 
 
 
-
-/**
- * Validates a single game score input (Game 1 through Game 6).
- * Highlights invalid input fields in real time and strips invalid characters.
- *
- * @param {HTMLInputElement|string|number} input - The input DOM element or raw value.
- * @param {object} [options] - Validation options (min, max, allowEmpty).
- * @return {boolean} True if the score value is valid.
- */
-function validateGameScoreInput(input, options = {}) {
-  const min = options.min !== undefined ? options.min : 0;
-  const max = options.max !== undefined ? options.max : (typeof MAX_GAME_SCORE !== 'undefined' ? MAX_GAME_SCORE : 15);
-  const allowEmpty = options.allowEmpty !== undefined ? options.allowEmpty : true;
-
-  const element = (input && typeof input === 'object' && 'value' in input) ? input : null;
-  const rawVal = element ? element.value : input;
-  const cleanVal = String(rawVal ?? '').trim();
-
-  if (cleanVal === "") {
-    if (element) {
-      element.classList.remove('is-invalid', 'score-error');
-      element.style.borderColor = "";
-      element.style.backgroundColor = "";
-    }
-    return allowEmpty;
-  }
-
-  const parsedNum = Number(cleanVal);
-  const isValid = !isNaN(parsedNum) && Number.isInteger(parsedNum) && parsedNum >= min && parsedNum <= max;
-
-  if (element) {
-    if (!isValid) {
-      element.classList.add('is-invalid', 'score-error');
-      element.style.borderColor = "#dc3545";
-      element.style.backgroundColor = "#f8d7da";
-    } else {
-      element.classList.remove('is-invalid', 'score-error');
-      element.style.borderColor = "#28a745";
-      element.style.backgroundColor = "";
-    }
-  }
-
-  return isValid;
-}
 
 function forceRefreshData(groupName) {
   const cleanGroup = String(groupName || '').replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
@@ -2572,129 +2292,9 @@ async function lookupPhone(forceRefresh = false) {
 
 
 
-/**
- * Dynamically creates the UI for 4, 5, or 6 players based on assignment length and score data.
- */
-function renderLookupResult(player, foursome, courtScores) { 
-  activeLookupPlayer = player || {};
-  activeLookupFoursome = foursome || [];
 
-  const regEl = document.getElementById('registrationSection');
-  const resultEl = document.getElementById('lookupResult');
-  if (regEl) regEl.style.display = 'none';
-  if (resultEl) resultEl.style.display = 'block';
 
-  let displayName = typeof player === 'string' ? player : 
-                    (player ? `${player.first || ''} ${player.last || ''}`.trim() || player.name || 'Unknown' : 'Unknown');
 
-  const nameDisp = document.getElementById('pNameDisplay');
-  const groupDisp = document.getElementById('pGroupDisplay');
-  const courtDisp = document.getElementById('pCourtDisplay');
-
-  if (nameDisp) nameDisp.innerText = displayName;
-  if (groupDisp) groupDisp.innerText = (player && player.group) || (typeof getSavedGroup === 'function' ? getSavedGroup() : '');
-  if (courtDisp) courtDisp.innerText = (player && player.court) || '';
-
-  const badge = document.getElementById('pStatusDisplay');
-  if (badge) {
-    const isActive = ((player && player.status) || 'active').toLowerCase() === 'active';
-    badge.innerText = isActive ? 'Active' : 'Inactive';
-    badge.className = isActive ? 'status-badge status-active' : 'status-badge status-inactive';
-  }
-
-  const scoreContainer = document.getElementById('scoreInputsContainer');
-  if (!scoreContainer) return;
-  scoreContainer.innerHTML = '';
-
-  const numPlayers = activeLookupFoursome.length;
-  if (numPlayers >= 4 && numPlayers <= 6) {
-    const getPName = (p) => (typeof p === 'object' && p !== null ? (p.name || `${p.first || ''} ${p.last || ''}`.trim()) : String(p || ''));
-    
-    let summaryHtml = `
-      <div style="margin-bottom: 1.25rem; padding: 1rem; background-color: #f8f9fa; border: 2px solid #0d6efd; border-radius: 10px;">
-        <p style="margin: 0 0 0.5rem 0; font-size: 1.2rem; color: #0d6efd;"><b>🎾 Assigned Court (${numPlayers} Players):</b></p>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 1.15rem; font-weight: 600; color: #212529;">
-    `;
-    activeLookupFoursome.forEach((pObj, idx) => {
-      summaryHtml += `<div>P${idx + 1}: ${getPName(pObj)}</div>`;
-    });
-    summaryHtml += `</div></div>`;
-
-    const getVal = (p, gNum) => {
-      if (!p || typeof p !== 'object') return '';
-      const v = p[`g${gNum}`] ?? p[`game${gNum}`] ?? p[`game ${gNum}`] ?? p[`G${gNum}`] ?? p[`Game${gNum}`] ?? p[`Game ${gNum}`] ?? p[`score${gNum}`] ?? p[`s${gNum}`] ?? '';
-      if (v !== null && v !== undefined && String(v).trim() !== '') return String(v).trim();
-      if (Array.isArray(p.scores) && p.scores[gNum - 1] !== undefined && p.scores[gNum - 1] !== null) return String(p.scores[gNum - 1]).trim();
-      if (Array.isArray(p.games) && p.games[gNum - 1] !== undefined && p.games[gNum - 1] !== null) return String(p.games[gNum - 1]).trim();
-      return '';
-    };
-
-    let gamesHtml = "";
-    const matchups = getCourtMatchups(numPlayers);
-
-    matchups.forEach((match, idx) => {
-      const gNum = idx + 1;
-      const t1Names = match.t1.map(i => getPName(activeLookupFoursome[i])).join(' & ');
-      const t2Names = match.t2.map(i => getPName(activeLookupFoursome[i])).join(' & ');
-      const outHtml = match.out.length > 0 ? 
-        `<div style="font-size: 0.95rem; color: #dc3545; font-weight: bold; margin-bottom: 12px;">Sitting out: ${match.out.map(i => getPName(activeLookupFoursome[i])).join(', ')}</div>` : "";
-
-      let g_a = getVal(activeLookupFoursome[match.t1[0]], gNum) || getVal(activeLookupFoursome[match.t1[1]], gNum);
-      let g_b = getVal(activeLookupFoursome[match.t2[0]], gNum) || getVal(activeLookupFoursome[match.t2[1]], gNum);
-
-      if ((g_a === '' || g_b === '') && courtScores) {
-        if (Array.isArray(courtScores) && courtScores[idx]) {
-          const cs = courtScores[idx];
-          g_a = g_a || String(cs.teamA ?? cs.scoreA ?? cs.t1 ?? cs.score1 ?? cs[0] ?? '').trim();
-          g_b = g_b || String(cs.teamB ?? cs.scoreB ?? cs.t2 ?? cs.score2 ?? cs[1] ?? '').trim();
-        } else if (typeof courtScores === 'object') {
-          g_a = g_a || String(courtScores[`g${gNum}_t1`] ?? courtScores[`g${gNum}_a`] ?? courtScores[`game${gNum}_t1`] ?? '').trim();
-          g_b = g_b || String(courtScores[`g${gNum}_t2`] ?? courtScores[`g${gNum}_b`] ?? courtScores[`game${gNum}_t2`] ?? '').trim();
-        }
-      }
-
-      const hasG = g_a !== '' && g_b !== '';
-
-      gamesHtml += `
-        <div style="background: #ffffff; border: 2px solid #0d6efd; border-radius: 10px; padding: 16px; margin-bottom: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.08);">
-          <div style="font-size: 1.3rem; font-weight: bold; color: #0d6efd; border-bottom: 1px solid #dee2e6; padding-bottom: 8px; margin-bottom: 8px;">
-            🏆 Game ${gNum}
-          </div>
-          ${outHtml}
-          <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px;">
-            <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
-              <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${t1Names}</div>
-              <input type="number" min="0" max="${typeof MAX_GAME_SCORE !== 'undefined' ? MAX_GAME_SCORE : 30}" inputmode="numeric" id="sc${gNum}_p1" placeholder="Score" value="${g_a}"
-                     oninput="validateGameScoreInput(this)"
-                     style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
-            </div>
-
-            <div style="font-size: 1.3rem; font-weight: bold; color: #6c757d;">VS</div>
-
-            <div style="flex: 1; min-width: 140px; text-align: center; background: #e7f1ff; padding: 12px; border-radius: 8px; border: 1px solid #b6d4fe;">
-              <div style="font-size: 1.15rem; font-weight: bold; color: #084298; margin-bottom: 8px;">${t2Names}</div>
-              <input type="number" min="0" max="${typeof MAX_GAME_SCORE !== 'undefined' ? MAX_GAME_SCORE : 30}" inputmode="numeric" id="sc${gNum}_p2" placeholder="Score" value="${g_b}"
-                     oninput="validateGameScoreInput(this)"
-                     style="font-size: 1.6rem; font-weight: bold; text-align: center; width: 100%; max-width: 110px; height: 52px; border: 2px solid #0d6efd; border-radius: 8px; background: #ffffff;">
-            </div>
-          </div>
-          <button type="button" onclick="submitSingleGameScore(${gNum}, this)" ${hasG ? 'disabled' : ''}
-                  style="width: 100%; background: ${hasG ? '#198754' : '#0d6efd'}; color: #ffffff; border: none; padding: 12px; font-size: 1.15rem; font-weight: bold; border-radius: 8px; cursor: pointer;">
-            ${hasG ? `✅ G${gNum} Submitted` : `📤 Submit G${gNum}`}
-          </button>
-        </div>
-      `;
-    });
-
-    scoreContainer.innerHTML = summaryHtml + gamesHtml;
-  } else {
-    scoreContainer.innerHTML = `
-      <div style="background-color: #fff3cd; color: #664d03; border: 1px solid #ffe69c; font-size: 1.15rem; padding: 15px; border-radius: 8px; margin-top: 1rem;">
-        ⚠️ No active 4, 5, or 6-player court match assignment found.
-      </div>
-    `;
-  }
-}
 
 
 /**
@@ -2960,3 +2560,406 @@ function renderRankingsAndSchedule(rawData) {
 
 
 
+function renderLookupResult(dataOrPlayer, foursomeOrPhone, courtScores) {
+  const regEl = document.getElementById('registrationSection');
+  const container = document.getElementById('lookupResult') || document.getElementById('courtLookupResult');
+  if (regEl) regEl.style.display = 'none';
+  if (!container) return;
+  container.style.display = 'block';
+
+  // Normalize both (data, searchedPhone) and legacy (player, foursome, courtScores) calls
+  let data = dataOrPlayer;
+  if (dataOrPlayer && typeof dataOrPlayer === 'object' && Array.isArray(foursomeOrPhone)) {
+    const pName = dataOrPlayer.name || `${dataOrPlayer.first || ''} ${dataOrPlayer.last || ''}`.trim();
+    data = {
+      found: true,
+      playerName: pName,
+      court: dataOrPlayer.court || '',
+      group: dataOrPlayer.group || (typeof getSavedGroup === 'function' ? getSavedGroup() : ''),
+      teammates: foursomeOrPhone,
+      courtScores: courtScores || null,
+      player: dataOrPlayer
+    };
+  } else if (dataOrPlayer && typeof dataOrPlayer === 'object' && foursomeOrPhone === null && dataOrPlayer.name) {
+    data = {
+      found: true,
+      playerName: dataOrPlayer.name,
+      court: dataOrPlayer.court || '',
+      group: dataOrPlayer.group || (typeof getSavedGroup === 'function' ? getSavedGroup() : ''),
+      teammates: window.activeLookupFoursome || [],
+      player: dataOrPlayer
+    };
+  }
+
+  if (!data || !data.found) {
+    container.innerHTML = `<div class="notice">${escapeHtml((data && data.message) || 'No court assignment found.')}</div>`;
+    return;
+  }
+
+  const players = Array.isArray(data.teammates) ? data.teammates : (Array.isArray(data.foursome) ? data.foursome : []);
+  const playerObj = data.player || window.activeLookupPlayer || {
+    name: data.playerName || '',
+    group: data.group || '',
+    court: data.court || '',
+    status: 'ACTIVE'
+  };
+  if (!playerObj.group && data.group) playerObj.group = data.group;
+  if (!playerObj.court && data.court) playerObj.court = data.court;
+
+  window.activeLookupPlayer = playerObj;
+  window.activeLookupFoursome = players;
+  window.currentCourtPlayers = players;
+  window.currentLookupGroup = data.group || playerObj.group || '';
+
+  // Populate persistent header elements if present in index.html
+  const nameDisp = document.getElementById('pNameDisplay');
+  const groupDisp = document.getElementById('pGroupDisplay');
+  const courtDisp = document.getElementById('pCourtDisplay');
+  const badge = document.getElementById('pStatusDisplay');
+  const scoreContainer = document.getElementById('scoreInputsContainer');
+
+  if (nameDisp) nameDisp.innerText = data.playerName || playerObj.name || 'Player';
+  if (groupDisp) groupDisp.innerText = window.currentLookupGroup;
+  if (courtDisp) courtDisp.innerText = data.court || playerObj.court || '';
+  if (badge) {
+    const isActive = String(playerObj.status || 'ACTIVE').toUpperCase() === 'ACTIVE';
+    badge.innerText = isActive ? 'Active' : 'Inactive';
+    badge.className = isActive ? 'status-badge status-active' : 'status-badge status-inactive';
+  }
+
+  const isUnknown = (p) => !p || p.isUnknown || isUnknownPlayerName(p.name);
+  const displayName = (p) => (p && p.name ? String(p.name).trim() : 'Unnamed Player');
+  const maxScore = typeof MAX_GAME_SCORE !== 'undefined' ? MAX_GAME_SCORE : 25;
+
+  const matchups = getCourtMatchups(players.length);
+  let gamesHtml = '';
+
+  if (!matchups.length) {
+    gamesHtml = `<div class="notice">⚠️ Active 4, 5, or 6-player court assignment required (${escapeHtml(data.court || playerObj.court || 'Unassigned')}).</div>`;
+  } else {
+    matchups.forEach((match, idx) => {
+      const g = idx + 1;
+      const t1 = match.t1.map(i => players[i]).filter(Boolean);
+      const t2 = match.t2.map(i => players[i]).filter(Boolean);
+
+      const t1AllUnknown = t1.length > 0 && t1.every(isUnknown);
+      const t2AllUnknown = t2.length > 0 && t2.every(isUnknown);
+
+      const t1Real = t1.find(p => !isUnknown(p));
+      const t2Real = t2.find(p => !isUnknown(p));
+
+      const g_a = t1Real ? String(t1Real[`g${g}`] ?? '').trim() : '';
+      const g_b = t2Real ? String(t2Real[`g${g}`] ?? '').trim() : '';
+
+      const hasG = (g_a !== '' && g_b !== '')
+                || (g_a !== '' && t2AllUnknown)
+                || (g_b !== '' && t1AllUnknown);
+
+      const t1Names = t1.map(displayName).join(' & ');
+      const t2Names = t2.map(displayName).join(' & ');
+      const outHtml = match.out && match.out.length > 0
+        ? `<div style="font-size:0.9rem; color:#dc3545; font-weight:600; margin-bottom:6px;">Sitting out: ${escapeHtml(match.out.map(i => displayName(players[i])).join(', '))}</div>`
+        : '';
+
+      gamesHtml += `
+        <div class="game-card" data-game="${g}" data-t1-unknown="${t1AllUnknown}" data-t2-unknown="${t2AllUnknown}">
+          <div class="game-header">Game ${g}</div>
+          ${outHtml}
+          <div class="team-row">
+            <span class="team-names">${escapeHtml(t1Names)}</span>
+            <input type="number" id="sc${g}_p1" class="score-input" min="0" max="${maxScore}" inputmode="numeric"
+                   oninput="validateGameScoreInput(this)"
+                   value="${t1AllUnknown ? '' : escapeHtml(g_a)}"
+                   placeholder="${t1AllUnknown ? 'N/A' : 'Pts'}"
+                   ${t1AllUnknown ? 'disabled' : ''}>
+          </div>
+          <div class="team-row">
+            <span class="team-names">${escapeHtml(t2Names)}</span>
+            <input type="number" id="sc${g}_p2" class="score-input" min="0" max="${maxScore}" inputmode="numeric"
+                   oninput="validateGameScoreInput(this)"
+                   value="${t2AllUnknown ? '' : escapeHtml(g_b)}"
+                   placeholder="${t2AllUnknown ? 'N/A' : 'Pts'}"
+                   ${t2AllUnknown ? 'disabled' : ''}>
+          </div>
+          <button type="button" id="submitG${g}Btn" class="submit-game-btn"
+                  style="background:${hasG ? '#198754' : '#0d6efd'}; color:#ffffff;"
+                  onclick="submitSingleGameScore(${g}, this)" ${hasG ? 'disabled' : ''}>
+            ${hasG ? `✅ G${g} Submitted` : `Submit Game ${g}`}
+          </button>
+        </div>
+      `;
+    });
+  }
+
+  // Write into #scoreInputsContainer if index.html provides the structured card; otherwise render standalone
+  if (scoreContainer) {
+    scoreContainer.innerHTML = gamesHtml;
+  } else {
+    container.innerHTML = `
+      <div class="court-banner">
+        <strong>${escapeHtml(data.playerName || 'Player')}</strong> — ${escapeHtml(data.court || '')} (${escapeHtml(window.currentLookupGroup)})
+      </div>
+      ${gamesHtml}
+    `;
+  }
+}
+
+async function submitSingleGameScore(gameNum, btnElement) {
+  const btn = btnElement
+    || document.getElementById(`submitG${gameNum}Btn`)
+    || document.querySelector(`button[onclick*="submitSingleGameScore(${gameNum}"]`);
+  const players = Array.isArray(window.currentCourtPlayers) ? window.currentCourtPlayers : (window.activeLookupFoursome || []);
+  const matchups = getCourtMatchups(players.length);
+  const match = matchups[gameNum - 1];
+
+  if (!match) {
+    showFeedback('⚠️ Active 4, 5, or 6-player court match assignment required.', 'warning');
+    return;
+  }
+
+  const card = btn ? btn.closest('.game-card') : null;
+  const t1Unknown = card?.getAttribute('data-t1-unknown') === 'true';
+  const t2Unknown = card?.getAttribute('data-t2-unknown') === 'true';
+
+  const scAInput = document.getElementById(`sc${gameNum}_p1`);
+  const scBInput = document.getElementById(`sc${gameNum}_p2`);
+  const scoreAVal = scAInput ? scAInput.value.trim() : '';
+  const scoreBVal = scBInput ? scBInput.value.trim() : '';
+
+  if ((!t1Unknown && scoreAVal === '') || (!t2Unknown && scoreBVal === '')) {
+    showFeedback(`⚠️ Please enter scores for active teams in Game ${gameNum}.`, 'warning');
+    return;
+  }
+
+  if ((!t1Unknown && !validateGameScoreInput(scAInput, { allowEmpty: false })) ||
+      (!t2Unknown && !validateGameScoreInput(scBInput, { allowEmpty: false }))) {
+    showFeedback(`⚠️ Scores must be whole numbers between 0 and ${typeof MAX_GAME_SCORE !== 'undefined' ? MAX_GAME_SCORE : 25}.`, 'warning');
+    return;
+  }
+
+  const scoreA = t1Unknown ? null : parseInt(scoreAVal, 10);
+  const scoreB = t2Unknown ? null : parseInt(scoreBVal, 10);
+
+  const isUnknown = (p) => !p || p.isUnknown || isUnknownPlayerName(p.name);
+  const scoresPayload = [];
+
+  if (!t1Unknown) {
+    match.t1.forEach(idx => {
+      const p = players[idx];
+      if (p && !isUnknown(p)) scoresPayload.push({ name: p.name, [`g${gameNum}`]: scoreA });
+    });
+  }
+  if (!t2Unknown) {
+    match.t2.forEach(idx => {
+      const p = players[idx];
+      if (p && !isUnknown(p)) scoresPayload.push({ name: p.name, [`g${gameNum}`]: scoreB });
+    });
+  }
+
+  const groupName = window.currentLookupGroup || (typeof getSavedGroup === 'function' ? getSavedGroup() : '');
+  const submitterName = (typeof getSavedName === 'function' ? getSavedName() : '') || (typeof getSavedPhone === 'function' ? getSavedPhone() : '');
+  const origText = btn ? btn.innerText : `Submit Game ${gameNum}`;
+
+  if (btn) {
+    btn.innerText = '⏳ Submitting...';
+    btn.style.background = '#6c757d';
+    btn.disabled = true;
+  }
+
+  try {
+    const res = await apiCall('submitCourtScores', {
+      group: groupName,
+      submittedByName: submitterName,
+      scores: scoresPayload
+    });
+
+    const isSuccess = Boolean(res && (res.success === true || String(res.message || '').includes('Successfully')));
+    showFeedback((res && res.message) || (isSuccess ? `✅ Game ${gameNum} saved!` : 'Error submitting scores.'), isSuccess ? 'success' : 'danger');
+
+    if (isSuccess) {
+      if (groupName && window.groupRosterCache) delete window.groupRosterCache[groupName];
+      if (btn) {
+        btn.innerText = `✅ G${gameNum} Submitted`;
+        btn.style.background = '#198754';
+        btn.style.color = '#ffffff';
+      }
+    } else if (btn) {
+      btn.innerText = origText;
+      btn.style.background = '#0d6efd';
+      btn.disabled = false;
+    }
+  } catch (err) {
+    showFeedback('Execution error: ' + err.message, 'danger');
+    if (btn) {
+      btn.innerText = origText;
+      btn.style.background = '#0d6efd';
+      btn.disabled = false;
+    }
+  }
+}
+
+function validateGameScoreInput(input, options = {}) {
+  const min = options.min !== undefined ? options.min : 0;
+  const max = options.max !== undefined ? options.max : (typeof MAX_GAME_SCORE !== 'undefined' ? MAX_GAME_SCORE : 25);
+  const allowEmpty = options.allowEmpty !== undefined ? options.allowEmpty : true;
+
+  const element = (input && typeof input === 'object' && 'value' in input) ? input : null;
+  const rawVal = element ? element.value : input;
+  const cleanVal = String(rawVal ?? '').trim();
+
+  if (cleanVal === "") {
+    if (element) {
+      element.classList.remove('is-invalid', 'score-error');
+      element.style.borderColor = "";
+      element.style.backgroundColor = "";
+    }
+    return allowEmpty;
+  }
+
+  const parsedNum = Number(cleanVal);
+  const isValid = !isNaN(parsedNum) && Number.isInteger(parsedNum) && parsedNum >= min && parsedNum <= max;
+
+  if (element) {
+    if (!isValid) {
+      element.classList.add('is-invalid', 'score-error');
+      element.style.borderColor = "#dc3545";
+      element.style.backgroundColor = "#f8d7da";
+    } else {
+      element.classList.remove('is-invalid', 'score-error');
+      element.style.borderColor = "#28a745";
+      element.style.backgroundColor = "";
+    }
+  }
+
+  return isValid;
+}
+
+function renderCheckInPlayers(players) {
+  const container = document.getElementById('checkInPlayersList')
+    || document.getElementById('checkInList')
+    || document.getElementById('checkinList');
+  if (!container) return;
+
+  const realPlayers = (players || []).filter(p => {
+    if (!p) return false;
+    const name = String(p.name || `${p.first || ''} ${p.last || ''}`.trim()).trim();
+    if (!name) return false;
+    if (p.isUnknown || (typeof isUnknownPlayerName === 'function' && isUnknownPlayerName(name))) return false;
+    return true;
+  });
+
+  if (realPlayers.length === 0) {
+    container.innerHTML = '<div class="empty-msg">No players found for this group.</div>';
+    return;
+  }
+
+  container.innerHTML = realPlayers.map(player => {
+    const pName = String(player.name || `${player.first || ''} ${player.last || ''}`.trim()).trim();
+    const rawCheck = player.checkedIn ?? player.checked ?? false;
+    const checkStr = String(rawCheck).trim().toLowerCase();
+    const isChecked = rawCheck === true || (checkStr !== '' && checkStr !== 'false' && checkStr !== 'no' && checkStr !== '0');
+    const btnClass = isChecked ? 'checkin-btn checked' : 'checkin-btn';
+    const btnLabel = isChecked ? '✅ Checked In' : 'Check In';
+
+    return `
+      <div class="checkin-row ${isChecked ? 'is-checked' : ''}">
+        <span class="checkin-name">${escapeHtml(pName)}</span>
+        <button type="button" class="${btnClass}" onclick="toggleCheckInPlayer('${escapeJsAttr(pName)}', ${!isChecked}, this)">
+          ${btnLabel}
+        </button>
+      </div>
+    `;
+  }).join('');
+}
+
+async function toggleCheckInPlayer(playerName, newState, btnEl) {
+  const groupName = typeof getSavedGroup === 'function' ? getSavedGroup() : '';
+  if (!groupName || !playerName) return;
+
+  if (newState && typeof checkGeofence === 'function') {
+    const savedPhone = typeof getSavedPhone === 'function' ? getSavedPhone() : '';
+    const allowed = (typeof isUserAdmin === 'function' && isUserAdmin(savedPhone)) ? true : await checkGeofence(savedPhone);
+    if (!allowed) return;
+  }
+
+  if (btnEl) {
+    btnEl.disabled = true;
+    btnEl.innerText = '⏳...';
+  }
+
+  try {
+    const res = await apiCall('toggleSingleCheckIn', {
+      sheet: 'Sched ' + groupName,
+      groupName: groupName,
+      group: groupName,
+      playerName: playerName,
+      isCheckedIn: Boolean(newState)
+    });
+
+    if (res && res.success) {
+      if (window.groupRosterCache) delete window.groupRosterCache[groupName];
+      const fresh = await loadUnifiedRosterData(groupName, true);
+      renderCheckInPlayers(fresh);
+    } else {
+      showFeedback((res && res.message) || 'Failed to update check-in.', 'danger');
+    }
+  } catch (err) {
+    showFeedback('Network error updating check-in.', 'danger');
+  } finally {
+    if (btnEl) btnEl.disabled = false;
+  }
+}
+
+async function refreshActiveTabData(forceRefresh = false) {
+  const activeTab = localStorage.getItem('activeTab') || 'help';
+  const currentGroup = getSavedGroup();
+
+  if (typeof renderHelpGroupRadios === 'function') {
+    renderHelpGroupRadios();
+  }
+
+  if (currentGroup) {
+    setSavedGroup(currentGroup);
+  }
+
+  if (typeof updateGlobalLoaderStatus === 'function') updateGlobalLoaderStatus();
+
+  try {
+    if (currentGroup && typeof loadUnifiedRosterData === 'function') {
+      await loadUnifiedRosterData(currentGroup, forceRefresh);
+    }
+
+    if (activeTab === 'checkin') {
+      if (typeof triggerAutoCheckIn === 'function') {
+        await triggerAutoCheckIn();
+      }
+      const savedPhone = typeof getSavedPhone === 'function' ? getSavedPhone() : '';
+      if (savedPhone && typeof loadPlayerStatusFromCache === 'function') {
+        await loadPlayerStatusFromCache(savedPhone);
+      }
+    } else if (activeTab === 'admin') {
+      if (typeof triggerAutoCheckIn === 'function') await triggerAutoCheckIn();
+      if (typeof renderAdminCourts === 'function') await renderAdminCourts(currentGroup);
+      if (typeof loadAdminTabData === 'function') await loadAdminTabData(currentGroup);
+      if (typeof loadAdminPlayerStatusCache === 'function') await loadAdminPlayerStatusCache(currentGroup);
+    } else if (activeTab === 'ranksched' || activeTab === 'schedule') {
+      if (typeof loadRankingsAndSched === 'function') {
+        await loadRankingsAndSched(currentGroup);
+      }
+    } else if (activeTab === 'scoreTab' || activeTab === 'score' || activeTab === 'phone') {
+      if (typeof triggerAutoCheckIn === 'function') await triggerAutoCheckIn();
+      if (typeof lookupPhone === 'function') {
+        await lookupPhone();
+      }
+    } else if (activeTab === 'help') {
+      const savedPhone = typeof getSavedPhone === 'function' ? getSavedPhone() : '';
+      if (savedPhone && typeof loadPlayerStatusFromCache === 'function') {
+        await loadPlayerStatusFromCache(savedPhone);
+      }
+    }
+  } catch (err) {
+    console.error(`💥 [Tab Refresh Error] Failed rendering tab "${activeTab}":`, err);
+  } finally {
+    if (typeof updateGlobalLoaderStatus === 'function') updateGlobalLoaderStatus();
+  }
+}
