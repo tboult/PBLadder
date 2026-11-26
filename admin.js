@@ -34,10 +34,10 @@ function getAdminSelectedGroup() {
  */
 function getSelectedCourts() {
   const container = document.getElementById('admin-court-list');
-  if (!container) return [1, 2, 3, 4];
+    if (!container) return [5,6,7,8];
   const checkboxes = container.querySelectorAll('input[type="checkbox"]:checked');
   const courts = Array.from(checkboxes).map(cb => parseInt(cb.value, 10)).filter(num => !isNaN(num));
-  return courts.length > 0 ? courts : [1, 2, 3, 4];
+    return courts.length > 0 ? courts : [5,6,7,8];
 }
 
 
@@ -73,8 +73,8 @@ function filterAdminPlayers() {
     const rawName = player.name || `${player.first || ''} ${player.last || ''}`.trim() || 'Unknown Player';
     const rawPhone = player.phone || player.cell || player.mobile || player.phoneNumber || '';
     const cleanPhone = String(rawPhone).replace(/\D/g, '');
-    const attrName = escapeHtmlAttr(rawName);
-    const attrPhone = escapeHtmlAttr(cleanPhone);
+    const attrName = escapeHtml(rawName);
+    const attrPhone = escapeHtml(cleanPhone);
 
     const isActive = player.active === true 
       || String(player.active).toLowerCase() === 'true' 
@@ -95,7 +95,7 @@ function filterAdminPlayers() {
     return `
 <div style="display:flex; justify-content:space-between; align-items:center; padding:0.6rem; border-bottom:1px solid #eee; gap:0.75rem; flex-wrap:wrap;">
   <div style="font-weight:bold; font-size:0.95rem; text-overflow:ellipsis; overflow:hidden; white-space:nowrap; flex:1; min-width:180px;">
-    ${attrName}${player.court ? `, ${escapeHtmlAttr(player.court)}` : ''}, ${cleanPhone || 'No phone'}
+    ${attrName}${player.court ? `, ${escapeHtml(player.court)}` : ''}, ${cleanPhone || 'No phone'}
   </div>
   <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; margin-left:auto;">
     <div style="display:flex; align-items:center; gap:0.3rem; white-space:nowrap;">
@@ -117,74 +117,68 @@ function filterAdminPlayers() {
 
 
 
-async function submitAdminRegistration(event) {
-  if (event) event.preventDefault();
+async function submitAdminRegistration() {
+  const first = (document.getElementById('adminRegFirst')?.value || document.getElementById('regFirst')?.value || '').trim();
+  const last = (document.getElementById('adminRegLast')?.value || document.getElementById('regLast')?.value || '').trim();
+  const rawPhone = (document.getElementById('adminRegPhone')?.value || document.getElementById('regPhone')?.value || '').trim();
+  const email = (document.getElementById('adminRegEmail')?.value || document.getElementById('regEmail')?.value || '').trim();
+  const group = document.getElementById('regGroup')?.value
+    || document.getElementById('adminRegGroup')?.value
+    || getAdminSelectedGroup();
+  const statusEl = document.getElementById('adminStatus') || document.getElementById('adminRegStatus');
 
-  const nameInput = document.getElementById('adminRegName');
-  const phoneInput = document.getElementById('adminRegPhone');
-  const groupInput = document.getElementById('adminRegGroup');
-  const statusEl = document.getElementById('adminStatus');
-
-  const name = (nameInput?.value || '').trim();
-  const phone = (phoneInput?.value || '').trim();
-  const group = groupInput?.value || window.currentGroup || 'Tuesday';
-
-  if (!name || !phone) {
-    if (statusEl) {
-      statusEl.textContent = 'Error: Name and phone number are required.';
-      statusEl.className = 'status-error';
-    }
+  if (!first || !last || !rawPhone || !group) {
+    alert('Please enter First Name, Last Name, Phone, and Group.');
     return;
   }
 
-  if (statusEl) {
-    statusEl.textContent = 'Adding player...';
-    statusEl.className = 'status-info';
+  const cleanDigits = rawPhone.replace(/\D/g, '').slice(-10);
+  if (cleanDigits.length !== 10) {
+    alert('Please enter a valid 10-digit phone number.');
+    return;
   }
+
+  const fullName = `${first} ${last}`.trim();
+  if (statusEl) statusEl.innerText = `⏳ Registering ${fullName} in ${group}...`;
 
   try {
-    const res = await apiCall('addNewUser', { name, phone, group });
-    const msg = typeof res === 'string'
+    const res = await apiCall('addNewUser', {
+      first,
+      last,
+      name: fullName,
+      phone: cleanDigits,
+      email,
+      group
+    });
+
+    const responseMsg = typeof res === 'string'
       ? res
-      : (res?.data || res?.message || '');
+      : (res?.data || res?.message || res?.result || '');
 
-    const isError = /^error\b/i.test(msg) || Boolean(res?.error);
-    const isNotice = /^⚠️|^notice\b/i.test(msg) || Boolean(res?.notice);
-
-    if (isError) {
-      if (statusEl) {
-        statusEl.textContent = msg || 'Error: Unable to add player.';
-        statusEl.className = 'status-error';
-      }
+    if (/^error\b/i.test(responseMsg) || Boolean(res?.error)) {
+      if (statusEl) statusEl.innerText = `❌ ${responseMsg || 'Registration failed.'}`;
+      alert(responseMsg || 'Registration failed.');
       return;
     }
 
-    if (isNotice) {
-      if (statusEl) {
-        statusEl.textContent = msg;
-        statusEl.className = 'status-warning';
-      }
-      return;
-    }
+    if (statusEl) statusEl.innerText = responseMsg || `✅ ${fullName} registered in ${group}!`;
+    alert(responseMsg || `✅ ${fullName} registered in ${group}!`);
 
-    if (statusEl) {
-      statusEl.textContent = msg || '✅ Player added successfully!';
-      statusEl.className = 'status-success';
-    }
+    ['adminRegFirst', 'adminRegLast', 'adminRegPhone', 'adminRegEmail', 'regFirst', 'regLast', 'regPhone', 'regEmail'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
 
-    if (nameInput) nameInput.value = '';
-    if (phoneInput) phoneInput.value = '';
-
-    if (typeof loadUnifiedRoster === 'function') {
-      await loadUnifiedRoster(true);
-    }
+    if (window.groupRosterCache) delete window.groupRosterCache[group];
+    await loadAdminPlayerStatusCache(group, true);
   } catch (err) {
-    if (statusEl) {
-      statusEl.textContent = 'Error: ' + (err.message || err);
-      statusEl.className = 'status-error';
-    }
+    console.error('submitAdminRegistration error:', err);
+    if (statusEl) statusEl.innerText = '❌ Error registering player: ' + (err.message || err);
+    alert('Error registering player: ' + (err.message || err));
   }
 }
+
+
 
 
 async function runAdmin(actionName, extraPayload = {}) {
@@ -1019,47 +1013,74 @@ async function runAdminRestoreSheet() {
 }
 
 
-function updateAdminDashboard() {
-  if (!Array.isArray(adminPlayersCache)) return;
+function updateAdminDashboard(forceRefresh = false) {
+  const group = getAdminSelectedGroup();
 
-  const isUnknown = (p) => Boolean(p && p.isUnknown) || /^unknown(\s*\d+|\s+player(\s*\d+)?)?$/i.test(String(p?.name || '').trim());
-
-  const checkedInCount = adminPlayersCache.filter(player => {
-    if (isUnknown(player)) return false;
-    const checkInVal = player.checkedIn ?? player.isCheckedIn ?? player.checked ?? player.checkIn;
-    return checkInVal === true
-      || String(checkInVal).toLowerCase() === 'true'
-      || String(checkInVal).toLowerCase() === 'yes'
-      || (typeof checkInVal === 'string' && checkInVal.trim().length > 0 && checkInVal.toLowerCase() !== 'false' && checkInVal.toLowerCase() !== 'no');
-  }).length;
-
-  const distributeCheckbox = document.getElementById('distributeByesCheckbox');
-  const distributeByes = distributeCheckbox ? distributeCheckbox.checked : false;
-
-  let projectedByes = 0;
-  if (distributeByes) {
-    if (checkedInCount < 4) projectedByes = checkedInCount;
-    else if (checkedInCount === 7) projectedByes = 3;
-    else projectedByes = 0;
-  } else {
-    const remainder = checkedInCount % 4;
-    const fullCourts = Math.floor(checkedInCount / 4);
-    const courtsList = typeof getSelectedCourts === 'function' ? getSelectedCourts() : [];
-
-    if (courtsList.length > 0) {
-      if (remainder > 0 && fullCourts < courtsList.length && (fullCourts > 0 || remainder >= 2)) {
-        projectedByes = 0; // Leftover players will play on an extra court with Unknown players
-      } else {
-        projectedByes = Math.max(0, checkedInCount - Math.min(fullCourts, courtsList.length) * 4);
-      }
-    } else {
-      projectedByes = remainder;
-    }
+  if (forceRefresh) {
+    loadAdminPlayerStatusCache(group, true);
+    return;
   }
 
-  const liveCountElem = document.getElementById('live-player-count');
-  const projectedByesElem = document.getElementById('projected-byes-count');
+  const roster = Array.isArray(adminPlayersCache) ? adminPlayersCache : [];
+  const isUnknown = (p) => Boolean(p && p.isUnknown) || /^unknown(\s*\d+|\s+player(\s*\d+)?)?$/i.test(String(p?.name || '').trim());
+  const realPlayers = roster.filter(p => !isUnknown(p));
 
-  if (liveCountElem) liveCountElem.textContent = checkedInCount;
-  if (projectedByesElem) projectedByesElem.textContent = projectedByes;
+  let activeCount = 0;
+  let checkedInCount = 0;
+
+  realPlayers.forEach(player => {
+    const isActive = player.active === true
+      || String(player.active).toLowerCase() === 'true'
+      || String(player.status).toLowerCase() === 'active';
+
+    const checkInVal = player.checkedIn ?? player.isCheckedIn ?? player.checked ?? player.checkIn;
+    const isCheckedIn = checkInVal === true
+      || String(checkInVal).toLowerCase() === 'true'
+      || String(checkInVal).toUpperCase() === 'X'
+      || (typeof checkInVal === 'string' && checkInVal.trim().length > 0 && checkInVal.trim().toLowerCase() !== 'false')
+      || String(player.status).toLowerCase() === 'checked in';
+
+    if (isActive) activeCount++;
+    if (isCheckedIn) checkedInCount++;
+  });
+
+  const inactiveCount = Math.max(0, realPlayers.length - activeCount);
+  const optimizeByes = Boolean(document.getElementById('optimize-byes-checkbox')?.checked);
+
+  let projectedCourts = 0;
+  let projectedByes = 0;
+
+  if (checkedInCount >= 4) {
+    if (optimizeByes) {
+      if (checkedInCount === 7) {
+        projectedCourts = 1;
+        projectedByes = 2;
+      } else {
+        projectedCourts = Math.floor(checkedInCount / 4);
+        projectedByes = 0;
+      }
+    } else {
+      projectedCourts = Math.floor(checkedInCount / 4);
+      projectedByes = checkedInCount % 4;
+    }
+  } else {
+    projectedCourts = 0;
+    projectedByes = checkedInCount;
+  }
+
+  const setStat = (ids, val) => {
+    ids.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = val;
+    });
+  };
+
+  setStat(['adminTotalPlayers', 'admin-total-players', 'statTotalPlayers'], realPlayers.length);
+  setStat(['adminActivePlayers', 'admin-active-count', 'statActivePlayers'], activeCount);
+  setStat(['adminInactivePlayers', 'admin-inactive-count', 'statInactivePlayers'], inactiveCount);
+  setStat(['adminCheckedInCount', 'admin-checked-in-count', 'statCheckedIn'], checkedInCount);
+  setStat(['adminProjectedCourts', 'admin-projected-courts', 'statProjectedCourts'], projectedCourts);
+  setStat(['adminProjectedByes', 'admin-projected-byes', 'statProjectedByes'], projectedByes);
 }
+
+

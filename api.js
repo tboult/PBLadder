@@ -268,9 +268,15 @@ async function loadPlayerStatusFromCache(phone) {
     checkAndUnlockAdmin(phone);
   }
 
-  let roster = window.appPlayersCache;
-  const isRosterForGroup = Array.isArray(roster) && roster.length > 0 && 
-    (roster[0]?.group === selectedGroup || roster[0]?.groupName === selectedGroup);
+  let roster = (window.groupRosterCache && Array.isArray(window.groupRosterCache[selectedGroup]))
+    ? window.groupRosterCache[selectedGroup]
+    : window.appPlayersCache;
+
+  const isRosterForGroup = Array.isArray(roster) && roster.length > 0 && (
+    (window.groupRosterCache && roster === window.groupRosterCache[selectedGroup]) ||
+    roster[0]?.group === selectedGroup ||
+    roster[0]?.groupName === selectedGroup
+  );
 
   if (!isRosterForGroup && selectedGroup && typeof loadUnifiedRosterData === "function") {
     roster = await loadUnifiedRosterData(selectedGroup, false);
@@ -333,6 +339,8 @@ async function loadPlayerStatusFromCache(phone) {
     redirectToRegistrationTab(phone, selectedGroup);
   }
 }
+
+
 
 
 async function triggerAutoCheckIn(options = {}) {
@@ -2151,41 +2159,6 @@ document.addEventListener('change', (e) => {
 
 
 
-/**
- * Helper to define matchups and sit-outs dynamically based on court size.
- */
-function getCourtMatchups(numPlayers) {
-  if (numPlayers === 4) {
-    return [
-      { t1: [0, 1], t2: [2, 3], out: [] },
-      { t1: [0, 2], t2: [1, 3], out: [] },
-      { t1: [0, 3], t2: [1, 2], out: [] }
-    ];
-  } else if (numPlayers === 5) {
-    return [
-      { t1: [0, 1], t2: [2, 3], out: [4] },
-      { t1: [0, 4], t2: [1, 2], out: [3] },
-      { t1: [0, 3], t2: [4, 1], out: [2] },
-      { t1: [0, 2], t2: [3, 4], out: [1] },
-      { t1: [1, 3], t2: [2, 4], out: [0] }
-    ];
-  } else if (numPlayers === 6) {
-    return [
-      { t1: [0, 1], t2: [2, 3], out: [4, 5] },
-      { t1: [0, 4], t2: [1, 5], out: [2, 3] },
-      { t1: [2, 4], t2: [3, 5], out: [0, 1] },
-      { t1: [0, 2], t2: [1, 3], out: [4, 5] },
-      { t1: [0, 5], t2: [1, 4], out: [2, 3] },
-      { t1: [3, 4], t2: [2, 5], out: [0, 1] }
-    ];
-  }
-  return [];
-}
-
-
-
-
-
 
 
 
@@ -2962,4 +2935,37 @@ async function refreshActiveTabData(forceRefresh = false) {
   } finally {
     if (typeof updateGlobalLoaderStatus === 'function') updateGlobalLoaderStatus();
   }
+}
+
+/**
+ * Helper to define matchups and sit-outs dynamically based on court size.
+ * Players are ordered by rank ascending (index 0 = highest-ranked player on court).
+ * - 4 players: 3 games (everyone plays 3)
+ * - 5 players: 4 games (Player 0 plays 4; Players 1-4 play 3)
+ * - 6 players: 5 games (Players 0 & 1 play 4; Players 2-5 play 3)
+ */
+function getCourtMatchups(numPlayers) {
+  if (numPlayers === 4) {
+    return [
+      { t1: [0, 1], t2: [2, 3], out: [] },
+      { t1: [0, 2], t2: [1, 3], out: [] },
+      { t1: [0, 3], t2: [1, 2], out: [] }
+    ];
+  } else if (numPlayers === 5) {
+    return [
+      { t1: [0, 1], t2: [2, 3], out: [4] },
+      { t1: [0, 4], t2: [1, 2], out: [3] },
+      { t1: [0, 3], t2: [4, 1], out: [2] },
+      { t1: [0, 2], t2: [3, 4], out: [1] }
+    ];
+  } else if (numPlayers === 6) {
+    return [
+      { t1: [0, 1], t2: [2, 3], out: [4, 5] },
+      { t1: [0, 4], t2: [2, 5], out: [1, 3] },
+      { t1: [1, 4], t2: [3, 5], out: [0, 2] },
+      { t1: [0, 3], t2: [1, 2], out: [4, 5] },
+      { t1: [0, 5], t2: [1, 4], out: [2, 3] }
+    ];
+  }
+  return [];
 }

@@ -66,7 +66,7 @@ function getConstantsConfig() {
 
 function getAppVersion() {
   logDebug("getAppVersion", "Retrieving app version");
-  return "0.9.9"; 
+  return "1.0.1"; 
 }
 
 function getValidScoreTabs() { return SCORE_TABS; }
@@ -2843,126 +2843,111 @@ function rebuildSchedSheetOrder(ss, cleanGroupName, activePlayers, inactivePlaye
 // Header array structure across schedule generators:
 let headers = ["Player Name", "Court", "Check-In", "Game 1", "Game 2", "Game 3", "Game 4", "Game 5", "Game 6", "Total", "Entered", "W", "Phone"];
 
-/**
- * Submits court scores for Game 1 through Game 6 and calculates normalized totals.
- */
 function submitCourtScores(payload) {
-  return executeWithLock(function() {
-    try {
-      if (!payload || (!payload.group && !payload.groupName) || !Array.isArray(payload.scores)) {
-        return { success: false, message: "Invalid payload: Missing group or scores array." };
-      }
+  return executeWithLock_(() => {
+    const group = normalizeGroup(payload.group);
+    const courtNum = Number(payload.court);
+    const updates = payload.scores || [];
 
-      const ss = getDb();
-      const cleanGroup = String(payload.group || payload.groupName).replace(/^(Score|Sched)\s*/i, "").trim();
-      const schedSheet = ss.getSheetByName("Sched " + cleanGroup);
-
-      if (!schedSheet) return { success: false, message: `Schedule sheet 'Sched ${cleanGroup}' not found.` };
-
-      const dataRange = schedSheet.getDataRange();
-      const data = dataRange.getValues();
-      if (data.length <= 1) return { success: false, message: "Schedule sheet has no player rows." };
-
-      const headers = data[0].map(h => h.toString().toLowerCase().trim());
-      let nameIdx = headers.indexOf("player name") !== -1 ? headers.indexOf("player name") : headers.indexOf("name");
-      if (nameIdx === -1) nameIdx = 0;
-
-      // Locate Game 1 through Game 6
-      const gIdxs = [
-        headers.indexOf("game 1"),
-        headers.indexOf("game 2"),
-        headers.indexOf("game 3"),
-        headers.indexOf("game 4"),
-        headers.indexOf("game 5"),
-        headers.indexOf("game 6")
-      ];
-
-      const totIdx = headers.findIndex(h => /total|tot|pts|score/i.test(h));
-      let submitterIdx = headers.findIndex(h => /entered|submitted/i.test(h));
-      if (submitterIdx === -1) submitterIdx = 10;
-
-      let submitterName = payload.submittedByName || payload.userName || payload.enteredBy || payload.user || "";
-
-      if (!submitterName) {
-        const rawPhone = payload.submittedBy || payload.phone || payload.userPhone || "";
-        const phoneDigits = String(rawPhone).replace(/\D/g, "");
-
-        if (phoneDigits.length >= 7 && typeof findFoursomeByPhone === 'function') {
-          try {
-            const lookup = findFoursomeByPhone({ phone: phoneDigits, group: cleanGroup, sheet: "Sched " + cleanGroup });
-            if (lookup && lookup.player && lookup.player.name) submitterName = lookup.player.name;
-          } catch (e) {}
-        }
-        if (!submitterName && rawPhone) submitterName = String(rawPhone).trim();
-      }
-
-      const scoresMap = {};
-      payload.scores.forEach(item => {
-        if (item.name) scoresMap[String(item.name).trim().toLowerCase()] = item;
-      });
-
-      let dataModified = false;
-      for (let r = 1; r < data.length; r++) {
-        const rowName = String(data[r][nameIdx] || "").trim().toLowerCase();
-        if (scoresMap[rowName]) {
-          const pScore = scoresMap[rowName];
-
-          // Write scores directly to G1 - G6 columns
-          for (let g = 1; g <= 6; g++) {
-            const gVal = pScore[`g${g}`];
-            const colIdx = gIdxs[g - 1];
-            if (colIdx !== -1 && gVal !== undefined && gVal !== null && gVal !== "") {
-              data[r][colIdx] = gVal;
-            }
-          }
-
-          // Compute total score normalized to 3-game equivalent
-          if (totIdx !== -1) {
-            let sum = 0;
-            let playedCount = 0;
-            for (let g = 0; g < 6; g++) {
-              const colIdx = gIdxs[g];
-              if (colIdx !== -1) {
-                const num = parseInt(data[r][colIdx], 10);
-                if (!isNaN(num)) {
-                  sum += num;
-                  playedCount++;
-                }
-              }
-            }
-
-            if (playedCount > 0) {
-              // Scale average of games played to standard 3-game match score
-              data[r][totIdx] = (playedCount === 3) ? sum : Math.round((sum / playedCount) * 3);
-            }
-          }
-
-          if (submitterIdx !== -1 && submitterName) data[r][submitterIdx] = submitterName;
-          dataModified = true;
-        }
-      }
-
-      if (dataModified) dataRange.setValues(data);
-      if (typeof CacheService !== 'undefined') {
-        try {
-          const keysToClear = [
-            `UNIFIED_ROSTER_CACHE_${cleanGroup.toUpperCase()}`,
-            `SCHEDULE_${cleanGroup}`,
-            `APP_INIT_DATA`
-          ];
-          if (typeof getCheckInCacheKey === 'function') {
-            keysToClear.push(getCheckInCacheKey("Sched " + cleanGroup));
-          }
-          CacheService.getScriptCache().removeAll(keysToClear);
-        } catch (e) {}
-      }
-
-      return { success: true, message: `Successfully updated scores.` };
-    } catch (err) {
-      return { success: false, message: "Server Error submitting scores: " + err.message };
+    if (!group || isNaN(courtNum)) {
+      return { status: 'error', message: 'Invalid group or court number.' };
     }
+    if (updates.length === 0) {
+      return { status: 'success', message: 'No scores provided to save.' };
+    }
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = getSheetForGroup(ss, group);
+    if (!sheet) {
+      return { status: 'error', message: `Roster sheet for ${group} not found.` };
+    }
+
+    const dataRange = sheet.getDataRange();
+    const data = dataRange.getValues();
+    if (data.length < 2) {
+      return { status: 'error', message: 'Roster sheet is empty.' };
+    }
+
+    const headers = data[0].map(h => String(h || '').trim().toLowerCase());
+    const nameIdx = headers.indexOf('player');
+    const courtIdx = headers.indexOf('court');
+    const totIdx = headers.indexOf('total');
+
+    if (nameIdx === -1 || courtIdx === -1) {
+      return { status: 'error', message: 'Missing Player or Court columns in sheet.' };
+    }
+
+    const gIdxs = [];
+    for (let g = 1; g <= 6; g++) {
+      gIdxs.push(headers.indexOf(`game ${g}`));
+    }
+
+    const updateMap = {};
+    updates.forEach(u => {
+      const cleanName = String(u.player || '').trim().toLowerCase();
+      if (cleanName) {
+        updateMap[cleanName] = u.games || [];
+      }
+    });
+
+    let updatedCount = 0;
+
+    for (let r = 1; r < data.length; r++) {
+      const rowCourt = Number(data[r][courtIdx]);
+      if (rowCourt !== courtNum) continue;
+
+      const rowPlayer = String(data[r][nameIdx] || '').trim().toLowerCase();
+      if (!rowPlayer || !(rowPlayer in updateMap)) continue;
+
+      const incomingGames = updateMap[rowPlayer];
+
+      for (let g = 0; g < 6; g++) {
+        const cIdx = gIdxs[g];
+        if (cIdx !== -1 && g < incomingGames.length) {
+          const val = incomingGames[g];
+          data[r][cIdx] = (val === '' || val === null || val === undefined) ? '' : Number(val);
+        }
+      }
+
+      const validScores = [];
+      for (let g = 0; g < 6; g++) {
+        const cIdx = gIdxs[g];
+        if (cIdx !== -1) {
+          const cellVal = data[r][cIdx];
+          if (cellVal !== '' && cellVal !== null && cellVal !== undefined && !isNaN(Number(cellVal))) {
+            validScores.push(Number(cellVal));
+          }
+        }
+      }
+
+      if (totIdx !== -1) {
+        if (validScores.length > 0) {
+          validScores.sort((a, b) => b - a);
+          data[r][totIdx] = validScores.slice(0, 3).reduce((sum, s) => sum + s, 0);
+        } else {
+          data[r][totIdx] = '';
+        }
+      }
+
+      updatedCount++;
+    }
+
+    if (updatedCount > 0) {
+      dataRange.setValues(data);
+      SpreadsheetApp.flush();
+      invalidateGroupCache(group);
+    }
+
+    return {
+      status: 'success',
+      message: `Saved scores for ${updatedCount} player(s) on Court ${courtNum}.`,
+      updatedCount: updatedCount
+    };
   });
 }
+
+
+
 
 
 

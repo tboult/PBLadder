@@ -4,7 +4,7 @@
 
 //  window.API_URL = "https://script.google.com/macros/s/AKfycbweTOjVcY0R1sxXrYfbN2S9jqMz4yr5b1alVoz0gjVy3P3ty42rtHlfgfpdjtFnF4nFaQ/exec";
 window.API_URL = CONFIG.apiUrl;
-const CURRENT_APP_VERSION = "1.0.0";
+const CURRENT_APP_VERSION = "1.0.1";
 const MAX_TOTAL_SCORE = 60;
 const MAX_GAME_SCORE = 15;
 
@@ -106,16 +106,7 @@ function syncAllGroupDropdowns(groupName) {
   renderAdminCourts(cleanGroup);
 }
 
-function getSavedGroup() {
-  const cached = localStorage.getItem('scpb_selected_group') || localStorage.getItem('scpb_saved_group');
-  if (cached) return cached;
 
-  const selectedHelp = document.querySelector('input[name="helpGroupRadio"]:checked');
-  if (selectedHelp) return selectedHelp.value;
-  
-  const selectedCheckin = document.querySelector('input[name="checkinGroupRadio"]:checked');
-  return selectedCheckin ? selectedCheckin.value : '';
-}
 
 
 
@@ -384,7 +375,6 @@ function printDbSummary(dbData) {
 document.addEventListener("DOMContentLoaded", async function () {
 
   logDebug("🚀 Initializing Application...");
-let lastCheckedPhone = "";
 
 // 1. Fetch & Verify Database Connection
   if (typeof SHEET_ID !== 'undefined' && SHEET_ID) {
@@ -419,7 +409,7 @@ let lastCheckedPhone = "";
 
     
   // 1. Restore Saved UI Preferences (Text Size)
-  const savedSize = localStorage.getItem('pwa-text-size') || 'normal';
+  const savedSize = localStorage.getItem('scpb_text_size') || 'normal';
   if (typeof applyTextSize === "function") {
     applyTextSize(savedSize);
   }
@@ -573,14 +563,6 @@ function forceRefresh() {
     return (typeof GROUP_COURT_MAP !== 'undefined' && GROUP_COURT_MAP[groupName]) || (typeof GROUP_COURT_MAP !== 'undefined' && GROUP_COURT_MAP["Default"]) || [];
   }
 
-
-  function getSelectedCourts() {
-    const selected = [];
-    const checkboxes = document.querySelectorAll('#admin-court-list input[type="checkbox"]:checked');
-    checkboxes.forEach(cb => selected.push(parseInt(cb.value, 10)));
-    return selected;
-  }
-  
 
 
 function updateGlobalLoaderStatus() {
