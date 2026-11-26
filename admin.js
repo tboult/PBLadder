@@ -41,10 +41,22 @@ function getSelectedCourts() {
 }
 
 
+
+
+
+
+
+
+// --- admin.js ---
 function filterAdminPlayers() {
   const query = (document.getElementById('adminPlayerSearch')?.value || '').toLowerCase().trim();
   const container = document.getElementById('adminPlayerStatusList');
   if (!container) return;
+
+  const unsavedScores = new Map();
+  container.querySelectorAll('input[id^="admin_score_"]').forEach(input => {
+    unsavedScores.set(input.id, input.value);
+  });
 
   if (!Array.isArray(adminPlayersCache) || adminPlayersCache.length === 0) {
     container.innerHTML = '<i style="color:#666;">No player data loaded for this group. Select a group above.</i>';
@@ -76,21 +88,26 @@ function filterAdminPlayers() {
     const attrName = escapeHtml(rawName);
     const attrPhone = escapeHtml(cleanPhone);
 
-    const isActive = player.active === true 
-      || String(player.active).toLowerCase() === 'true' 
+    const isActive = player.active === true
+      || String(player.active).toLowerCase() === 'true'
       || String(player.status).toLowerCase() === 'active';
 
     const checkInVal = player.checkedIn ?? player.isCheckedIn ?? player.checked ?? player.checkIn;
-    const isCheckedIn = checkInVal === true 
-      || String(checkInVal).toLowerCase() === 'true' 
-      || String(checkInVal).toUpperCase() === 'X' 
-      || (typeof checkInVal === 'string' && checkInVal.trim().length > 0 && checkInVal.trim().toLowerCase() !== 'false')
+    const checkInStr = String(checkInVal ?? '').trim().toLowerCase();
+    const isCheckedIn = checkInVal === true
+      || checkInStr === 'true'
+      || checkInStr === 'x'
+      || checkInStr === 'yes'
+      || checkInStr === 'checked in'
+      || (typeof checkInVal === 'string' && checkInStr.length > 0 && !['false', 'no', '0', 'unchecked', 'none'].includes(checkInStr))
       || String(player.status).toLowerCase() === 'checked in';
-    
-    const rawScore = (player.score !== undefined && player.score !== null) 
-      ? player.score 
+
+    const rawScore = (player.score !== undefined && player.score !== null)
+      ? player.score
       : (player.points ?? player.total ?? '');
-    const playerScore = (rawScore === 0) ? 0 : (rawScore || '');
+    const inputId = `admin_score_${cacheIdx}`;
+    const defaultScore = (rawScore === 0) ? 0 : (rawScore || '');
+    const playerScore = unsavedScores.has(inputId) ? unsavedScores.get(inputId) : defaultScore;
 
     return `
 <div style="display:flex; justify-content:space-between; align-items:center; padding:0.6rem; border-bottom:1px solid #eee; gap:0.75rem; flex-wrap:wrap;">
@@ -100,12 +117,12 @@ function filterAdminPlayers() {
   <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; margin-left:auto;">
     <div style="display:flex; align-items:center; gap:0.3rem; white-space:nowrap;">
       <span style="font-size:0.85rem; font-weight:bold;">Total:</span>
-      <input type="number" id="admin_score_${cacheIdx}" data-phone="${attrPhone}" data-name="${attrName}" value="${playerScore}" placeholder="--" style="width: 55px; padding: 0.2rem; border: 1px solid #ccc; border-radius: 4px;">
+      <input type="number" id="${inputId}" data-phone="${attrPhone}" data-name="${attrName}" value="${escapeHtml(String(playerScore))}" placeholder="--" style="width: 55px; padding: 0.2rem; border: 1px solid #ccc; border-radius: 4px;">
     </div>
-    <button type="button" class="btn-main" style="padding:0.35rem 0.6rem; font-size:0.8rem; background-color:${isCheckedIn ? '#2e7d32' : '#757575'}; color:white; white-space:nowrap;" onclick="toggleAdminCheckIn(this, '${attrName}', '${attrPhone}', ${isCheckedIn})">
+    <button type="button" class="btn-main" data-name="${attrName}" data-phone="${attrPhone}" style="padding:0.35rem 0.6rem; font-size:0.8rem; background-color:${isCheckedIn ? '#2e7d32' : '#757575'}; color:white; white-space:nowrap;" onclick="toggleAdminCheckIn(this, this.dataset.name, this.dataset.phone, ${isCheckedIn})">
       ${isCheckedIn ? '✅ Checked In' : '⬜ Check In'}
     </button>
-    <button type="button" class="btn-sub" style="padding:0.35rem 0.6rem; font-size:0.8rem; background-color:${isActive ? '#1976d2' : '#d32f2f'}; color:white; white-space:nowrap;" onclick="toggleAdminPlayerActive(this, '${attrName}', '${attrPhone}', ${isActive})">
+    <button type="button" class="btn-sub" data-name="${attrName}" data-phone="${attrPhone}" style="padding:0.35rem 0.6rem; font-size:0.8rem; background-color:${isActive ? '#1976d2' : '#d32f2f'}; color:white; white-space:nowrap;" onclick="toggleAdminPlayerActive(this, this.dataset.name, this.dataset.phone, ${isActive})">
       ${isActive ? 'Active' : 'Inactive'}
     </button>
   </div>
@@ -115,9 +132,376 @@ function filterAdminPlayers() {
   updateAdminDashboard();
 }
 
+async function toggleAdminCheckIn(btnEl, playerName, phone, currentCheckedInState) {
+  const groupName = getAdminSelectedGroup();
+  if (!groupName) return alert('Please select a target group first.');
 
+  const newState = !currentCheckedInState;
+  const originalText = btnEl.innerHTML;
+  btnEl.disabled = true;
+  btnEl.innerText = '⏳ Updating...';
+
+  try {
+    const res = await apiCall('toggleSingleCheckIn', {
+      sheet: "Sched " + groupName,
+      groupName: groupName,
+      group: groupName,
+      playerName: playerName || phone,
+      phone: phone || playerName,
+      isCheckedIn: newState
+    });
+
+    if (res && res.success !== false && !res.error) {
+      const syncCheckInFields = (list) => {
+        if (!Array.isArray(list)) return;
+        const cleanPhone = String(phone || '').replace(/\D/g, '');
+        const cleanName = String(playerName || '').trim().toLowerCase();
+
+        const pObj = (cleanName && list.find(p => String(p.name || `${p.first || ''} ${p.last || ''}`).trim().toLowerCase() === cleanName))
+          || (cleanPhone && list.find(p => String(p.phone || p.cell || p.mobile || '').replace(/\D/g, '') === cleanPhone));
+
+        if (pObj) {
+          pObj.checkedIn = newState;
+          pObj.isCheckedIn = newState;
+          pObj.checked = newState;
+          pObj.checkIn = newState;
+          if (!newState && String(pObj.status || '').toLowerCase() === 'checked in') {
+            pObj.status = pObj.active ? 'Active' : 'Inactive';
+          }
+        }
+      };
+
+      syncCheckInFields(adminPlayersCache);
+      if (window.groupRosterCache && window.groupRosterCache[groupName]) {
+        syncCheckInFields(window.groupRosterCache[groupName]);
+      }
+      if (Array.isArray(adminPlayersCache)) {
+        localStorage.setItem(`admin_cache_${groupName}`, JSON.stringify(adminPlayersCache));
+      }
+      filterAdminPlayers();
+    } else {
+      alert('Failed to update check-in status: ' + (res?.message || res?.error || 'Server error'));
+      btnEl.disabled = false;
+      btnEl.innerHTML = originalText;
+    }
+  } catch (err) {
+    console.error('toggleAdminCheckIn error:', err);
+    alert('Network error updating check-in status.');
+    btnEl.disabled = false;
+    btnEl.innerHTML = originalText;
+  }
+}
+
+async function toggleAdminPlayerActive(btnEl, playerName, phone, currentActiveState) {
+  const groupName = getAdminSelectedGroup();
+  if (!groupName) return alert('Please select a target group first.');
+
+  const cleanPhone = String(phone || '').replace(/\D/g, '');
+  const cleanName = String(playerName || '').trim();
+
+  if (!cleanName && cleanPhone.length < 7) {
+    alert('Missing player name or valid phone number.');
+    return;
+  }
+
+  const originalText = btnEl ? btnEl.innerHTML : '';
+  if (btnEl) {
+    btnEl.disabled = true;
+    btnEl.innerText = '⏳ Updating...';
+  }
+
+  const payload = {
+    phone: cleanPhone,
+    playerName: cleanName,
+    groupName: groupName,
+    group: groupName,
+    sheet: "Score " + groupName,
+    targetState: !currentActiveState
+  };
+
+  try {
+    const res = await apiCall('toggleUnifiedActiveStatus', payload);
+    if (res && res.success === true) {
+      const newActiveState = res.newStatus
+        ? (String(res.newStatus).toLowerCase() === 'active')
+        : !currentActiveState;
+
+      const syncActiveFields = (list) => {
+        if (!Array.isArray(list)) return;
+        const targetNameLower = cleanName.toLowerCase();
+        const pObj = (targetNameLower && list.find(p => String(p.name || `${p.first || ''} ${p.last || ''}`).trim().toLowerCase() === targetNameLower))
+          || list.find(p => {
+               const pPhone = String(p.phone || p.cell || p.mobile || '').replace(/\D/g, '');
+               return cleanPhone.length >= 7 && pPhone.length >= 7 &&
+                 (pPhone === cleanPhone || pPhone.endsWith(cleanPhone.slice(-10)) || pPhone.endsWith(cleanPhone.slice(-7)));
+             });
+
+        if (pObj) {
+          pObj.active = newActiveState;
+          pObj.status = newActiveState ? 'Active' : 'Inactive';
+        }
+      };
+
+      syncActiveFields(adminPlayersCache);
+      if (window.groupRosterCache && window.groupRosterCache[groupName]) {
+        syncActiveFields(window.groupRosterCache[groupName]);
+      }
+      if (Array.isArray(adminPlayersCache)) {
+        localStorage.setItem(`admin_cache_${groupName}`, JSON.stringify(adminPlayersCache));
+      }
+      filterAdminPlayers();
+    } else {
+      alert('Failed to toggle active status: ' + (res?.error || res?.message || 'Server error'));
+      if (btnEl) {
+        btnEl.disabled = false;
+        btnEl.innerHTML = originalText;
+      }
+    }
+  } catch (err) {
+    console.error('toggleAdminPlayerActive error:', err);
+    alert('Network error updating active status.');
+    if (btnEl) {
+      btnEl.disabled = false;
+      btnEl.innerHTML = originalText;
+    }
+  }
+}
+
+async function loadAdminPlayerStatusCache(groupName, forceRefresh = false) {
+  if (!groupName) return [];
+  const data = await loadUnifiedRosterData(groupName, forceRefresh);
+  if (Array.isArray(data)) {
+    adminPlayersCache = data;
+    adminCacheTimestamp = Date.now();
+    filterAdminPlayers();
+  }
+  return data || [];
+}
+
+async function loadAdminRoster(groupName, forceRefresh = false) {
+  const container = document.getElementById('adminPlayerStatusList');
+  const saveBtn = document.getElementById('btnSaveAllScores');
+
+  if (container) {
+    container.innerHTML = '<div style="padding: 1rem; text-align: center; color: #666;">⏳ Loading roster and scores...</div>';
+  }
+  if (saveBtn) saveBtn.disabled = true;
+
+  try {
+    const players = await loadUnifiedRosterData(groupName, forceRefresh);
+    if (Array.isArray(players)) {
+      adminPlayersCache = players;
+      adminCacheTimestamp = Date.now();
+      filterAdminPlayers();
+    } else {
+      if (container) container.innerHTML = '<i style="color:red;">Failed to load player roster.</i>';
+    }
+    return players || [];
+  } catch (err) {
+    console.error("Error in loadAdminRoster:", err);
+    if (container) container.innerHTML = '<i style="color:red;">Error connecting to server.</i>';
+    return [];
+  } finally {
+    if (saveBtn) saveBtn.disabled = false;
+  }
+}
+
+function initAdminView() {
+  const savedPhone = (typeof getSavedPhone === 'function' ? getSavedPhone() : '')
+    || localStorage.getItem('scpb_saved_phone')
+    || localStorage.getItem('userPhone')
+    || '';
+
+  if (!isUserAdmin(savedPhone) && localStorage.getItem('activeTab') !== 'admin') {
+    return;
+  }
+
+  loadAdminPlayerData(null, false);
+  if (typeof adminPollingInterval !== 'undefined' && adminPollingInterval) {
+    clearInterval(adminPollingInterval);
+  }
+  adminPollingInterval = setInterval(() => {
+    if (document.visibilityState !== 'visible') return;
+    if (localStorage.getItem('activeTab') !== 'admin') return;
+
+    const now = new Date();
+    const hrs = now.getHours();
+    const mins = now.getMinutes();
+
+    if (hrs === 10 && mins <= 55) {
+      loadAdminPlayerData(null, true);
+    }
+  }, 120000);
+}
+
+async function loadAdminPlayerData(group, isBackgroundPoll = false) {
+  if (localStorage.getItem('activeTab') != 'admin') return;
+  const targetgroup = group || getAdminSelectedGroup();
+
+  if (isBackgroundPoll && document.activeElement && String(document.activeElement.id || '').startsWith('admin_score_')) {
+    return adminPlayersCache || [];
+  }
+
+  return await loadAdminPlayerStatusCache(targetgroup, Boolean(isBackgroundPoll));
+}
+
+async function saveAllAdminScores() {
+  const groupName = getAdminSelectedGroup();
+  if (!groupName) return alert('Please select a target group first.');
+  if (!Array.isArray(adminPlayersCache) || adminPlayersCache.length === 0) return;
+
+  const updatesToPerform = [];
+
+  for (let cacheIdx = 0; cacheIdx < adminPlayersCache.length; cacheIdx++) {
+    const player = adminPlayersCache[cacheIdx];
+    const rawName = player.name || `${player.first || ''} ${player.last || ''}`.trim() || 'Unknown Player';
+    const rawPhone = player.phone || player.cell || player.mobile || player.phoneNumber || '';
+    const cleanPhone = String(rawPhone).replace(/\D/g, '');
+
+    const scoreInput = document.getElementById(`admin_score_${cacheIdx}`);
+    if (!scoreInput) continue;
+
+    const rawInputVal = scoreInput.value.trim();
+    if (rawInputVal === '') continue;
+
+    const newScore = isNaN(Number(rawInputVal)) ? rawInputVal : Number(rawInputVal);
+
+    if (typeof newScore === 'number') {
+      const maxLimit = typeof MAX_TOTAL_SCORE !== 'undefined' ? MAX_TOTAL_SCORE : 60;
+      if (newScore < 0 || newScore > maxLimit) {
+        alert(`Invalid score (${newScore}) for ${rawName}.\n\nScores must be between 0 and ${maxLimit}.`);
+        scoreInput.focus();
+        return;
+      }
+    }
+
+    const cachedRaw = (player.score !== undefined && player.score !== null)
+      ? player.score
+      : (player.points ?? player.total ?? '');
+    const cachedScore = (cachedRaw === 0) ? 0 : (cachedRaw || '');
+
+    if (String(newScore) !== String(cachedScore)) {
+      updatesToPerform.push({
+        playerName: rawName,
+        phone: cleanPhone,
+        score: newScore,
+        playerRef: player
+      });
+    }
+  }
+
+  if (updatesToPerform.length === 0) return alert('No new valid score entries detected.');
+
+  const currentAdminPhone = (typeof getSavedPhone === 'function' ? getSavedPhone() : '')
+    || localStorage.getItem('scpb_admin_phone')
+    || localStorage.getItem('scpb_saved_phone')
+    || localStorage.getItem('userPhone')
+    || localStorage.getItem('user_phone')
+    || localStorage.getItem('saved_phone')
+    || '';
+
+  const saveBtn = document.getElementById('btnSaveAllScores');
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.innerText = '⏳ Saving Scores...';
+  }
+
+  try {
+    const res = await apiCall('batchUpdatePlayerScores', {
+      group: groupName,
+      groupName: groupName,
+      adminPhone: currentAdminPhone,
+      updates: updatesToPerform.map(u => ({ playerName: u.playerName, phone: u.phone, score: u.score }))
+    });
+
+    if (res && res.success !== false && !res.error) {
+      updatesToPerform.forEach(u => {
+        u.playerRef.score = u.score;
+        u.playerRef.points = u.score;
+        u.playerRef.total = u.score;
+      });
+      if (window.groupRosterCache && groupName) {
+        delete window.groupRosterCache[groupName];
+      }
+      localStorage.setItem(`admin_cache_${groupName}`, JSON.stringify(adminPlayersCache));
+      alert(`Successfully saved ${updatesToPerform.length} score change(s).`);
+    } else {
+      alert('Failed to update scores: ' + (res?.message || res?.error || 'Server Error'));
+    }
+  } catch (err) {
+    console.error("Error saving scores:", err);
+    alert('Network error saving score changes.');
+  } finally {
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.innerText = '💾 Save All Scores';
+    }
+  }
+}
+
+async function clearAllAdminScores() {
+  const groupName = getAdminSelectedGroup();
+  if (!groupName) return alert('Please select a target group first.');
+
+  if (!confirm(`Are you sure you want to CLEAR ALL game scores and totals for group "${groupName}"?`)) return;
+
+  const currentAdminPhone = (typeof getSavedPhone === 'function' ? getSavedPhone() : '')
+    || localStorage.getItem('scpb_admin_phone')
+    || localStorage.getItem('scpb_saved_phone')
+    || localStorage.getItem('userPhone')
+    || localStorage.getItem('user_phone')
+    || localStorage.getItem('saved_phone')
+    || '';
+
+  const clearBtn = document.getElementById('btnClearAllScores');
+  if (clearBtn) {
+    clearBtn.disabled = true;
+    clearBtn.innerText = '⏳ Clearing...';
+  }
+
+  try {
+    const res = await apiCall('batchUpdatePlayerScores', {
+      group: groupName,
+      groupName: groupName,
+      adminPhone: currentAdminPhone,
+      option: 'clear_all'
+    });
+
+    if (res && res.success !== false && !res.error) {
+      if (Array.isArray(adminPlayersCache)) {
+        adminPlayersCache.forEach((player, cacheIdx) => {
+          player.score = '';
+          player.points = '';
+          player.total = '';
+
+          const scoreInput = document.getElementById(`admin_score_${cacheIdx}`);
+          if (scoreInput) scoreInput.value = '';
+        });
+        localStorage.setItem(`admin_cache_${groupName}`, JSON.stringify(adminPlayersCache));
+      }
+      if (window.groupRosterCache && groupName) {
+        delete window.groupRosterCache[groupName];
+      }
+      alert(`Successfully cleared all game scores and totals for group "${groupName}".`);
+    } else {
+      alert('Failed to clear scores: ' + (res?.message || res?.error || 'Server Error'));
+    }
+  } catch (err) {
+    console.error("Error clearing scores:", err);
+    alert('Network error attempting to clear scores.');
+  } finally {
+    if (clearBtn) {
+      clearBtn.disabled = false;
+      clearBtn.innerText = '🧹 Clear All Scores';
+    }
+  }
+}
+
+let isSubmittingAdminReg = false;
 
 async function submitAdminRegistration() {
+  if (isSubmittingAdminReg) return;
+
   const first = (document.getElementById('adminRegFirst')?.value || document.getElementById('regFirst')?.value || '').trim();
   const last = (document.getElementById('adminRegLast')?.value || document.getElementById('regLast')?.value || '').trim();
   const rawPhone = (document.getElementById('adminRegPhone')?.value || document.getElementById('regPhone')?.value || '').trim();
@@ -139,6 +523,7 @@ async function submitAdminRegistration() {
   }
 
   const fullName = `${first} ${last}`.trim();
+  isSubmittingAdminReg = true;
   if (statusEl) statusEl.innerText = `⏳ Registering ${fullName} in ${group}...`;
 
   try {
@@ -155,7 +540,7 @@ async function submitAdminRegistration() {
       ? res
       : (res?.data || res?.message || res?.result || '');
 
-    if (/^error\b/i.test(responseMsg) || Boolean(res?.error)) {
+    if (/^error\b/i.test(responseMsg) || Boolean(res?.error) || res?.success === false) {
       if (statusEl) statusEl.innerText = `❌ ${responseMsg || 'Registration failed.'}`;
       alert(responseMsg || 'Registration failed.');
       return;
@@ -175,9 +560,10 @@ async function submitAdminRegistration() {
     console.error('submitAdminRegistration error:', err);
     if (statusEl) statusEl.innerText = '❌ Error registering player: ' + (err.message || err);
     alert('Error registering player: ' + (err.message || err));
+  } finally {
+    isSubmittingAdminReg = false;
   }
 }
-
 
 
 
@@ -232,16 +618,6 @@ async function getAdminPdf() {
   }
 }
 
-async function loadAdminPlayerStatusCache(groupName, forceRefresh = false) {
-  if (!groupName) return [];
-  const data = await loadUnifiedRosterData(groupName, forceRefresh);
-  if (Array.isArray(data) && data.length > 0) {
-    adminPlayersCache = data;
-    adminCacheTimestamp = Date.now();
-    filterAdminPlayers();
-  }
-  return data;
-}
 
 async function loadAdminTabData(groupName, forceRefresh = false) {
   await loadAdminPlayerStatusCache(groupName, forceRefresh);
@@ -250,32 +626,7 @@ async function loadAdminTabData(groupName, forceRefresh = false) {
   }
 }
 
-async function loadAdminRoster(groupName, forceRefresh = false) {
-  const container = document.getElementById('adminPlayerStatusList');
-  const saveBtn = document.getElementById('btnSaveAllScores');
 
-  if (container) {
-    container.innerHTML = '<div style="padding: 1rem; text-align: center; color: #666;">⏳ Loading roster and scores...</div>';
-  }
-  if (saveBtn) saveBtn.disabled = true;
-
-  try {
-    const players = await loadUnifiedRosterData(groupName, forceRefresh);
-    if (Array.isArray(players) && players.length > 0) {
-      adminPlayersCache = players;
-      filterAdminPlayers();
-    } else {
-      if (container) container.innerHTML = '<i style="color:red;">Failed to load player roster.</i>';
-    }
-    return players;
-  } catch (err) {
-    console.error("Error in loadAdminRoster:", err);
-    if (container) container.innerHTML = '<i style="color:red;">Error connecting to server.</i>';
-    return [];
-  } finally {
-    if (saveBtn) saveBtn.disabled = false;
-  }
-}
 
 function loadCheckInPlayers(groupName, forceRefresh = true) {
   return loadUnifiedRosterData(groupName, forceRefresh);
@@ -294,148 +645,21 @@ function invalidateAdminCache(groupName = null) {
   }
 }
 
-async function toggleAdminCheckIn(btnEl, playerName, phone, currentCheckedInState) {
-  const groupName = getAdminSelectedGroup();
-  if (!groupName) return alert('Please select a target group first.');
 
-  const newState = !currentCheckedInState;
-  const originalText = btnEl.innerHTML;
-  btnEl.disabled = true;
-  btnEl.innerText = '⏳ Updating...';
 
-  try {
-    const res = await apiCall('toggleSingleCheckIn', { 
-      sheet: "Sched " + groupName,
-      groupName: groupName, group: groupName,
-      playerName: playerName || phone, 
-      phone: phone || playerName, 
-      isCheckedIn: newState 
-    });
 
-    if (res && (res.success || !res.error)) {
-      if (Array.isArray(adminPlayersCache)) {
-        const cleanPhone = String(phone || '').replace(/\D/g, '');
-        const cleanName = String(playerName || '').trim().toLowerCase();
-
-        const pObj = (cleanName && adminPlayersCache.find(p => String(p.name || `${p.first || ''} ${p.last || ''}`).trim().toLowerCase() === cleanName))
-          || (cleanPhone && adminPlayersCache.find(p => String(p.phone || '').replace(/\D/g, '') === cleanPhone));
-
-        if (pObj) {
-          pObj.checkedIn = newState;
-          pObj.isCheckedIn = newState;
-        }
-        localStorage.setItem(`admin_cache_${groupName}`, JSON.stringify(adminPlayersCache));
-      }
-      filterAdminPlayers();
-    } else {
-      alert('Failed to update check-in status: ' + (res?.message || 'Server error'));
-      btnEl.disabled = false;
-      btnEl.innerHTML = originalText;
-    }
-  } catch (err) {
-    console.error('toggleAdminCheckIn error:', err);
-    alert('Network error updating check-in status.');
-    btnEl.disabled = false;
-    btnEl.innerHTML = originalText;
-  }
-}
-
-async function toggleAdminPlayerActive(btnEl, playerName, phone, currentActiveState) {
-  const groupName = getAdminSelectedGroup();
-  if (!groupName) return alert('Please select a target group first.');
-
-  const cleanPhone = String(phone || '').replace(/\D/g, '');
-  const cleanName = String(playerName || '').trim();
-
-  if (!cleanName && cleanPhone.length < 7) {
-    alert('Missing player name or valid phone number.');
-    return;
-  }
-
-  const originalText = btnEl ? btnEl.innerHTML : '';
-  if (btnEl) {
-    btnEl.disabled = true;
-    btnEl.innerText = '⏳ Updating...';
-  }
-
-  const payload = {
-    phone: cleanPhone,
-    playerName: cleanName,
-    groupName: groupName, group: groupName,
-    sheet: "Score " + groupName,
-    targetState: !currentActiveState
-  };
-
-  try {
-    const res = await apiCall('toggleUnifiedActiveStatus', payload);
-    if (res && res.success === true) {
-      const newActiveState = res.newStatus 
-        ? (String(res.newStatus).toLowerCase() === 'active') 
-        : !currentActiveState;
-
-      if (Array.isArray(adminPlayersCache)) {
-        const targetNameLower = cleanName.toLowerCase();
-        const pObj = (targetNameLower && adminPlayersCache.find(p => String(p.name || `${p.first || ''} ${p.last || ''}`).trim().toLowerCase() === targetNameLower))
-          || adminPlayersCache.find(p => {
-               const pPhone = String(p.phone || p.cell || p.mobile || '').replace(/\D/g, '');
-               return cleanPhone.length >= 7 && pPhone.length >= 7 &&
-                 (pPhone.endsWith(cleanPhone.slice(-7)) || cleanPhone.endsWith(pPhone.slice(-7)));
-             });
-
-        if (pObj) {
-          pObj.active = newActiveState;
-          pObj.status = newActiveState ? 'Active' : 'Inactive';
-        }
-        localStorage.setItem(`admin_cache_${groupName}`, JSON.stringify(adminPlayersCache));
-      }
-      filterAdminPlayers();
-    } else {
-      alert('Failed to toggle active status: ' + (res?.error || res?.message || 'Server error'));
-      if (btnEl) {
-        btnEl.disabled = false;
-        btnEl.innerHTML = originalText;
-      }
-    }
-  } catch (err) {
-    console.error('toggleAdminPlayerActive error:', err);
-    alert('Network error updating active status.');
-    if (btnEl) {
-      btnEl.disabled = false;
-      btnEl.innerHTML = originalText;
-    }
-  }
-}
 
 
 
 
 let adminPollingInterval;
 
-function initAdminView() {
-  loadAdminPlayerData();
-  if (typeof adminPollingInterval !== 'undefined' && adminPollingInterval) {
-    clearInterval(adminPollingInterval);
-  }
-  adminPollingInterval = setInterval(() => {
-    const now = new Date();
-    const hrs = now.getHours();
-    const mins = now.getMinutes();
 
-    if (hrs === 10 && mins <= 55) {
-      loadAdminPlayerData(null, true); 
-    }
-  }, 120000);
-}
 
 function teardownAdminView() {
   if (adminPollingInterval) clearInterval(adminPollingInterval);
 }
 
-async function loadAdminPlayerData(group, isBackgroundPoll = false) {
-  if (localStorage.getItem('activeTab') != 'admin') return;
-  const targetgroup = group || getAdminSelectedGroup();
-  return await loadAdminPlayerStatusCache(targetgroup);
-}
 
 function checkAndUnlockAdmin(phone) {
   if (isUserAdmin(phone)) {
@@ -581,140 +805,10 @@ async function reloadAdminScores() {
   }
 }
 
-async function saveAllAdminScores() {
-  const groupName = getAdminSelectedGroup();
-  if (!groupName) return alert('Please select a target group first.');
-  if (!Array.isArray(adminPlayersCache) || adminPlayersCache.length === 0) return;
-
-  const updatesToPerform = [];
-
-  for (let cacheIdx = 0; cacheIdx < adminPlayersCache.length; cacheIdx++) {
-    const player = adminPlayersCache[cacheIdx];
-    const rawName = player.name || `${player.first || ''} ${player.last || ''}`.trim() || 'Unknown Player';
-    const rawPhone = player.phone || player.cell || player.mobile || player.phoneNumber || '';
-    const cleanPhone = String(rawPhone).replace(/\D/g, '');
-
-    const scoreInput = document.getElementById(`admin_score_${cacheIdx}`);
-    if (!scoreInput) continue;
-
-    const rawInputVal = scoreInput.value.trim();
-    if (rawInputVal === '') continue;
-
-    const newScore = isNaN(Number(rawInputVal)) ? rawInputVal : Number(rawInputVal);
-
-    if (typeof newScore === 'number') {
-      const maxLimit = typeof MAX_TOTAL_SCORE !== 'undefined' ? MAX_TOTAL_SCORE : 60;
-      if (newScore < 0 || newScore > maxLimit) {
-        alert(`Invalid score (${newScore}) for ${rawName}.\n\nScores must be between 0 and ${maxLimit}.`);
-        scoreInput.focus();
-        return;
-      }
-    }
-
-    const cachedRaw = (player.score !== undefined && player.score !== null) 
-      ? player.score 
-      : (player.points ?? player.total ?? '');
-    const cachedScore = (cachedRaw === 0) ? 0 : (cachedRaw || '');
-
-    if (String(newScore) !== String(cachedScore)) {
-      updatesToPerform.push({
-        playerName: rawName,
-        phone: cleanPhone,
-        score: newScore,
-        playerRef: player
-      });
-    }
-  }
-
-  if (updatesToPerform.length === 0) return alert('No new valid score entries detected.');
-
-  const currentAdminPhone = localStorage.getItem('scpb_admin_phone') || localStorage.getItem('user_phone') || '';
-  const saveBtn = document.getElementById('btnSaveAllScores');
-  if (saveBtn) {
-    saveBtn.disabled = true;
-    saveBtn.innerText = '⏳ Saving Scores...';
-  }
-
-  try {
-    const res = await apiCall('batchUpdatePlayerScores', {
-      group: groupName, groupName: groupName,
-      adminPhone: currentAdminPhone,
-      updates: updatesToPerform.map(u => ({ playerName: u.playerName, phone: u.phone, score: u.score }))
-    });
-
-    if (res && (res.success || !res.error)) {
-      updatesToPerform.forEach(u => {
-        u.playerRef.score = u.score;
-        u.playerRef.points = u.score;
-        u.playerRef.total = u.score;
-      });
-      if (window.groupRosterCache && groupName) {
-        delete window.groupRosterCache[groupName];
-      }
-      alert(`Successfully saved ${updatesToPerform.length} score change(s).`);
-    } else {
-      alert('Failed to update scores: ' + (res?.message || res?.error || 'Server Error'));
-    }
-  } catch (err) {
-    console.error("Error saving scores:", err);
-    alert('Network error saving score changes.');
-  } finally {
-    if (saveBtn) {
-      saveBtn.disabled = false;
-      saveBtn.innerText = '💾 Save All Scores';
-    }
-  }
-}
 
 
-async function clearAllAdminScores() {
-  const groupName = getAdminSelectedGroup();
-  if (!groupName) return alert('Please select a target group first.');
 
-  if (!confirm(`Are you sure you want to CLEAR ALL game scores and totals for group "${groupName}"?`)) return;
 
-  const currentAdminPhone = localStorage.getItem('scpb_admin_phone') || localStorage.getItem('user_phone') || '';
-  const clearBtn = document.getElementById('btnClearAllScores');
-  if (clearBtn) {
-    clearBtn.disabled = true;
-    clearBtn.innerText = '⏳ Clearing...';
-  }
-
-  try {
-    const res = await apiCall('batchUpdatePlayerScores', {
-      group: groupName, groupName: groupName,
-      adminPhone: currentAdminPhone,
-      option: 'clear_all'
-    });
-
-    if (res && (res.success || !res.error)) {
-      if (Array.isArray(adminPlayersCache)) {
-        adminPlayersCache.forEach((player, cacheIdx) => {
-          player.score = '';
-          player.points = '';
-          player.total = '';
-
-          const scoreInput = document.getElementById(`admin_score_${cacheIdx}`);
-          if (scoreInput) scoreInput.value = '';
-        });
-      }
-      if (window.groupRosterCache && groupName) {
-        delete window.groupRosterCache[groupName];
-      }
-      alert(`Successfully cleared all game scores and totals for group "${groupName}".`);
-    } else {
-      alert('Failed to clear scores: ' + (res?.message || res?.error || 'Server Error'));
-    }
-  } catch (err) {
-    console.error("Error clearing scores:", err);
-    alert('Network error attempting to clear scores.');
-  } finally {
-    if (clearBtn) {
-      clearBtn.disabled = false;
-      clearBtn.innerText = '🧹 Clear All Scores';
-    }
-  }
-}
 
 
 async function runSkipWeek(weekTarget = 'current') {
@@ -814,6 +908,19 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 });
 
+
+function resolveAdminCourtsPayload() {
+  const courtContainer = document.getElementById('admin-court-list');
+  if (courtContainer && typeof getSelectedCourts === 'function') {
+    const checked = courtContainer.querySelectorAll('input[type="checkbox"]:checked');
+    if (checked.length > 0) {
+      return Array.from(checked).map(cb => parseInt(cb.value, 10)).filter(n => !isNaN(n));
+    }
+  }
+  const courtInput = Number(document.getElementById('adminCourtCount')?.value) || 0;
+  return courtInput > 0 ? courtInput : null;
+}
+
 async function runRescheduleCheckedIn(mode) {
   const group = (typeof getAdminSelectedGroup === 'function')
     ? getAdminSelectedGroup()
@@ -824,8 +931,7 @@ async function runRescheduleCheckedIn(mode) {
     : Boolean(document.getElementById('optimize-byes-checkbox')?.checked);
 
   const effectiveMode = isOptimized ? 'optimized' : 'strict';
-  const courtInput = Number(document.getElementById('adminCourtCount')?.value) || 0;
-  const courts = courtInput > 0 ? courtInput : null;
+  const courts = resolveAdminCourtsPayload();
   const statusEl = document.getElementById('adminStatus');
 
   const action = isOptimized
@@ -879,8 +985,7 @@ async function runRescheduleActive(mode) {
     : Boolean(document.getElementById('optimize-byes-checkbox')?.checked);
 
   const effectiveMode = isOptimized ? 'optimized' : 'strict';
-  const courtInput = Number(document.getElementById('adminCourtCount')?.value) || 0;
-  const courts = courtInput > 0 ? courtInput : null;
+  const courts = resolveAdminCourtsPayload();
   const statusEl = document.getElementById('adminStatus');
 
   const action = isOptimized
@@ -923,10 +1028,6 @@ async function runRescheduleActive(mode) {
     }
   }
 }
-
-
-
-
 
 
 
@@ -1034,10 +1135,13 @@ function updateAdminDashboard(forceRefresh = false) {
       || String(player.status).toLowerCase() === 'active';
 
     const checkInVal = player.checkedIn ?? player.isCheckedIn ?? player.checked ?? player.checkIn;
+    const checkInStr = String(checkInVal ?? '').trim().toLowerCase();
     const isCheckedIn = checkInVal === true
-      || String(checkInVal).toLowerCase() === 'true'
-      || String(checkInVal).toUpperCase() === 'X'
-      || (typeof checkInVal === 'string' && checkInVal.trim().length > 0 && checkInVal.trim().toLowerCase() !== 'false')
+      || checkInStr === 'true'
+      || checkInStr === 'x'
+      || checkInStr === 'yes'
+      || checkInStr === 'checked in'
+      || (typeof checkInVal === 'string' && checkInStr.length > 0 && !['false', 'no', '0', 'unchecked', 'none', 'n/a'].includes(checkInStr))
       || String(player.status).toLowerCase() === 'checked in';
 
     if (isActive) activeCount++;
@@ -1054,7 +1158,7 @@ function updateAdminDashboard(forceRefresh = false) {
     if (optimizeByes) {
       if (checkedInCount === 7) {
         projectedCourts = 1;
-        projectedByes = 2;
+        projectedByes = 1; // 6-player court + 1 bye
       } else {
         projectedCourts = Math.floor(checkedInCount / 4);
         projectedByes = 0;
@@ -1082,5 +1186,6 @@ function updateAdminDashboard(forceRefresh = false) {
   setStat(['adminProjectedCourts', 'admin-projected-courts', 'statProjectedCourts'], projectedCourts);
   setStat(['adminProjectedByes', 'admin-projected-byes', 'statProjectedByes'], projectedByes);
 }
+
 
 

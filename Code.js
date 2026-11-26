@@ -2161,71 +2161,87 @@ function getUnifiedRoster(payload) {
 
 
 
-/**
- * Saves bulk check-ins on the Sched sheet.
- * Any non-blank cell value is treated as checked in.
- * Writes timestamp for checked-in players; clears to "" when unchecked.
- */
 function saveCheckIns(schedSheetName, checkedPlayerNames) {
-  logDebug("saveCheckIns", "Saving check-ins for sheet", { schedSheetName, checkedPlayerNames });
-  if (!schedSheetName) return "⚠️ Error: No target sheet specified.";
+  return executeWithLock(function () {
+    logDebug("saveCheckIns", "Saving check-ins for sheet", { schedSheetName, checkedPlayerNames });
+    if (!schedSheetName) return "⚠️ Error: No target sheet specified.";
+    if (checkedPlayerNames === undefined || checkedPlayerNames === null) {
+      return "⚠️ Error: Missing checked-in player list.";
+    }
 
-  const ss = getDb();
-  let cleanGroupName = String(schedSheetName).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
-  let sheet = ss.getSheetByName("Sched " + cleanGroupName);
-  if (!sheet) return `⚠️ Error: Sheet 'Sched ${cleanGroupName}' not found.`;
+    const ss = getDb();
+    let cleanGroupName = String(schedSheetName).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
+    let sheet = ss.getSheetByName("Sched " + cleanGroupName);
+    if (!sheet) return `⚠️ Error: Sheet 'Sched ${cleanGroupName}' not found.`;
 
-  const data = sheet.getDataRange().getValues();
-  const namesArray = Array.isArray(checkedPlayerNames) 
-    ? checkedPlayerNames 
-    : JSON.parse(checkedPlayerNames || "[]");
+    const data = sheet.getDataRange().getValues();
+    if (data.length <= 1) return "⚠️ Error: Schedule sheet is empty.";
 
-  const cleanStr = str => String(str || "").replace(/[\u00A0\s]+/g, " ").trim().toLowerCase();
-  const checkedSet = new Set(namesArray.map(n => cleanStr(n)));
+    const namesArray = Array.isArray(checkedPlayerNames)
+      ? checkedPlayerNames
+      : JSON.parse(String(checkedPlayerNames));
 
-  let headers = data[0].map(h => cleanStr(h));
-  let checkInIdx = headers.findIndex(h => h.includes("check") || h === "x" || h.includes("status"));
-  let targetCol = checkInIdx !== -1 ? checkInIdx + 1 : 3; // Default Col C
+    const normOf = (str) => typeof normalizeName === "function"
+      ? normalizeName(str)
+      : String(str || "").replace(/[\u00A0\s]+/g, " ").trim().toLowerCase();
 
-  const now = new Date();
-  let updatedCount = 0;
+    const checkedSet = new Set(namesArray.map(n => normOf(n)).filter(Boolean));
 
-  for (let i = 1; i < data.length; i++) {
-    let name = data[i][0] ? data[i][0].toString().trim() : "";
-    
-    if (name && !name.startsWith("---") && !name.startsWith("Time:") && !name.startsWith("SCHEDULE_WEEK")) {
-      let isChecked = checkedSet.has(cleanStr(name));
-      let currentVal = data[i][checkInIdx];
-      let isCurrentlyChecked = currentVal !== null && currentVal !== undefined && String(currentVal).trim() !== "";
+    let headers = data[0].map(h => String(h || "").trim().toLowerCase());
+    let nameIdx = headers.findIndex(h => /name|player/i.test(h));
+    if (nameIdx === -1) nameIdx = 0;
 
-      if (isChecked) {
-        let checkInVal = isCurrentlyChecked ? currentVal : now;
-        sheet.getRange(i + 1, targetCol).setValue(checkInVal);
-        updatedCount++;
-        
-        if (typeof updateScoreSheetTimestamp === 'function') {
-          updateScoreSheetTimestamp(cleanGroupName, name, "Last Check-In", now);
+    let checkInIdx = headers.findIndex(h => h.includes("check") || h === "x" || h.includes("status"));
+    if (checkInIdx === -1) checkInIdx = 2; // Default Col C
+    let targetCol = checkInIdx + 1;
+
+    const now = new Date();
+    let updatedCount = 0;
+
+    for (let i = 1; i < data.length; i++) {
+      let name = data[i][nameIdx] ? String(data[i][nameIdx]).trim() : "";
+
+      if (
+        name &&
+        !name.startsWith("---") &&
+        !name.toLowerCase().startsWith("time:") &&
+        !name.startsWith("SCHEDULE_WEEK") &&
+        !(typeof isUnknownPlayerName === "function" && isUnknownPlayerName(name))
+      ) {
+        let isChecked = checkedSet.has(normOf(name));
+        let currentVal = data[i][checkInIdx];
+        let isCurrentlyChecked = currentVal !== null && currentVal !== undefined && String(currentVal).trim() !== "";
+
+        if (isChecked) {
+          let checkInVal = isCurrentlyChecked ? currentVal : now;
+          sheet.getRange(i + 1, targetCol).setValue(checkInVal);
+          updatedCount++;
+
+          if (typeof updateScoreSheetTimestamp === "function") {
+            updateScoreSheetTimestamp(cleanGroupName, name, "Last Check-In", now);
+          }
+        } else {
+          sheet.getRange(i + 1, targetCol).setValue("");
         }
-      } else {
-        sheet.getRange(i + 1, targetCol).setValue("");
       }
     }
-  }
 
-
-    if (typeof CacheService !== 'undefined') {
-        try {
-            const cache = CacheService.getScriptCache();
-            const keysToClear = ["UNIFIED_ROSTER_CACHE_" + cleanGroupName.toUpperCase()];
-            if (typeof getCheckInCacheKey === 'function') {
-                keysToClear.push(getCheckInCacheKey(schedSheetName));
-            }
-            cache.removeAll(keysToClear);
-        } catch (e) {}
+    if (typeof CacheService !== "undefined") {
+      try {
+        const cache = CacheService.getScriptCache();
+        const keysToClear = [
+          "UNIFIED_ROSTER_CACHE_" + cleanGroupName.toUpperCase(),
+          "APP_INIT_DATA"
+        ];
+        if (typeof getCheckInCacheKey === "function") {
+          keysToClear.push(getCheckInCacheKey(schedSheetName));
+        }
+        cache.removeAll(keysToClear);
+      } catch (e) {}
     }
-    
 
-  return `✅ Check-ins saved successfully (${updatedCount} checked in)!`;
+    return `✅ Check-ins saved successfully (${updatedCount} checked in)!`;
+  });
 }
 
 /**
@@ -2844,68 +2860,76 @@ function rebuildSchedSheetOrder(ss, cleanGroupName, activePlayers, inactivePlaye
 let headers = ["Player Name", "Court", "Check-In", "Game 1", "Game 2", "Game 3", "Game 4", "Game 5", "Game 6", "Total", "Entered", "W", "Phone"];
 
 function submitCourtScores(payload) {
-  return executeWithLock_(() => {
-    const group = normalizeGroup(payload.group);
-    const courtNum = Number(payload.court);
-    const updates = payload.scores || [];
+  return executeWithLock(function () {
+    const rawGroup = payload && (payload.group || payload.groupName || payload.sheet || "");
+    const group = String(rawGroup).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
+    const courtNum = Number(payload && payload.court);
+    const updates = (payload && Array.isArray(payload.scores)) ? payload.scores : [];
 
     if (!group || isNaN(courtNum)) {
-      return { status: 'error', message: 'Invalid group or court number.' };
+      return { status: "error", success: false, message: "Invalid group or court number." };
     }
     if (updates.length === 0) {
-      return { status: 'success', message: 'No scores provided to save.' };
+      return { status: "success", success: true, message: "No scores provided to save." };
     }
 
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = getSheetForGroup(ss, group);
+    const ss = getDb();
+    const schedSheetName = "Sched " + group;
+    const sheet = ss.getSheetByName(schedSheetName);
     if (!sheet) {
-      return { status: 'error', message: `Roster sheet for ${group} not found.` };
+      return { status: "error", success: false, message: `Schedule sheet '${schedSheetName}' not found.` };
     }
 
     const dataRange = sheet.getDataRange();
     const data = dataRange.getValues();
     if (data.length < 2) {
-      return { status: 'error', message: 'Roster sheet is empty.' };
+      return { status: "error", success: false, message: "Schedule sheet is empty." };
     }
 
-    const headers = data[0].map(h => String(h || '').trim().toLowerCase());
-    const nameIdx = headers.indexOf('player');
-    const courtIdx = headers.indexOf('court');
-    const totIdx = headers.indexOf('total');
+    const normOf = (s) => typeof normalizeName === "function"
+      ? normalizeName(s)
+      : String(s || "").trim().toLowerCase();
+
+    const headers = data[0].map(h => String(h || "").trim().toLowerCase());
+    const nameIdx = headers.findIndex(h => /name|player/i.test(h));
+    const courtIdx = headers.findIndex(h => /court|crt/i.test(h));
+    const totIdx = headers.findIndex(h => /^(total|tot|pts|score)$/i.test(h));
 
     if (nameIdx === -1 || courtIdx === -1) {
-      return { status: 'error', message: 'Missing Player or Court columns in sheet.' };
+      return { status: "error", success: false, message: "Missing Player or Court columns in sheet." };
     }
 
-    const gIdxs = [];
-    for (let g = 1; g <= 6; g++) {
-      gIdxs.push(headers.indexOf(`game ${g}`));
-    }
+    const gIdxs = [1, 2, 3, 4, 5, 6].map(num =>
+      headers.findIndex(h => new RegExp(`^(game\\s*${num}|g${num})$`, "i").test(h))
+    );
 
     const updateMap = {};
     updates.forEach(u => {
-      const cleanName = String(u.player || '').trim().toLowerCase();
-      if (cleanName) {
-        updateMap[cleanName] = u.games || [];
+      const key = normOf(u.player || u.playerName || u.name);
+      if (key) {
+        updateMap[key] = Array.isArray(u.games) ? u.games : [];
       }
     });
 
     let updatedCount = 0;
 
     for (let r = 1; r < data.length; r++) {
-      const rowCourt = Number(data[r][courtIdx]);
+      const rowCourt = Number(String(data[r][courtIdx] || "").replace(/\D/g, ""));
       if (rowCourt !== courtNum) continue;
 
-      const rowPlayer = String(data[r][nameIdx] || '').trim().toLowerCase();
-      if (!rowPlayer || !(rowPlayer in updateMap)) continue;
+      const rawPlayer = String(data[r][nameIdx] || "").trim();
+      if (!rawPlayer || (typeof isUnknownPlayerName === "function" && isUnknownPlayerName(rawPlayer))) continue;
 
-      const incomingGames = updateMap[rowPlayer];
+      const rowKey = normOf(rawPlayer);
+      if (!rowKey || !(rowKey in updateMap)) continue;
+
+      const incomingGames = updateMap[rowKey];
 
       for (let g = 0; g < 6; g++) {
         const cIdx = gIdxs[g];
         if (cIdx !== -1 && g < incomingGames.length) {
           const val = incomingGames[g];
-          data[r][cIdx] = (val === '' || val === null || val === undefined) ? '' : Number(val);
+          data[r][cIdx] = (val === "" || val === null || val === undefined) ? "" : Number(val);
         }
       }
 
@@ -2914,7 +2938,7 @@ function submitCourtScores(payload) {
         const cIdx = gIdxs[g];
         if (cIdx !== -1) {
           const cellVal = data[r][cIdx];
-          if (cellVal !== '' && cellVal !== null && cellVal !== undefined && !isNaN(Number(cellVal))) {
+          if (cellVal !== "" && cellVal !== null && cellVal !== undefined && !isNaN(Number(cellVal))) {
             validScores.push(Number(cellVal));
           }
         }
@@ -2925,7 +2949,7 @@ function submitCourtScores(payload) {
           validScores.sort((a, b) => b - a);
           data[r][totIdx] = validScores.slice(0, 3).reduce((sum, s) => sum + s, 0);
         } else {
-          data[r][totIdx] = '';
+          data[r][totIdx] = "";
         }
       }
 
@@ -2935,11 +2959,25 @@ function submitCourtScores(payload) {
     if (updatedCount > 0) {
       dataRange.setValues(data);
       SpreadsheetApp.flush();
-      invalidateGroupCache(group);
+
+      if (typeof CacheService !== "undefined") {
+        try {
+          const cache = CacheService.getScriptCache();
+          const keysToClear = [
+            "UNIFIED_ROSTER_CACHE_" + group.toUpperCase(),
+            "APP_INIT_DATA"
+          ];
+          if (typeof getCheckInCacheKey === "function") {
+            keysToClear.push(getCheckInCacheKey(schedSheetName));
+          }
+          cache.removeAll(keysToClear);
+        } catch (e) {}
+      }
     }
 
     return {
-      status: 'success',
+      status: "success",
+      success: true,
       message: `Saved scores for ${updatedCount} player(s) on Court ${courtNum}.`,
       updatedCount: updatedCount
     };
@@ -3356,6 +3394,8 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
     if (targetGroup) {
       let cleanGroup = String(targetGroup).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
       groupsToProcess = [cleanGroup];
+    } else if (typeof getActiveGroups === 'function') {
+      groupsToProcess = getActiveGroups();
     } else {
       groupsToProcess = (typeof GROUPS !== 'undefined' && GROUPS.length > 0) ? GROUPS : [getTargetGroup()];
     }
@@ -3469,7 +3509,7 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
         for (let size of chunkSizes) {
            if (courtNum < availableCourts.length && indicesCopy.length >= size) {
               let chunk = indicesCopy.splice(0, size);
-              let cName = availableCourts[courtNum++];
+              let cName = availableCourts[courtNumberFallback(courtNum++)];
               chunk.forEach(idx => playerCourtMap[idx] = String(cName));
            } else break;
         }
@@ -3489,7 +3529,6 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
           playerCourtMap[playerIdx] = String(availableCourts[courtNumIdx]);
         });
 
-        // Only pair leftover players with Unknowns if at least 1 full court exists OR at least 2 real players are playing
         if (
           leftoverCount > 0 &&
           leftoverCount < 4 &&
@@ -3516,10 +3555,12 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
 
       const registerLookupKey = (pName, pPhone, assignedCourt) => {
         if (!pName) return;
-        const cleanFull = cleanStr(pName);
-        courtLookupByName[cleanFull] = assignedCourt;
-        const tokens = cleanFull.match(/[a-z0-9]+/g) || [];
-        if (tokens.length > 0) courtLookupByName[tokens.sort().join(" ")] = assignedCourt;
+        const normFull = normKeyOf(pName);
+        if (normFull) {
+          courtLookupByName[normFull] = assignedCourt;
+          const tokens = normFull.match(/[a-z0-9]+/g) || [];
+          if (tokens.length > 0) courtLookupByName[tokens.sort().join(" ")] = assignedCourt;
+        }
         if (pPhone && pPhone.length >= 7) {
           const tail = pPhone.slice(-7);
           phoneCounts[tail] = (phoneCounts[tail] || 0) + 1;
@@ -3576,13 +3617,13 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
         let rowFirst = firstIdx !== -1 ? String(row[firstIdx] || '').trim() : '';
         let rowLast = lastIdx !== -1 ? String(row[lastIdx] || '').trim() : '';
         let rowFullName = (rowFirst || rowLast) ? `${rowFirst} ${rowLast}`.trim() : (nameIdx !== -1 ? String(row[nameIdx] || '').trim() : '');
-        let cleanRowName = cleanStr(rowFullName);
-        let tokensKey = (cleanRowName.match(/[a-z0-9]+/g) || []).sort().join(" ");
+        let normRowName = normKeyOf(rowFullName);
+        let tokensKey = (normRowName.match(/[a-z0-9]+/g) || []).sort().join(" ");
         let activeFlag = col.status !== undefined ? isRowActive(row[col.status]) : true;
 
         let matchedCourt = "";
-        if (cleanRowName && courtLookupByName[cleanRowName] !== undefined) {
-          matchedCourt = courtLookupByName[cleanRowName];
+        if (normRowName && courtLookupByName[normRowName] !== undefined) {
+          matchedCourt = courtLookupByName[normRowName];
         } else if (tokensKey && courtLookupByName[tokensKey] !== undefined) {
           matchedCourt = courtLookupByName[tokensKey];
         } else if (rowPhone && rowPhone.length >= 7) {

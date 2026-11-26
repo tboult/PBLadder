@@ -24,8 +24,10 @@ const GROUP_COURT_MAP = {
   let isInitialLoading = true;
   
 
-  let activeLookupPlayer =  null;
-  let activeLookupFoursome = null;
+var activeLookupPlayer = window.activeLookupPlayer || null;
+var activeLookupFoursome = window.activeLookupFoursome || null;
+
+
 
 
 function renderHelpGroupRadios(cleanGroupArray) {
@@ -77,34 +79,7 @@ function renderHelpGroupRadios(cleanGroupArray) {
   syncAllGroupDropdowns(currentGroup);
 }
 
-function syncAllGroupDropdowns(groupName) {
-  if (!groupName) return;
-  const cleanGroup = String(groupName).replace(/^(Sched|Score)\s*/i, '').trim();
-  const ids = ['sheetSelect', 'regGroup', 'groupViewerSelect', 'adminGlobalGroupSelect'];
 
-  ids.forEach(id => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    const match = Array.from(el.options).find(opt => 
-      opt.value === cleanGroup || opt.value.replace(/^(Sched|Score)\s*/i, '') === cleanGroup
-    );
-    if (match) {
-      el.value = match.value;
-    }
-  });
-
-  const radios = document.querySelectorAll('input[name="helpGroupRadio"], input[name="checkinGroupRadio"]');
-  radios.forEach(r => {
-    r.checked = (r.value === cleanGroup);
-  });
-
-  const sheetLink = document.getElementById('adminSheetLink');
-  if (sheetLink) {
-    sheetLink.href = `${API_URL}?action=editSheet&group=${encodeURIComponent(cleanGroup)}`;
-  }
-
-  renderAdminCourts(cleanGroup);
-}
 
 
 
@@ -183,38 +158,55 @@ function updateAllGroupDisplays(groupName) {
 // Global tracker to prevent duplicate status checks on identical numbers
 let lastCheckedPhone = "";
 
-// Helper to handle both regular player UI and Admin UI toggles
+
+
+async function forceResetApp() {
+  try {
+    if ('serviceWorker' in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map(reg => reg.unregister()));
+    }
+    if ('caches' in window) {
+      const names = await caches.keys();
+      await Promise.all(names.map(name => caches.delete(name)));
+    }
+  } catch (err) {
+    console.warn('Error clearing service worker/caches during reset:', err);
+  } finally {
+    localStorage.clear();
+    sessionStorage.clear();
+    window.location.reload();
+  }
+}
+
 async function handleUserAndAdminState(phone, player) {
-  // 1. Set App View to Active Player mode (hides register form)
+  // Pass `player` object (not string `phone`) so setAppViewState renders found player info
   if (typeof setAppViewState === "function") {
-    setAppViewState(true, phone);
+    setAppViewState(true, player || { phone });
   }
   if (typeof setSaveButtonState === "function") {
     setSaveButtonState(true);
   }
 
-  // 2. Check if user is an Admin
   let isAdminUser = false;
   if (player && (player.isAdmin || player.role === 'admin')) {
-      isAdminUser = true;
-      logDebug('isamind1:',isAdminUser)
+    isAdminUser = true;
+  } else if (typeof isUserAdmin === "function") {
+    isAdminUser = isUserAdmin(phone);
   } else if (typeof checkAdminStatus === "function") {
-      isAdminUser = await checkAdminStatus(phone);
-      logDebug('isamind2:',isAdminUser)
+    isAdminUser = await checkAdminStatus(phone);
   } else if (typeof checkIfAdmin === "function") {
-      isAdminUser = checkIfAdmin(phone);
-      logDebug('isamind3:',isAdminUser)      
+    isAdminUser = checkIfAdmin(phone);
   }
 
-  // 3. Trigger Admin UI / Controls if Admin
   if (isAdminUser) {
-    logDebug("👑 Admin privileges granted for:", phone);
+    if (typeof checkAndUnlockAdmin === "function") checkAndUnlockAdmin(phone);
     if (typeof showAdminControls === "function") showAdminControls(true);
     if (typeof enableAdminUI === "function") enableAdminUI(true);
     if (typeof setAdminMode === "function") setAdminMode(true);
+    if (typeof initAdminView === "function") initAdminView();
   }
 
-  // 4. Update Button State / Label
   const saveBtn = document.getElementById('savePhoneBtn') || document.getElementById('actionButton');
   if (saveBtn) {
     if (isAdminUser) {
@@ -227,13 +219,45 @@ async function handleUserAndAdminState(phone, player) {
     saveBtn.disabled = false;
   }
 
-  // 5. Load Cached Player Status / Attendance
   if (typeof loadPlayerStatusFromCache === "function") {
     await loadPlayerStatusFromCache(phone);
   }
 }
 
   
+function syncAllGroupDropdowns(groupName) {
+  if (!groupName) return;
+  const cleanGroup = String(groupName).replace(/^(Sched|Score)\s*/i, '').trim();
+  const ids = ['sheetSelect', 'regGroup', 'groupViewerSelect', 'adminGlobalGroupSelect'];
+
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const match = Array.from(el.options).find(opt =>
+      opt.value === cleanGroup || opt.value.replace(/^(Sched|Score)\s*/i, '') === cleanGroup
+    );
+    if (match) {
+      el.value = match.value;
+    }
+  });
+
+  const radios = document.querySelectorAll(
+    'input[name="helpGroupRadio"], input[name="checkinGroupRadio"], input[name="adminGroupRadio"]'
+  );
+  radios.forEach(r => {
+    r.checked = (r.value.toLowerCase() === cleanGroup.toLowerCase());
+  });
+
+  const sheetLink = document.getElementById('adminSheetLink');
+  if (sheetLink && window.API_URL) {
+    sheetLink.href = `${window.API_URL}?action=getAdminSheetUrl&group=${encodeURIComponent(cleanGroup)}`;
+  }
+
+  if (typeof renderAdminCourts === 'function') {
+    renderAdminCourts(cleanGroup);
+  }
+}
+
 async function checkAppVersion() {
   try {
     const endpoint = window.API_URL;
@@ -246,6 +270,9 @@ async function checkAppVersion() {
 
     if (res && res.version && res.version !== CURRENT_APP_VERSION) {
       logDebug(`New app version detected (${res.version})`);
+      if (typeof handleVersionCheck === 'function') {
+        await handleVersionCheck(res.version);
+      }
     }
   } catch (err) {
     console.warn('Version check skipped:', err);
@@ -253,23 +280,7 @@ async function checkAppVersion() {
 }
 
 
-function forceResetApp() {
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.getRegistrations().then(registrations => {
-      for (let registration of registrations) {
-        registration.unregister();
-      }
-    });
-  }
-  if ('caches' in window) {
-    caches.keys().then(names => {
-      for (let name of names) caches.delete(name);
-    });
-  }
-  localStorage.clear();
-  sessionStorage.clear();
-  window.location.reload(true);
-}
+
 
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {

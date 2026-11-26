@@ -13,22 +13,22 @@ async function apiCall(action, payload = {}) {
     return Promise.reject(new Error("API action cannot be empty"));
   }
 
-  // --- GROUP-AWARE ROSTER DEDUPLICATION & CACHING ---
-  if (action === 'getUnifiedRoster') {
-    const targetGroup = payload?.group;
-    const isForceRefresh = Boolean(payload?.forceRefresh);
-    const groupCache = (targetGroup && window.groupRosterCache && window.groupRosterCache[targetGroup]) || null;
+  const isRosterFetch = action === 'getUnifiedRoster';
+  const targetGroup = payload?.group ? String(payload.group).trim() : '';
+  const isForceRefresh = Boolean(payload?.forceRefresh);
 
-    // 1. Return memory cache immediately if available and not forcing a refresh
+  if (isRosterFetch && targetGroup) {
+    const groupCache = (window.groupRosterCache && window.groupRosterCache[targetGroup]) || null;
+
     if (!isForceRefresh && Array.isArray(groupCache) && groupCache.length > 0) {
       logDebug(`⚡ [API Cache Hit] Returning cached roster for group: "${targetGroup}"`);
       return Promise.resolve({ success: true, registered: true, players: groupCache, source: 'memory_cache' });
     }
 
-    // 2. IF ALREADY IN-FLIGHT: Attach to the existing promise instead of returning empty players []
-    if (window.inFlightRosterRequests[targetGroup]) {
+    const inFlight = window.inFlightRosterRequests[targetGroup];
+    if (inFlight && (!isForceRefresh || inFlight.isForceRefresh)) {
       console.warn(`⏳ [API Request In-Flight] Reusing existing promise for group: "${targetGroup}"`);
-      return window.inFlightRosterRequests[targetGroup];
+      return inFlight.promise;
     }
   }
 
@@ -37,7 +37,6 @@ async function apiCall(action, payload = {}) {
     time: new Date().toLocaleTimeString()
   });
 
-  // Create the request promise
   const requestPromise = new Promise((resolve, reject) => {
     if (typeof apiQueue !== 'undefined') {
       apiQueue.push({ action, payload, resolve, reject });
@@ -49,22 +48,26 @@ async function apiCall(action, payload = {}) {
     }
   });
 
-  // Store in-flight promise if it's a roster fetch
-  if (action === 'getUnifiedRoster' && payload?.group) {
-    window.inFlightRosterRequests[payload.group] = requestPromise;
+  const inFlightEntry = (isRosterFetch && targetGroup)
+    ? { promise: requestPromise, isForceRefresh }
+    : null;
+
+  if (inFlightEntry) {
+    window.inFlightRosterRequests[targetGroup] = inFlightEntry;
   }
 
-  const result = await requestPromise;
-
-  // Clean up in-flight promise tracker
-  if (action === 'getUnifiedRoster' && payload?.group) {
-    delete window.inFlightRosterRequests[payload.group];
+  let result;
+  try {
+    result = await requestPromise;
+  } finally {
+    if (inFlightEntry && window.inFlightRosterRequests[targetGroup] === inFlightEntry) {
+      delete window.inFlightRosterRequests[targetGroup];
+    }
   }
 
-  // Store successful roster responses in memory cache
-  if (action === 'getUnifiedRoster' && result && result.success && Array.isArray(result.players) && payload?.group) {
+  if (isRosterFetch && result && result.success && Array.isArray(result.players) && targetGroup) {
     if (!window.groupRosterCache) window.groupRosterCache = {};
-    window.groupRosterCache[payload.group] = result.players;
+    window.groupRosterCache[targetGroup] = result.players;
   }
 
   logDebug(`✅ [API result] "${action}"`, {
@@ -77,22 +80,20 @@ async function apiCall(action, payload = {}) {
 
 
 
-let currentRosterFetchPromise = null;
-let lastFetchedGroup = null;
+const rosterFetchPromises = {};
+let activeRosterRequestGroup = null;
 
-/**
- * Shared roster loader with group-aware memory caching and in-flight request deduplication.
- */
 async function loadUnifiedRosterData(groupName, forceRefresh = false) {
   if (!groupName) return [];
 
-  // 1. Deduplicate: Return active in-flight Promise if currently fetching for this exact group
-  if (currentRosterFetchPromise && lastFetchedGroup === groupName) {
+  activeRosterRequestGroup = groupName;
+
+  const existing = rosterFetchPromises[groupName];
+  if (existing && (!forceRefresh || existing.forceRefresh)) {
     logDebug(`⏳ [Roster] Reusing in-flight network request for group: "${groupName}"`);
-    return currentRosterFetchPromise;
+    return existing.promise;
   }
 
-  // 2. Memory Cache: Return cached group roster if available and not forcing a refresh
   if (!forceRefresh && Array.isArray(window.groupRosterCache[groupName]) && window.groupRosterCache[groupName].length > 0) {
     logDebug(`⚡ [Roster Memory Hit] Returning cached roster for group: "${groupName}"`);
     window.cachedRoster = window.groupRosterCache[groupName];
@@ -101,67 +102,58 @@ async function loadUnifiedRosterData(groupName, forceRefresh = false) {
     return window.groupRosterCache[groupName];
   }
 
-  lastFetchedGroup = groupName;
   const saveBtn = document.getElementById("btnSaveAllScores");
-
-  // 3. UI Loading State
   if (saveBtn) {
     saveBtn.innerText = "⏳ Loading data...";
     saveBtn.disabled = true;
     saveBtn.style.opacity = "0.7";
   }
 
-  try {
-    currentRosterFetchPromise = (async () => {
-      try {
-        logDebug(`📡 Fetching fresh roster for group: "${groupName}"...`);
-        const res = await apiCall('getUnifiedRoster', { group: groupName, forceRefresh: forceRefresh });
+  const fetchPromise = (async () => {
+    try {
+      logDebug(`📡 Fetching fresh roster for group: "${groupName}"...`);
+      const res = await apiCall('getUnifiedRoster', { group: groupName, forceRefresh: forceRefresh });
 
-        const playersList = (res && res.success) 
-          ? (Array.isArray(res.players) ? res.players : (Array.isArray(res.data) ? res.data : null)) 
-          : null;
+      const playersList = (res && res.success)
+        ? (Array.isArray(res.players) ? res.players : (Array.isArray(res.data) ? res.data : null))
+        : null;
 
-        if (playersList) {
-          window.groupRosterCache[groupName] = playersList;
+      if (playersList) {
+        window.groupRosterCache[groupName] = playersList;
+        if (activeRosterRequestGroup === groupName) {
           window.cachedRoster = playersList;
           window.unifiedRoster = playersList;
           window.appPlayersCache = playersList;
-          return playersList;
         }
-        return window.groupRosterCache[groupName] || window.cachedRoster || [];
-      } catch (err) {
-        console.error("Error fetching roster:", err);
-        return window.groupRosterCache[groupName] || [];
-      } finally {
-        if (lastFetchedGroup === groupName) {
-          currentRosterFetchPromise = null;
-        }
+        return playersList;
       }
-    })();
-
-    return await currentRosterFetchPromise;
-
-  } catch (error) {
-    console.error("Error in loadUnifiedRosterData:", error);
-    return window.groupRosterCache[groupName] || [];
-  } finally {
-    if (saveBtn) {
-      saveBtn.innerText = "💾 Save All Scores";
-      saveBtn.disabled = false;
-      saveBtn.style.opacity = "1";
+      return window.groupRosterCache[groupName] || (activeRosterRequestGroup === groupName ? window.cachedRoster : []) || [];
+    } catch (err) {
+      console.error("Error fetching roster:", err);
+      return window.groupRosterCache[groupName] || [];
+    } finally {
+      if (rosterFetchPromises[groupName]?.promise === fetchPromise) {
+        delete rosterFetchPromises[groupName];
+      }
+      if (saveBtn && Object.keys(rosterFetchPromises).length === 0) {
+        saveBtn.innerText = "💾 Save All Scores";
+        saveBtn.disabled = false;
+        saveBtn.style.opacity = "1";
+      }
     }
-  }
+  })();
+
+  rosterFetchPromises[groupName] = { promise: fetchPromise, forceRefresh: Boolean(forceRefresh) };
+  return await fetchPromise;
 }
 
-
-
-
+let groupRadioChangeSeq = 0;
 
 async function onGroupRadioChange(selectedGroup) {
+  const mySeq = ++groupRadioChangeSeq;
   logDebug(`onGroupRadioChange ${selectedGroup}`);
-  const cleanGroup = String(selectedGroup).replace(/^(Sched|Score)\s*/i, '').trim() ;
+  const cleanGroup = String(selectedGroup).replace(/^(Sched|Score)\s*/i, '').trim();
 
-  // 1. Force DOM elements directly to show loading immediately
   const statusDisplay = document.getElementById("frontStatusDisplay");
   const statusBadge = document.getElementById("frontStatusBadge") || document.getElementById("statusBadge");
 
@@ -176,7 +168,6 @@ async function onGroupRadioChange(selectedGroup) {
     showStatusLoading("⏳ LOOKING UP...");
   }
 
-  // Check-in Tab Elements
   const checkinBadge = document.getElementById("checkinPlayerStatusBadge");
   const checkinStatus = document.getElementById("checkInStatus");
   const checkinName = document.getElementById("checkinPlayerName");
@@ -199,9 +190,9 @@ async function onGroupRadioChange(selectedGroup) {
     userCheckinBtn.disabled = true;
   }
 
-  await new Promise(resolve => setTimeout(resolve, 50));
+  await new Promise(resolve => requestAnimationFrame(resolve));
+  if (mySeq !== groupRadioChangeSeq) return;
 
-  // 2. Sync group selection across storage
   if (typeof setSelectedGroup === 'function') {
     setSelectedGroup(cleanGroup);
   } else {
@@ -209,7 +200,6 @@ async function onGroupRadioChange(selectedGroup) {
     localStorage.setItem('scpb_saved_group', cleanGroup);
   }
 
-  // 3. Clear ALL existing group caches & active player references
   window.appPlayersCache = [];
   window.cachedRoster = [];
   window.unifiedRoster = [];
@@ -217,32 +207,30 @@ async function onGroupRadioChange(selectedGroup) {
   window.activeLookupPlayer = null;
   window.activeLookupFoursome = null;
 
-  // FIX: 4. Replaced duplicate radio code with unified sync function
   syncGroupRadioUI(cleanGroup);
   if (typeof syncAllGroupDropdowns === 'function') syncAllGroupDropdowns(cleanGroup);
   if (typeof updateAllGroupDisplays === 'function') updateAllGroupDisplays(cleanGroup);
 
-  // 5. Fetch fresh roster FIRST before attempting lookup or tab renders
   if (typeof loadUnifiedRosterData === 'function') {
     await loadUnifiedRosterData(cleanGroup, true);
   }
+  if (mySeq !== groupRadioChangeSeq) return;
 
-  // 6. Run lookup with newly updated roster populated in memory
   const savedPhone = typeof getSavedPhone === 'function' ? getSavedPhone() : (localStorage.getItem('scpb_saved_phone') || '');
   if (savedPhone && typeof loadPlayerStatusFromCache === 'function') {
     await loadPlayerStatusFromCache(savedPhone);
   } else if (typeof setAppViewState === 'function') {
     setAppViewState(false, '');
   }
+  if (mySeq !== groupRadioChangeSeq) return;
 
-  // 7. Refresh active tab UI elements using cached data
   if (typeof refreshActiveTabData === 'function') {
     await refreshActiveTabData(false);
   }
-    
-  if (checkinStatus && checkinStatus.innerText.includes("Loading status")) {
+
+  if (mySeq === groupRadioChangeSeq && checkinStatus && checkinStatus.innerText.includes("Loading status")) {
     checkinStatus.innerText = "";
-  }    
+  }
 }
 
 async function loadPlayerStatusFromCache(phone) {
@@ -255,8 +243,8 @@ async function loadPlayerStatusFromCache(phone) {
     showStatusLoading("⏳ LOOKING UP...");
   }
 
-  const selectedGroup = (typeof getSavedGroup === 'function' ? getSavedGroup() : '') || 
-                        document.querySelector('input[name="helpGroupRadio"]:checked, input[name="checkinGroupRadio"]:checked')?.value || '';
+  const selectedGroup = (typeof getSavedGroup === 'function' ? getSavedGroup() : '') ||
+                        document.querySelector('input[name="helpGroupRadio"]:checked, input[name="checkinGroupRadio"]:checked, input[name="adminGroupRadio"]:checked')?.value || '';
 
   const cleanPhone = typeof normalizePhone === "function" ? normalizePhone(phone) : phone.replace(/\D/g, "");
   if (!cleanPhone || cleanPhone.length < 7) {
@@ -283,13 +271,25 @@ async function loadPlayerStatusFromCache(phone) {
   }
 
   const cleanDigits = String(cleanPhone || "").replace(/\D/g, "");
+  const clean10 = cleanDigits.slice(-10);
   const savedNameLower = (typeof getSavedName === 'function' ? getSavedName() : '').trim().toLowerCase();
 
-  const phoneMatches = Array.isArray(roster) ? roster.filter(p => {
-    const rawValue = p.phone || p.cell || p.mobile || p.phoneNumber || p.id || "";
-    const pDigits = String(rawValue).replace(/\D/g, "");
-    return pDigits.length >= 7 && cleanDigits.length >= 7 && pDigits.endsWith(cleanDigits.slice(-7));
-  }) : [];
+  let phoneMatches = [];
+  if (Array.isArray(roster)) {
+    if (clean10.length === 10) {
+      phoneMatches = roster.filter(p => {
+        const pDigits = String(p.phone || p.cell || p.mobile || p.phoneNumber || p.id || "").replace(/\D/g, "");
+        return pDigits.length >= 10 && pDigits.slice(-10) === clean10;
+      });
+    }
+    if (phoneMatches.length === 0 && cleanDigits.length >= 7) {
+      const clean7 = cleanDigits.slice(-7);
+      phoneMatches = roster.filter(p => {
+        const pDigits = String(p.phone || p.cell || p.mobile || p.phoneNumber || p.id || "").replace(/\D/g, "");
+        return pDigits.length >= 7 && pDigits.endsWith(clean7);
+      });
+    }
+  }
 
   const found = (phoneMatches.length > 1 && savedNameLower)
     ? (phoneMatches.find(p => String(p.name || `${p.first || ''} ${p.last || ''}`).trim().toLowerCase() === savedNameLower) || phoneMatches[0])
@@ -297,9 +297,10 @@ async function loadPlayerStatusFromCache(phone) {
 
   if (found) {
     const rawName = found.name || `${found.first || ''} ${found.last || ''}`.trim();
-    const isActive = found.active === true || 
-                     String(found.active).toLowerCase() === 'true' || 
+    const isActive = found.active === true ||
+                     String(found.active).toLowerCase() === 'true' ||
                      String(found.status).toUpperCase() === 'ACTIVE';
+    const checkedInBool = isPlayerCheckedIn(found);
 
     window.activeLookupPlayer = {
       ...found,
@@ -309,7 +310,7 @@ async function loadPlayerStatusFromCache(phone) {
       status: isActive ? "ACTIVE" : "INACTIVE",
       active: isActive,
       existsOnRoster: true,
-      checkedIn: found.checkedIn || found.isCheckedIn || false
+      checkedIn: checkedInBool
     };
 
     if (found.first) localStorage.setItem('scpb_saved_first_name', found.first);
@@ -326,7 +327,6 @@ async function loadPlayerStatusFromCache(phone) {
       const welcomeBanner = document.getElementById("welcomeBanner");
       if (welcomeBanner) welcomeBanner.style.display = "block";
     }
-
   } else {
     window.activeLookupPlayer = {
       phone: phone,
@@ -339,6 +339,13 @@ async function loadPlayerStatusFromCache(phone) {
     redirectToRegistrationTab(phone, selectedGroup);
   }
 }
+
+
+
+
+
+
+
 
 
 
@@ -465,66 +472,68 @@ let checkInPlayersCache = [];
 
 
 
-// Add the new check-in functionality handler for the single user view
 async function toggleUserCheckin() {
-   const btnEl = document.getElementById('userCheckinBtn');
-   if (!btnEl) return;
-   
-   const phone = btnEl.getAttribute('data-phone');
-   const name = btnEl.getAttribute('data-name');
-   const curState = btnEl.getAttribute('data-checked') === 'true';
-   const newState = !curState;
+  const btnEl = document.getElementById('userCheckinBtn');
+  if (!btnEl) return;
 
-   // Enforce geofencing if turning ON checkin
-   if (newState) {
-      const savedPhone = getSavedPhone();
-      const allowed = (typeof isUserAdmin === 'function' && isUserAdmin(savedPhone)) ? true : await checkGeofence();
-      if (!allowed) return;
-   }
+  const phone = btnEl.getAttribute('data-phone');
+  const name = btnEl.getAttribute('data-name');
+  const curState = btnEl.getAttribute('data-checked') === 'true';
+  const newState = !curState;
+  const savedPhone = typeof getSavedPhone === 'function' ? getSavedPhone() : phone;
 
-   const groupName = getSavedGroup();
-   
-   btnEl.innerText = "⏳ Updating...";
-   btnEl.disabled = true;
+  if (newState && typeof checkGeofence === 'function') {
+    const allowed = (typeof isUserAdmin === 'function' && isUserAdmin(savedPhone))
+      ? true
+      : await checkGeofence(savedPhone);
+    if (!allowed) return;
+  }
 
-   try {
-     const res = await apiCall('toggleSingleCheckIn', { 
-       sheet: "Sched " + groupName,
-       groupName: groupName,
-       group: groupName,
-       playerName: name, 
-       phone: phone, 
-       isCheckedIn: newState 
-     });
-     if (res && (res.success || !res.error)) {
-        loadCheckInPlayers(groupName, true); // Refresh local status cache
-     } else {
-        alert('Failed to update check-in state.');
-        btnEl.innerText = curState ? 'Cancel Check-In' : 'Check In';
-     }
-   } catch (err) {
-     alert('Network error toggling check-in state.');
-     btnEl.innerText = curState ? 'Cancel Check-In' : 'Check In';
-   } finally {
-     btnEl.disabled = false;
-   }
+  const groupName = getSavedGroup();
+  const originalText = btnEl.innerText;
+
+  btnEl.innerText = "⏳ Updating...";
+  btnEl.disabled = true;
+
+  try {
+    const res = await apiCall('toggleSingleCheckIn', {
+      sheet: "Sched " + groupName,
+      groupName: groupName,
+      group: groupName,
+      playerName: name,
+      phone: phone,
+      isCheckedIn: newState
+    });
+
+    if (res && res.success !== false && !res.error) {
+      if (window.groupRosterCache && groupName) {
+        delete window.groupRosterCache[groupName];
+      }
+      if (typeof loadCheckInPlayers === 'function') {
+        await loadCheckInPlayers(groupName, true);
+      }
+
+      btnEl.setAttribute('data-checked', String(newState));
+      btnEl.innerText = newState ? 'Cancel Check-In' : 'Check In';
+
+      if (window.activeLookupPlayer) {
+        window.activeLookupPlayer.checkedIn = newState;
+      }
+      if (typeof refreshActiveTabData === 'function') {
+        await refreshActiveTabData(false);
+      }
+    } else {
+      alert('Failed to update check-in state: ' + (res?.message || res?.error || 'Server error'));
+      btnEl.innerText = originalText || (curState ? 'Cancel Check-In' : 'Check In');
+    }
+  } catch (err) {
+    console.error('toggleUserCheckin error:', err);
+    alert('Network error toggling check-in state.');
+    btnEl.innerText = originalText || (curState ? 'Cancel Check-In' : 'Check In');
+  } finally {
+    btnEl.disabled = false;
+  }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -722,31 +731,7 @@ async function submitUserRegistration(event) {
 
 
 
-async function toggleStatus() {
-  logDebug(`In togglestatus...`);
-  if (!activeLookupPlayer) return;
-  const statusEl = document.getElementById('phoneStatus');
-  if (statusEl) statusEl.innerText = 'Updating status...';
-  logDebug(`In togglestatus with activeLookupPlayer...`);
-  try {
-    const res = await apiCall('toggleUnifiedActiveStatus', {
-      phone: activeLookupPlayer.phone,
-      playerName: activeLookupPlayer.name || (typeof getSavedName === 'function' ? getSavedName() : ''),
-      groupName: activeLookupPlayer.group,
-      group: activeLookupPlayer.group,
-      sheet: "Sched " + activeLookupPlayer.group
-    });
-    if (res && res.success) {
-      activeLookupPlayer.status = res.newStatus;
-      renderLookupResult(activeLookupPlayer, null);
-      if (statusEl) statusEl.innerText = '✅ Status updated to ' + res.newStatus;
-    } else {
-      if (statusEl) statusEl.innerText = '❌ Failed to update status.';
-    }
-  } catch (err) {
-    if (statusEl) statusEl.innerText = '❌ Error updating status.';
-  }
-}
+
 
 
 
@@ -815,29 +800,6 @@ function setSelectedGroup(groupName) {
 
 
 
-// 1. Sync UI state across all radio groups on all tabs
-function syncGroupRadioUI(explicitGroup) {
-  // Read from parameter OR localStorage, 
-  const rawGroup = explicitGroup 
-    || localStorage.getItem('scpb_selected_group') 
-    || localStorage.getItem('scpb_saved_group') ;
-
-  const cleanGroup = String(rawGroup).replace(/^(Sched|Score)\s*/i, '').trim();
-
-  // FIX: Added 'adminGroupRadio' so all 3 tab radio sets are selected!
-  const allGroupRadios = document.querySelectorAll(
-    'input[name="helpGroupRadio"], input[name="checkinGroupRadio"], input[name="adminGroupRadio"]'
-  );
-
-  allGroupRadios.forEach(radio => {
-    radio.checked = (radio.value.toLowerCase() === cleanGroup.toLowerCase());
-  });
-
-  // Update text badges across all tabs
-  document.querySelectorAll('.active-group-label').forEach(el => {
-    el.textContent = cleanGroup;
-  });
-}
 
 
 // 3. Manual Retry Check-In Action
@@ -966,10 +928,11 @@ function normalizePhone(phone) {
  */
 async function switchTab(tabId, skipHashUpdate = false) {
   // Define maps outside try/catch so they remain accessible in the catch block
-  const tabMap = {
+const tabMap = {
     'help': 'helpTab',
     'checkin': 'checkinTab',
     'score': 'scoreTab',
+    'scoreTab': 'scoreTab',
     'phone': 'scoreTab',
     'enterscore': 'scoreTab',
     'ranksched': 'rankschedTab',
@@ -980,12 +943,13 @@ async function switchTab(tabId, skipHashUpdate = false) {
     'help': 'tabHelpBtn',
     'checkin': 'tabCheckinBtn',
     'score': 'tabScoreBtn',
+    'scoreTab': 'tabScoreBtn',
     'phone': 'tabScoreBtn',
     'enterscore': 'tabScoreBtn',
     'ranksched': 'tabRankschedBtn',
     'admin': 'tabAdminBtn'
   };
-
+    
   try {
     let currentGroup = typeof getSavedGroup === 'function' ? getSavedGroup() : null;
 
@@ -1084,68 +1048,39 @@ async function handleVersionCheck(serverVersion) {
 }
 
 
+
 async function fetchGroupRoster(group, forceRefresh = false) {
   const cachedGroup = (typeof getSavedGroup === 'function' ? getSavedGroup() : '') ||
-                      localStorage.getItem("scpb_saved_group") || 
+                      localStorage.getItem("scpb_saved_group") ||
                       localStorage.getItem("scpb_selected_group");
   const targetGroup = group || cachedGroup;
 
   if (!targetGroup) return [];
 
-  // Verify memory cache actually matches the target group
-  const isCacheForTargetGroup = Array.isArray(window.appPlayersCache) && 
-    window.appPlayersCache.length > 0 && 
-    window.appPlayersCache[0] && 
-    (window.appPlayersCache[0].group === targetGroup || window.appPlayersCache[0].groupName === targetGroup);
-
-  if (!forceRefresh && isCacheForTargetGroup) {
+  if (!forceRefresh && window.groupRosterCache && Array.isArray(window.groupRosterCache[targetGroup]) && window.groupRosterCache[targetGroup].length > 0) {
+    window.appPlayersCache = window.groupRosterCache[targetGroup];
     return window.appPlayersCache;
   }
 
   const freshPlayers = await loadUnifiedRosterData(targetGroup, forceRefresh) || [];
-
   if (Array.isArray(freshPlayers) && freshPlayers.length > 0) {
     window.appPlayersCache = freshPlayers;
     return freshPlayers;
   }
 
-  if (window.unifiedRosterCache?.group === targetGroup && Array.isArray(window.unifiedRosterCache?.data) && window.unifiedRosterCache.data.length > 0) {
-    window.appPlayersCache = window.unifiedRosterCache.data;
-    return window.appPlayersCache;
-  }
-
   return [];
 }
 
-
-
-
-
-
-
-
-
-
-
-/**
- * Checks if a player exists in the roster cache for the given group.
- * @param {string} phone - The phone number entered by the user.
- * @param {string} selectedGroup - The group name to search within.
- * @returns {{exists: boolean, player: object|null}} Result object.
- */
-/**
- * Safely checks if a player exists in the active group's roster in frontend memory.
- */
 function checkPlayerExists(phone, group) {
   const cleanInput = String(phone || '').replace(/\D/g, '');
   if (!cleanInput || cleanInput.length < 7) {
     return { exists: false, player: null };
   }
 
-  // 1. Safely locate the player array from whatever cache structure exists
   let rosterList = [];
-
-  if (Array.isArray(window.cachedRoster)) {
+  if (group && window.groupRosterCache && Array.isArray(window.groupRosterCache[group])) {
+    rosterList = window.groupRosterCache[group];
+  } else if (Array.isArray(window.cachedRoster)) {
     rosterList = window.cachedRoster;
   } else if (window.cachedRoster && Array.isArray(window.cachedRoster.players)) {
     rosterList = window.cachedRoster.players;
@@ -1155,24 +1090,28 @@ function checkPlayerExists(phone, group) {
     rosterList = window.unifiedRoster.players;
   }
 
-  // Guard against empty or invalid roster data
   if (!Array.isArray(rosterList) || rosterList.length === 0) {
     return { exists: false, player: null };
   }
 
-  // 2. Perform safe search matching last 7 digits of phone
-  const targetLast7 = cleanInput.slice(-7);
+  const target10 = cleanInput.slice(-10);
+  const target7 = cleanInput.slice(-7);
   let matchedPlayer = null;
 
-  for (let i = 0; i < rosterList.length; i++) {
-    const p = rosterList[i];
-    if (!p) continue;
+  if (target10.length === 10) {
+    matchedPlayer = rosterList.find(p => {
+      if (!p) return false;
+      const pPhone = String(p.phone || p.Phone || p.cell || p.mobile || '').replace(/\D/g, '');
+      return pPhone.length >= 10 && pPhone.slice(-10) === target10;
+    }) || null;
+  }
 
-    const pPhone = String(p.phone || p.Phone || p.cell || '').replace(/\D/g, '');
-    if (pPhone && pPhone.length >= 7 && pPhone.endsWith(targetLast7)) {
-      matchedPlayer = p;
-      break;
-    }
+  if (!matchedPlayer && target7.length === 7) {
+    matchedPlayer = rosterList.find(p => {
+      if (!p) return false;
+      const pPhone = String(p.phone || p.Phone || p.cell || p.mobile || '').replace(/\D/g, '');
+      return pPhone.length >= 7 && pPhone.endsWith(target7);
+    }) || null;
   }
 
   return {
@@ -1244,18 +1183,20 @@ function applyTextSize(size) {
   localStorage.setItem('scpb_text_size', validSize);
 }
 
-// ==========================================
-// 2. MASTER VIEW STATE MANAGER
-// ==========================================
+
 function setAppViewState(isFound, playerData) {
   const checkinStatus = document.getElementById("checkInStatus");
   const checkinName = document.getElementById("checkinPlayerName");
   const checkinBadge = document.getElementById("checkinPlayerStatusBadge");
   const userCheckinBtn = document.getElementById("userCheckinBtn");
 
-  if (isFound && playerData && typeof playerData === 'object') {
-    const displayName = playerData.name || playerData.playerName || `${playerData.first || ''} ${playerData.last || ''}`.trim();
-    const isChecked = Boolean(playerData.checkedIn || playerData.isCheckedIn);
+  const resolvedObj = (playerData && typeof playerData === 'object')
+    ? playerData
+    : (window.activeLookupPlayer && window.activeLookupPlayer.existsOnRoster ? window.activeLookupPlayer : null);
+
+  if (isFound && resolvedObj) {
+    const displayName = resolvedObj.name || resolvedObj.playerName || `${resolvedObj.first || ''} ${resolvedObj.last || ''}`.trim() || 'Player';
+    const isChecked = isPlayerCheckedIn(resolvedObj);
 
     if (checkinName) checkinName.innerText = displayName;
     if (checkinStatus) checkinStatus.innerText = "";
@@ -1266,7 +1207,7 @@ function setAppViewState(isFound, playerData) {
     }
     if (userCheckinBtn) {
       userCheckinBtn.disabled = false;
-      userCheckinBtn.setAttribute('data-phone', playerData.phone || '');
+      userCheckinBtn.setAttribute('data-phone', resolvedObj.phone || (typeof playerData === 'string' ? playerData : '') || '');
       userCheckinBtn.setAttribute('data-name', displayName);
       userCheckinBtn.setAttribute('data-checked', String(isChecked));
       userCheckinBtn.innerText = isChecked ? "Cancel Check-In" : "Check In";
@@ -1340,23 +1281,73 @@ function showStatusLoading(message) {
 
 
 
+async function toggleStatus() {
+  logDebug(`In togglestatus...`);
+  const player = window.activeLookupPlayer || (typeof activeLookupPlayer !== 'undefined' ? activeLookupPlayer : null);
+  if (!player) return;
+
+  const statusEl = document.getElementById('phoneStatus');
+  if (statusEl) statusEl.innerText = 'Updating status...';
+
+  const groupName = player.group || (typeof getSavedGroup === 'function' ? getSavedGroup() : '');
+  const cleanPhone = String(player.phone || '').replace(/\D/g, '');
+  const playerName = player.name || (typeof getSavedName === 'function' ? getSavedName() : '');
+
+  try {
+    const res = await apiCall('toggleUnifiedActiveStatus', {
+      phone: cleanPhone,
+      playerName: playerName,
+      groupName: groupName,
+      group: groupName,
+      sheet: "Score " + groupName
+    });
+
+    if (res && res.success !== false && !res.error) {
+      const newStatus = res.newStatus || (String(player.status || '').toUpperCase() === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE');
+      const isActive = String(newStatus).toUpperCase() === 'ACTIVE';
+
+      player.status = newStatus;
+      player.active = isActive;
+      window.activeLookupPlayer = player;
+
+      if (groupName && window.groupRosterCache && Array.isArray(window.groupRosterCache[groupName])) {
+        const match = window.groupRosterCache[groupName].find(p =>
+          (playerName && String(p.name || '').trim().toLowerCase() === playerName.trim().toLowerCase()) ||
+          (cleanPhone && String(p.phone || '').replace(/\D/g, '').endsWith(cleanPhone.slice(-10)))
+        );
+        if (match) {
+          match.status = newStatus;
+          match.active = isActive;
+        }
+      }
+
+      if (typeof updateFrontStatusBadge === 'function') {
+        updateFrontStatusBadge(newStatus);
+      }
+      renderLookupResult(player, null);
+      if (statusEl) statusEl.innerText = '✅ Status updated to ' + newStatus;
+    } else {
+      if (statusEl) statusEl.innerText = '❌ Failed to update status: ' + (res?.message || res?.error || 'Server error');
+    }
+  } catch (err) {
+    console.error('toggleStatus error:', err);
+    if (statusEl) statusEl.innerText = '❌ Error updating status.';
+  }
+}
 
 
-// ==========================================
-// 5. TOGGLE PLAYER STATUS (Direct API & Sheet Sync)
-// ==========================================
+
 async function toggleStatusFromSetup() {
-  const phone = localStorage.getItem("userPhone") || 
-                localStorage.getItem("scpb_saved_phone") || 
+  const phone = localStorage.getItem("userPhone") ||
+                localStorage.getItem("scpb_saved_phone") ||
                 document.getElementById("phoneInput")?.value.trim() || "";
-  const selectedGroup = document.querySelector('input[name="helpGroupRadio"]:checked, input[name="checkinGroupRadio"]:checked')?.value || 
+  const selectedGroup = (typeof getSavedGroup === 'function' ? getSavedGroup() : '') ||
+                        document.querySelector('input[name="helpGroupRadio"]:checked, input[name="checkinGroupRadio"]:checked, input[name="adminGroupRadio"]:checked')?.value ||
                         localStorage.getItem('scpb_saved_group') || '';
 
   const cleanPhone = typeof normalizePhone === "function" ? normalizePhone(phone) : phone.replace(/\D/g, "");
   const playerName = window.activeLookupPlayer?.name || (typeof getSavedName === 'function' ? getSavedName() : '');
 
-  logDebug(`In togglestatus from Setup 2842...`);
-    
   if (!cleanPhone || cleanPhone.length < 7) {
     alert("Please enter a valid phone number first.");
     return;
@@ -1375,7 +1366,7 @@ async function toggleStatusFromSetup() {
       playerName: playerName,
       groupName: selectedGroup,
       group: selectedGroup,
-      sheet: "Sched " + selectedGroup
+      sheet: "Score " + selectedGroup
     });
 
     if (res && res.success) {
@@ -1388,20 +1379,23 @@ async function toggleStatusFromSetup() {
       window.activeLookupPlayer.status = newStatus;
       window.activeLookupPlayer.active = isActive;
 
-      if (Array.isArray(window.appPlayersCache)) {
-        const cachedPlayer = window.appPlayersCache.find(p => {
+      const updateCachedList = (list) => {
+        if (!Array.isArray(list)) return;
+        const cachedPlayer = list.find(p => {
           const pName = String(p.name || `${p.first || ''} ${p.last || ''}`).trim().toLowerCase();
           if (playerName && pName === playerName.trim().toLowerCase()) return true;
-          const pPhone = typeof normalizePhone === "function" 
-            ? normalizePhone(p.phone || p.cell || p.mobile || "") 
-            : (p.phone || "").replace(/\D/g, "");
-          return !playerName && pPhone.length >= 7 && pPhone.endsWith(cleanPhone.slice(-7));
+          const pPhone = String(p.phone || p.cell || p.mobile || "").replace(/\D/g, "");
+          return pPhone.length >= 10 && pPhone.slice(-10) === cleanPhone.slice(-10);
         });
-
         if (cachedPlayer) {
           cachedPlayer.status = newStatus;
           cachedPlayer.active = isActive;
         }
+      };
+
+      updateCachedList(window.appPlayersCache);
+      if (window.groupRosterCache && window.groupRosterCache[selectedGroup]) {
+        updateCachedList(window.groupRosterCache[selectedGroup]);
       }
 
       updateFrontStatusBadge(newStatus);
@@ -1412,11 +1406,9 @@ async function toggleStatusFromSetup() {
     } else {
       throw new Error(res?.message || "Server returned failure response");
     }
-
   } catch (err) {
     console.error("Failed to toggle status on Sheet:", err);
     alert("Failed to update status on Google Sheet. Please try again.");
-
     const prevStatus = window.activeLookupPlayer?.status || "INACTIVE";
     updateFrontStatusBadge(prevStatus);
   }
@@ -1491,18 +1483,7 @@ function cleanPhoneNumber(phone) {
   return String(phone || '').replace(/\D/g, '');
 }
 
-// Helper: Get user phone from storage or DOM inputs
-function getCurrentUserPhone() {
-  const stored = localStorage.getItem('userPhone') || 
-                 localStorage.getItem('phone') || 
-                 localStorage.getItem('userPhoneNum') || '';
-  if (stored) return stored;
 
-  const phoneEl = document.getElementById('userPhone') || 
-                  document.getElementById('checkInPhone') || 
-                  document.getElementById('phone');
-  return phoneEl ? phoneEl.value : '';
-}
 
 // ==========================================
 // HAVERSINE DISTANCE CALCULATOR
@@ -1827,41 +1808,51 @@ function getSavedPhone() {
   return localStorage.getItem('scpb_saved_phone') || localStorage.getItem('saved_phone') || '';
 }
 
-/**
- * Retrieves the saved player name from localStorage.
- * If missing, attempts to resolve it using the saved phone and cached roster array,
- * automatically saving it to localStorage once found.
- */
+
+function getCurrentUserPhone() {
+  const stored = (typeof getSavedPhone === 'function' ? getSavedPhone() : '')
+    || localStorage.getItem('scpb_saved_phone')
+    || localStorage.getItem('saved_phone')
+    || localStorage.getItem('userPhone')
+    || localStorage.getItem('phone')
+    || localStorage.getItem('userPhoneNum')
+    || '';
+  if (stored) return stored;
+
+  const phoneEl = document.getElementById('phoneInput')
+    || document.getElementById('userPhone')
+    || document.getElementById('checkInPhone')
+    || document.getElementById('phone');
+  return phoneEl ? phoneEl.value.trim() : '';
+}
+
 function getSavedName() {
-  // 1. Direct check in localStorage
   let savedName = localStorage.getItem('scpb_saved_name') || localStorage.getItem('scpb_saved_player_name') || '';
   if (savedName) {
     return savedName;
   }
 
-  // 2. Fallback: Resolve via saved phone and cached roster array
-  const savedPhone = typeof getSavedPhone === 'function' 
-    ? getSavedPhone() 
+  const savedPhone = typeof getSavedPhone === 'function'
+    ? getSavedPhone()
     : (localStorage.getItem('scpb_saved_phone') || '');
-    
-  const cleanPhone = String(savedPhone).replace(/\D/g, '');
 
-  if (cleanPhone.length === 10) {
-    // Check available cached player arrays
-    const roster = (typeof checkInPlayersCache !== 'undefined' && Array.isArray(checkInPlayersCache))
-      ? checkInPlayersCache
-      : (typeof playersCache !== 'undefined' && Array.isArray(playersCache) ? playersCache : []);
+  const cleanDigits = String(savedPhone).replace(/\D/g, '');
+  const clean10 = cleanDigits.slice(-10);
+
+  if (clean10.length === 10) {
+    const activeGroup = typeof getSavedGroup === 'function' ? getSavedGroup() : '';
+    const roster = (activeGroup && window.groupRosterCache && Array.isArray(window.groupRosterCache[activeGroup]))
+      ? window.groupRosterCache[activeGroup]
+      : (Array.isArray(window.appPlayersCache) ? window.appPlayersCache : (Array.isArray(window.cachedRoster) ? window.cachedRoster : []));
 
     if (roster.length > 0) {
       const match = roster.find(p => {
-        const pPhone = String(p.phone || p.id || p.cell || p.playerId || '').replace(/\D/g, '');
-        return pPhone === cleanPhone;
+        const pDigits = String(p.phone || p.id || p.cell || p.mobile || p.playerId || '').replace(/\D/g, '');
+        return pDigits.length >= 10 && pDigits.slice(-10) === clean10;
       });
 
       if (match) {
         savedName = `${match.first || ''} ${match.last || ''}`.trim() || match.name || match.playerName || '';
-
-        // 3. Cache retrieved name to localStorage for instant subsequent loads
         if (savedName && savedName !== 'Unknown' && savedName !== 'Player') {
           localStorage.setItem('scpb_saved_name', savedName);
           return savedName;
@@ -1909,43 +1900,46 @@ window.addEventListener('hashchange', () => {
 
 
 async function handlePlayerNotFoundInCurrentGroup(searchedPhone, currentGroup) {
-  logDebug("handlePlayerNotFoundInCurrentGroup:", searchedPhone, currentGroup);
+  const targetGroup = currentGroup || (typeof getSavedGroup === 'function' ? getSavedGroup() : '') || 'this group';
+  logDebug("handlePlayerNotFoundInCurrentGroup:", searchedPhone, targetGroup);
   const statusMsg = document.getElementById('phoneStatus') || document.getElementById('checkInStatus');
 
   try {
-    // 1. Search all other groups for this phone number
-//    const crossRes = await apiCall('findPlayerAcrossGroups', { phone: searchedPhone });
-      const crossRes = null;
-    if (crossRes && crossRes.found && crossRes.player) {
-      const p = crossRes.player;
+    const crossRes = await apiCall('findPlayerAcrossGroups', { phone: searchedPhone });
+    const foundPlayer = crossRes && (crossRes.player || (crossRes.found ? crossRes : null));
 
-      // 2. Auto-fill registration input fields on active tab
+    if (foundPlayer && (foundPlayer.firstName || foundPlayer.first || foundPlayer.name)) {
       const firstInput = document.getElementById('frontRegFirst') || document.getElementById('regFirst');
       const lastInput = document.getElementById('frontRegLast') || document.getElementById('regLast');
       const phoneInput = document.getElementById('frontRegPhone') || document.getElementById('regPhone');
       const emailInput = document.getElementById('frontRegEmail') || document.getElementById('regEmail');
 
-      if (firstInput) firstInput.value = p.firstName;
-      if (lastInput) lastInput.value = p.lastName;
-      if (phoneInput) phoneInput.value = p.phone || searchedPhone;
-      if (emailInput) emailInput.value = p.email || '';
+      const nameParts = String(foundPlayer.name || '').trim().split(/\s+/);
+      const firstName = foundPlayer.firstName || foundPlayer.first || nameParts[0] || '';
+      const lastName = foundPlayer.lastName || foundPlayer.last || nameParts.slice(1).join(' ') || '';
 
-      // 3. Reveal and expand registration form
+      if (firstInput) firstInput.value = firstName;
+      if (lastInput) lastInput.value = lastName;
+      if (phoneInput) phoneInput.value = foundPlayer.phone || searchedPhone;
+      if (emailInput) emailInput.value = foundPlayer.email || '';
+
       const helpAccordion = document.getElementById('registrationAccordion');
       if (helpAccordion) helpAccordion.open = true;
 
       const regSection = document.getElementById('registrationSection');
       if (regSection) regSection.style.display = 'block';
 
-      // 4. Prompt user with auto-fill notification
       if (statusMsg) {
-        statusMsg.innerHTML = `ℹ️ Found profile in group <strong>"${p.foundInGroup}"</strong>! Details filled below. Click <strong>Register</strong> to join <strong>"${currentGroup}"</strong>.`;
-        statusMsg.style.color = "#0d6efd"; // Info blue
+        const sourceGroup = foundPlayer.foundInGroup || foundPlayer.group || 'another group';
+        statusMsg.innerHTML = `ℹ️ Found profile in group <strong>"${escapeHtml(sourceGroup)}"</strong>! Details filled below. Click <strong>Register</strong> to join <strong>"${escapeHtml(targetGroup)}"</strong>.`;
+        statusMsg.style.color = "#0d6efd";
       }
     } else {
-      // Standard new player registration prompt
+      const phoneInput = document.getElementById('frontRegPhone') || document.getElementById('regPhone');
+      if (phoneInput && !phoneInput.value) phoneInput.value = searchedPhone;
+
       if (statusMsg) {
-        statusMsg.innerText = `Phone number not registered. Please complete registration below for ${currentGroup}.`;
+        statusMsg.innerText = `Phone number not registered. Please complete registration below for ${targetGroup}.`;
         statusMsg.style.color = "#dc3545";
       }
 
@@ -1961,11 +1955,10 @@ async function handlePlayerNotFoundInCurrentGroup(searchedPhone, currentGroup) {
 }
 
 async function checkRegistrationStatus(phone) {
-  logDebug("checkregistrationstatus:", phone);
+  logDebug("checkRegistrationStatus:", phone);
   const cleanPhoneInput = String(phone || '').replace(/\D/g, '');
   const statusMsg = document.getElementById('phoneStatus') || document.getElementById('checkInStatus');
-
-  localStorage.removeItem('scpb_saved_phone'); // Clean up old key as they start typine
+  const currentGroup = typeof getSavedGroup === 'function' ? getSavedGroup() : '';
 
   if (!cleanPhoneInput || cleanPhoneInput.length < 10) {
     if (statusMsg) {
@@ -1975,32 +1968,35 @@ async function checkRegistrationStatus(phone) {
     return;
   }
 
-  // 1. Check current group roster in frontend memory
-  const roster = window.cachedRoster || window.unifiedRoster || [];
+  const target10 = cleanPhoneInput.slice(-10);
+  const roster = (currentGroup && window.groupRosterCache && window.groupRosterCache[currentGroup])
+    || window.cachedRoster
+    || window.unifiedRoster
+    || [];
+
   const foundInCurrent = roster.find(p => {
-    const pPhone = String(p.phone || '').replace(/\D/g, '');
-    return pPhone && pPhone.endsWith(cleanPhoneInput.slice(-7));
+    const pPhone = String(p.phone || p.cell || p.mobile || '').replace(/\D/g, '');
+    return pPhone.length >= 10 && pPhone.slice(-10) === target10;
   });
 
   if (foundInCurrent) {
-    // Found in current group -> Load Dashboard
-    localStorage.setItem('registered_' + cleanPhoneInput, 'true');
-    localStorage.setItem('scpb_saved_phone', cleanPhoneInput);
-    if (typeof loadActivePlayerDashboard === 'function') loadActivePlayerDashboard();
+    const pName = foundInCurrent.name || `${foundInCurrent.first || ''} ${foundInCurrent.last || ''}`.trim();
+    localStorage.setItem('registered_' + target10, 'true');
+    if (typeof savePlayerCredentials === 'function') {
+      savePlayerCredentials(target10, pName);
+    } else {
+      localStorage.setItem('scpb_saved_phone', target10);
+    }
+    if (typeof loadPlayerStatusFromCache === 'function') {
+      await loadPlayerStatusFromCache(target10);
+    }
     return;
   }
 
-  // 2. NOT in current group -> Call handlePlayerNotFoundInCurrentGroup
-  await handlePlayerNotFoundInCurrentGroup(cleanPhoneInput);
+  await handlePlayerNotFoundInCurrentGroup(target10, currentGroup);
 }
 
 
-/**
- * Handles checking registration and auto-checking in based on user role
- */
-/**
- * Handles checking registration and auto-checking in based on user role
- */
 async function savePhoneToCache(explicitPhone) {
   const phoneInput = document.getElementById('phoneInput');
   let rawPhone = (typeof explicitPhone === 'string' && explicitPhone.trim())
@@ -2034,21 +2030,26 @@ async function savePhoneToCache(explicitPhone) {
   let isRegisteredMatch = false;
 
   try {
-    // 1. Fetch current roster to check registration (matching last 7 digits)
     const roster = await loadUnifiedRosterData(currentGroup, false) || [];
-    const targetTail = phone.slice(-7);
+    const target10 = phone.slice(-10);
+    const target7 = phone.slice(-7);
 
-    const matchedPlayer = roster.find(p => {
+    let matchedPlayer = roster.find(p => {
       const pPhone = String(p.phone || p.cell || p.mobile || p.id || p.playerId || '').replace(/\D/g, '');
-      return pPhone.length >= 7 && pPhone.endsWith(targetTail);
+      return pPhone.length >= 10 && pPhone.slice(-10) === target10;
     });
+
+    if (!matchedPlayer) {
+      matchedPlayer = roster.find(p => {
+        const pPhone = String(p.phone || p.cell || p.mobile || p.id || p.playerId || '').replace(/\D/g, '');
+        return pPhone.length >= 7 && pPhone.endsWith(target7);
+      });
+    }
 
     const regAccordion = document.getElementById('registrationAccordion');
 
     if (matchedPlayer) {
       isRegisteredMatch = true;
-
-      // A. Keep "New Player" detail box collapsed
       if (regAccordion) regAccordion.open = false;
 
       const pName = `${matchedPlayer.first || ''} ${matchedPlayer.last || ''}`.trim()
@@ -2057,15 +2058,12 @@ async function savePhoneToCache(explicitPhone) {
         || '';
       savePlayerCredentials(phone, pName);
 
-      // Sync front status badge & welcome banner
       if (typeof loadPlayerStatusFromCache === 'function') {
         await loadPlayerStatusFromCache(phone);
       }
 
-      // B. Auto Check-In
       const checkinResult = await triggerAutoCheckIn();
 
-      // C. Routing logic based on Admin status
       const isAdmin = (typeof isUserAdmin === 'function') && isUserAdmin(phone);
       if (isAdmin) {
         if (typeof checkAndUnlockAdmin === 'function') checkAndUnlockAdmin(phone);
@@ -2079,8 +2077,6 @@ async function savePhoneToCache(explicitPhone) {
         }
       }
     } else {
-      // --- UNREGISTERED PLAYER ---
-      // Expand detail box so they can register
       if (regAccordion) regAccordion.open = true;
       alert(`⚠️ Phone number not registered in ${currentGroup}. Please complete registration in the box below.`);
     }
@@ -2097,11 +2093,31 @@ async function savePhoneToCache(explicitPhone) {
 }
 
 
-/**
- * Synchronizes group state between localStorage and UI radio inputs across all tabs
- */
+function syncGroupRadioUI(explicitGroup) {
+  const rawGroup = explicitGroup
+    || localStorage.getItem('scpb_selected_group')
+    || localStorage.getItem('scpb_saved_group')
+    || '';
+
+  const cleanGroup = String(rawGroup).replace(/^(Sched|Score)\s*/i, '').trim();
+
+  const allGroupRadios = document.querySelectorAll(
+    'input[name="helpGroupRadio"], input[name="checkinGroupRadio"], input[name="adminGroupRadio"]'
+  );
+
+  allGroupRadios.forEach(radio => {
+    radio.checked = Boolean(cleanGroup) && (radio.value.toLowerCase() === cleanGroup.toLowerCase());
+  });
+
+  document.querySelectorAll('.active-group-label').forEach(el => {
+    el.textContent = cleanGroup || '--';
+  });
+}
+
 function getSavedGroup() {
-  const selectedRadio = document.querySelector('input[name="helpGroupRadio"]:checked, input[name="checkinGroupRadio"]:checked');
+  const selectedRadio = document.querySelector(
+    'input[name="helpGroupRadio"]:checked, input[name="checkinGroupRadio"]:checked, input[name="adminGroupRadio"]:checked'
+  );
   if (selectedRadio && selectedRadio.value) {
     const cleanGroup = String(selectedRadio.value).replace(/^(Sched|Score)\s*/i, '').trim();
     localStorage.setItem('scpb_saved_group', cleanGroup);
@@ -2116,13 +2132,21 @@ function setSavedGroup(groupName) {
   const cleanGroup = String(groupName).replace(/^(Sched|Score)\s*/i, '').trim();
   localStorage.setItem('scpb_saved_group', cleanGroup);
   localStorage.setItem('scpb_selected_group', cleanGroup);
-  
-  // Sync all radio elements matching this group name across all tabs
-  const radios = document.querySelectorAll('input[name="helpGroupRadio"], input[name="checkinGroupRadio"]');
+
+  const radios = document.querySelectorAll(
+    'input[name="helpGroupRadio"], input[name="checkinGroupRadio"], input[name="adminGroupRadio"]'
+  );
   radios.forEach(radio => {
     radio.checked = (radio.value.toLowerCase() === cleanGroup.toLowerCase());
   });
 }
+
+document.addEventListener('change', (e) => {
+  if (e.target && ['helpGroupRadio', 'checkinGroupRadio', 'adminGroupRadio'].includes(e.target.name)) {
+    setSavedGroup(e.target.value);
+  }
+});
+
 
 // 1. Update restoreActiveTabOnLoad to ensure saved group is loaded into memory first
 function restoreActiveTabOnLoad() {
@@ -2140,12 +2164,6 @@ function restoreActiveTabOnLoad() {
 }
 
 
-let refreshing = false;
-navigator.serviceWorker.addEventListener('controllerchange', () => {
-  if (refreshing) return;
-  refreshing = true;
-  window.location.reload();
-});  
 
 // Global listener: Persist group selection immediately when clicked on any tab
 document.addEventListener('change', (e) => {
@@ -2177,91 +2195,42 @@ function forceRefreshData(groupName) {
 
 
 
-function handleManualRefresh() {
-  const btn = document.getElementById("refreshDataBtn");
-  const originalText = btn.innerHTML;
-  btn.innerHTML = "⏳ Refreshing...";
-  btn.disabled = true;
-
-  // Assumes 'currentGroup' is stored globally in your front-end JS
-  google.script.run
-    .withSuccessHandler(function(freshData) {
-      btn.innerHTML = originalText;
-      btn.disabled = false;
-      // Call your existing front-end render function here
-      // renderRosterUI(freshData); 
-    })
-    .withFailureHandler(function(err) {
-      btn.innerHTML = originalText;
-      btn.disabled = false;
-      alert("Failed to refresh: " + err.message);
-    })
-    .forceRefreshData(currentGroup);
+let refreshing = false;
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (refreshing) return;
+    refreshing = true;
+    window.location.reload();
+  });
 }
-/**
- * Handles phone lookup execution and mapping to UI.
- * Supports passing either boolean (forceRefresh) or string (phone number).
- */
-async function lookupPhone(forceRefresh = false) {
-  const phoneInput = document.getElementById('phoneInput') || document.getElementById('lookupPhoneInput');
-  const rawPhone = (typeof getSavedPhone === 'function' ? getSavedPhone() : '') || (phoneInput?.value || '').trim();
-  const phoneDigits = String(rawPhone).replace(/\D/g, '').slice(-10);
-  const group = (typeof getSavedGroup === 'function' ? getSavedGroup() : '')
-    || document.querySelector('input[name="helpGroupRadio"]:checked, input[name="checkinGroupRadio"]:checked, input[name="adminGroupRadio"]:checked')?.value
-    || '';
-  const savedName = typeof getSavedName === 'function' ? getSavedName() : '';
 
-  if (phoneDigits.length < 7 || !group) return;
+async function handleManualRefresh() {
+  const btn = document.getElementById("refreshDataBtn") || document.getElementById("forceRefreshBtn");
+  const originalText = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.innerHTML = "⏳ Refreshing...";
+    btn.disabled = true;
+  }
 
   try {
-    const res = await apiCall('findFoursomeByPhone', {
-      phone: phoneDigits,
-      group: group,
-      sheet: 'Sched ' + group,
-      name: savedName,
-      forceRefresh: Boolean(forceRefresh)
-    });
-
-    const data = (res && res.data && typeof res.data === 'object') ? res.data : res;
-
-    if (data && (data.found || Array.isArray(data.foursome) || Array.isArray(data.players))) {
-      const playerObj = data.player || window.activeLookupPlayer || {
-        name: savedName || 'Player',
-        phone: phoneDigits,
-        group: group,
-        court: data.court || '',
-        status: 'ACTIVE'
-      };
-      if (!playerObj.group) playerObj.group = group;
-      const foursomeList = data.foursome || data.players || [];
-      renderLookupResult(playerObj, foursomeList, data.courtScores || null);
-      return;
+    const currentGroup = typeof getSavedGroup === 'function' ? getSavedGroup() : '';
+    if (currentGroup) {
+      await forceRefreshData(currentGroup);
     }
-
-    // Fallback: derive court mates from cached/live unified roster if schedule is posted
-    const roster = await loadUnifiedRosterData(group, Boolean(forceRefresh));
-    const me = Array.isArray(roster) ? roster.find(p => {
-      const pName = String(p.name || '').trim().toLowerCase();
-      if (savedName && pName === savedName.trim().toLowerCase()) return true;
-      const pDigits = String(p.phone || '').replace(/\D/g, '').slice(-10);
-      return pDigits && pDigits === phoneDigits;
-    }) : null;
-
-    if (me) {
-      const courtStr = String(me.court || '').trim();
-      const courtGroup = (courtStr && courtStr !== 'BYE' && courtStr !== 'NoSchedYet')
-        ? roster.filter(p => String(p.court || '').trim() === courtStr)
-        : [];
-      renderLookupResult({
-        ...me,
-        group: group,
-        status: me.active === false ? 'INACTIVE' : 'ACTIVE'
-      }, courtGroup, null);
+    if (typeof refreshActiveTabData === 'function') {
+      await refreshActiveTabData(true);
     }
   } catch (err) {
-    console.error('Lookup error:', err);
+    console.error("Manual refresh failed:", err);
+    alert("Failed to refresh: " + (err.message || err));
+  } finally {
+    if (btn) {
+      btn.innerHTML = originalText;
+      btn.disabled = false;
+    }
   }
 }
+
 
 
 
@@ -2533,6 +2502,69 @@ function renderRankingsAndSchedule(rawData) {
 
 
 
+async function lookupPhone(forceRefreshOrPhone = false) {
+  const explicitPhone = typeof forceRefreshOrPhone === 'string' ? forceRefreshOrPhone.trim() : '';
+  const forceRefresh = typeof forceRefreshOrPhone === 'boolean' ? forceRefreshOrPhone : false;
+
+  const phoneInput = document.getElementById('phoneInput') || document.getElementById('lookupPhoneInput');
+  const rawPhone = explicitPhone || (typeof getSavedPhone === 'function' ? getSavedPhone() : '') || (phoneInput?.value || '').trim();
+  const phoneDigits = String(rawPhone).replace(/\D/g, '').slice(-10);
+  const group = (typeof getSavedGroup === 'function' ? getSavedGroup() : '')
+    || document.querySelector('input[name="helpGroupRadio"]:checked, input[name="checkinGroupRadio"]:checked, input[name="adminGroupRadio"]:checked')?.value
+    || '';
+  const savedName = typeof getSavedName === 'function' ? getSavedName() : '';
+
+  if (phoneDigits.length < 7 || !group) return;
+
+  try {
+    const res = await apiCall('findFoursomeByPhone', {
+      phone: phoneDigits,
+      group: group,
+      sheet: 'Sched ' + group,
+      name: savedName,
+      forceRefresh: forceRefresh
+    });
+
+    const data = (res && res.data && typeof res.data === 'object') ? res.data : res;
+
+    if (data && (data.found || Array.isArray(data.foursome) || Array.isArray(data.players))) {
+      const playerObj = data.player || window.activeLookupPlayer || {
+        name: savedName || 'Player',
+        phone: phoneDigits,
+        group: group,
+        court: data.court || '',
+        status: 'ACTIVE'
+      };
+      if (!playerObj.group) playerObj.group = group;
+      const foursomeList = data.foursome || data.players || [];
+      renderLookupResult(playerObj, foursomeList, data.courtScores || null);
+      return;
+    }
+
+    const roster = await loadUnifiedRosterData(group, forceRefresh);
+    const me = Array.isArray(roster) ? (
+      roster.find(p => {
+        const pDigits = String(p.phone || p.cell || p.mobile || '').replace(/\D/g, '').slice(-10);
+        return pDigits && pDigits === phoneDigits;
+      }) || (savedName ? roster.find(p => String(p.name || '').trim().toLowerCase() === savedName.trim().toLowerCase()) : null)
+    ) : null;
+
+    if (me) {
+      const courtStr = String(me.court || '').trim();
+      const courtGroup = (courtStr && courtStr.toUpperCase() !== 'BYE' && courtStr !== 'NoSchedYet')
+        ? roster.filter(p => String(p.court || '').trim() === courtStr)
+        : [];
+      renderLookupResult({
+        ...me,
+        group: group,
+        status: me.active === false ? 'INACTIVE' : 'ACTIVE'
+      }, courtGroup, null);
+    }
+  } catch (err) {
+    console.error('Lookup error:', err);
+  }
+}
+
 function renderLookupResult(dataOrPlayer, foursomeOrPhone, courtScores) {
   const regEl = document.getElementById('registrationSection');
   const container = document.getElementById('lookupResult') || document.getElementById('courtLookupResult');
@@ -2540,7 +2572,6 @@ function renderLookupResult(dataOrPlayer, foursomeOrPhone, courtScores) {
   if (!container) return;
   container.style.display = 'block';
 
-  // Normalize both (data, searchedPhone) and legacy (player, foursome, courtScores) calls
   let data = dataOrPlayer;
   if (dataOrPlayer && typeof dataOrPlayer === 'object' && Array.isArray(foursomeOrPhone)) {
     const pName = dataOrPlayer.name || `${dataOrPlayer.first || ''} ${dataOrPlayer.last || ''}`.trim();
@@ -2584,16 +2615,17 @@ function renderLookupResult(dataOrPlayer, foursomeOrPhone, courtScores) {
   window.currentCourtPlayers = players;
   window.currentLookupGroup = data.group || playerObj.group || '';
 
-  // Populate persistent header elements if present in index.html
   const nameDisp = document.getElementById('pNameDisplay');
   const groupDisp = document.getElementById('pGroupDisplay');
   const courtDisp = document.getElementById('pCourtDisplay');
   const badge = document.getElementById('pStatusDisplay');
   const scoreContainer = document.getElementById('scoreInputsContainer');
 
+  const assignedCourt = String(data.court || playerObj.court || '').trim();
+
   if (nameDisp) nameDisp.innerText = data.playerName || playerObj.name || 'Player';
   if (groupDisp) groupDisp.innerText = window.currentLookupGroup;
-  if (courtDisp) courtDisp.innerText = data.court || playerObj.court || '';
+  if (courtDisp) courtDisp.innerText = assignedCourt;
   if (badge) {
     const isActive = String(playerObj.status || 'ACTIVE').toUpperCase() === 'ACTIVE';
     badge.innerText = isActive ? 'Active' : 'Inactive';
@@ -2607,8 +2639,10 @@ function renderLookupResult(dataOrPlayer, foursomeOrPhone, courtScores) {
   const matchups = getCourtMatchups(players.length);
   let gamesHtml = '';
 
-  if (!matchups.length) {
-    gamesHtml = `<div class="notice">⚠️ Active 4, 5, or 6-player court assignment required (${escapeHtml(data.court || playerObj.court || 'Unassigned')}).</div>`;
+  if (assignedCourt.toUpperCase() === 'BYE') {
+    gamesHtml = `<div class="notice">⏸️ You have a <strong>BYE</strong> this week — no match scores to enter.</div>`;
+  } else if (!matchups.length) {
+    gamesHtml = `<div class="notice">⚠️ Active 4, 5, or 6-player court assignment required (${escapeHtml(assignedCourt || 'Unassigned')}).</div>`;
   } else {
     matchups.forEach((match, idx) => {
       const g = idx + 1;
@@ -2664,13 +2698,12 @@ function renderLookupResult(dataOrPlayer, foursomeOrPhone, courtScores) {
     });
   }
 
-  // Write into #scoreInputsContainer if index.html provides the structured card; otherwise render standalone
   if (scoreContainer) {
     scoreContainer.innerHTML = gamesHtml;
   } else {
     container.innerHTML = `
       <div class="court-banner">
-        <strong>${escapeHtml(data.playerName || 'Player')}</strong> — ${escapeHtml(data.court || '')} (${escapeHtml(window.currentLookupGroup)})
+        <strong>${escapeHtml(data.playerName || 'Player')}</strong> — ${escapeHtml(assignedCourt)} (${escapeHtml(window.currentLookupGroup)})
       </div>
       ${gamesHtml}
     `;
@@ -2729,7 +2762,7 @@ async function submitSingleGameScore(gameNum, btnElement) {
     });
   }
 
-  const groupName = window.currentLookupGroup || (typeof getSavedGroup === 'function' ? getSavedGroup() : '');
+  const groupName = (typeof getSavedGroup === 'function' ? getSavedGroup() : '') || window.currentLookupGroup || '';
   const submitterName = (typeof getSavedName === 'function' ? getSavedName() : '') || (typeof getSavedPhone === 'function' ? getSavedPhone() : '');
   const origText = btn ? btn.innerText : `Submit Game ${gameNum}`;
 
@@ -2746,7 +2779,7 @@ async function submitSingleGameScore(gameNum, btnElement) {
       scores: scoresPayload
     });
 
-    const isSuccess = Boolean(res && (res.success === true || String(res.message || '').includes('Successfully')));
+    const isSuccess = Boolean(res && res.success !== false && !res.error && (res.success === true || String(res.message || '').includes('Successfully')));
     showFeedback((res && res.message) || (isSuccess ? `✅ Game ${gameNum} saved!` : 'Error submitting scores.'), isSuccess ? 'success' : 'danger');
 
     if (isSuccess) {
@@ -2770,6 +2803,7 @@ async function submitSingleGameScore(gameNum, btnElement) {
     }
   }
 }
+
 
 function validateGameScoreInput(input, options = {}) {
   const min = options.min !== undefined ? options.min : 0;
@@ -2883,6 +2917,7 @@ async function toggleCheckInPlayer(playerName, newState, btnEl) {
   }
 }
 
+
 async function refreshActiveTabData(forceRefresh = false) {
   const activeTab = localStorage.getItem('activeTab') || 'help';
   const currentGroup = getSavedGroup();
@@ -2911,10 +2946,12 @@ async function refreshActiveTabData(forceRefresh = false) {
         await loadPlayerStatusFromCache(savedPhone);
       }
     } else if (activeTab === 'admin') {
-      if (typeof triggerAutoCheckIn === 'function') await triggerAutoCheckIn();
       if (typeof renderAdminCourts === 'function') await renderAdminCourts(currentGroup);
-      if (typeof loadAdminTabData === 'function') await loadAdminTabData(currentGroup);
-      if (typeof loadAdminPlayerStatusCache === 'function') await loadAdminPlayerStatusCache(currentGroup);
+      if (typeof loadAdminTabData === 'function') {
+        await loadAdminTabData(currentGroup);
+      } else if (typeof loadAdminPlayerStatusCache === 'function') {
+        await loadAdminPlayerStatusCache(currentGroup, forceRefresh);
+      }
     } else if (activeTab === 'ranksched' || activeTab === 'schedule') {
       if (typeof loadRankingsAndSched === 'function') {
         await loadRankingsAndSched(currentGroup);
@@ -2922,7 +2959,7 @@ async function refreshActiveTabData(forceRefresh = false) {
     } else if (activeTab === 'scoreTab' || activeTab === 'score' || activeTab === 'phone') {
       if (typeof triggerAutoCheckIn === 'function') await triggerAutoCheckIn();
       if (typeof lookupPhone === 'function') {
-        await lookupPhone();
+        await lookupPhone(forceRefresh);
       }
     } else if (activeTab === 'help') {
       const savedPhone = typeof getSavedPhone === 'function' ? getSavedPhone() : '';
@@ -2968,4 +3005,13 @@ function getCourtMatchups(numPlayers) {
     ];
   }
   return [];
+}
+
+function isPlayerCheckedIn(player) {
+  if (!player) return false;
+  const raw = player.checkedIn ?? player.isCheckedIn ?? player.checked ?? player.checkIn;
+  if (raw === true) return true;
+  if (!raw) return false;
+  const str = String(raw).trim().toLowerCase();
+  return str.length > 0 && !['false', 'no', '0', 'unchecked', 'none', 'n/a'].includes(str);
 }
