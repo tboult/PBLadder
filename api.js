@@ -2194,16 +2194,6 @@ function forceRefreshData(groupName) {
 }
 
 
-
-let refreshing = false;
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (refreshing) return;
-    refreshing = true;
-    window.location.reload();
-  });
-}
-
 async function handleManualRefresh() {
   const btn = document.getElementById("refreshDataBtn") || document.getElementById("forceRefreshBtn");
   const originalText = btn ? btn.innerHTML : '';

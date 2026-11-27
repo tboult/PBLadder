@@ -1137,7 +1137,9 @@ function updateAdminDashboard(forceRefresh = false) {
     const checkInVal = player.checkedIn ?? player.isCheckedIn ?? player.checked ?? player.checkIn;
     const checkInStr = String(checkInVal ?? '').trim().toLowerCase();
     const isCheckedIn = checkInVal === true
+      || checkInVal === 1
       || checkInStr === 'true'
+      || checkInStr === '1'
       || checkInStr === 'x'
       || checkInStr === 'yes'
       || checkInStr === 'checked in'
@@ -1182,10 +1184,11 @@ function updateAdminDashboard(forceRefresh = false) {
   setStat(['adminTotalPlayers', 'admin-total-players', 'statTotalPlayers'], realPlayers.length);
   setStat(['adminActivePlayers', 'admin-active-count', 'statActivePlayers'], activeCount);
   setStat(['adminInactivePlayers', 'admin-inactive-count', 'statInactivePlayers'], inactiveCount);
-  setStat(['adminCheckedInCount', 'admin-checked-in-count', 'statCheckedIn'], checkedInCount);
+  setStat(['adminCheckedInCount', 'admin-checked-in-count', 'statCheckedIn', 'live-player-count'], checkedInCount);
   setStat(['adminProjectedCourts', 'admin-projected-courts', 'statProjectedCourts'], projectedCourts);
-  setStat(['adminProjectedByes', 'admin-projected-byes', 'statProjectedByes'], projectedByes);
+  setStat(['adminProjectedByes', 'admin-projected-byes', 'statProjectedByes', 'projected-byes'], projectedByes);
 }
+
 
 
 
