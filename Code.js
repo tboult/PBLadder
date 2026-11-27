@@ -80,29 +80,24 @@ function getAvailableGroups() { return GROUPS; }
 // In-Memory Global Memoization Cache for single-execution reuse
 var _ROSTER_LOOKUP_CACHE = null;
 
-/**
- * Evaluates whether a check-in cell value indicates a checked-in state.
- * Returns true for truthy booleans, Date objects, timestamps, or non-blank text.
- */
 function isCheckInTrue(val) {
-  if (val === null || val === undefined || val === false) return false;
-  if (val instanceof Date) return true;
-  
-  let str = String(val).trim().toLowerCase();
-  if (str === "" || str === "false" || str === "0" || str === "no") return false;
-  
-  return true;
+  if (typeof isValidCheckInCell_ === "function") {
+    return isValidCheckInCell_(val);
+  }
+  if (val === null || val === undefined || val === false || val === "") return false;
+  if (val instanceof Date) {
+    if (val.getFullYear() < 2020) return false; // Rejects 12/30/1899 time-only values
+    const FOUR_HOURS_MS = 4 * 60 * 60 * 1000;
+    const now = Date.now();
+    return (now - val.getTime()) <= FOUR_HOURS_MS && (val.getTime() - now) <= 5 * 60 * 1000;
+  }
+  const str = String(val).trim().toLowerCase();
+  if (str === "x") return true;
+  if (["", "false", "true", "0", "1", "no", "yes", "unchecked", "none", "n/a"].includes(str)) return false;
+  if (str.includes("1899") || /^\d{1,2}:\d{2}(:\d{2})?(\s*[ap]m)?$/i.test(str)) return false;
+  const parsed = Date.parse(str);
+  return !isNaN(parsed) && (Date.now() - parsed) <= 4 * 60 * 60 * 1000;
 }
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -4027,7 +4022,7 @@ function getRankingsAndSchedData(groupName) {
         const entry = {
           name: pName,
           court: court,
-          checkedIn: checkIdx !== -1 ? Boolean(String(row[checkIdx] || "").trim()) : false,
+          checkedIn: checkIdx !== -1 ? isCheckInTrue(row[checkIdx]) : false,
           total: (totIdx !== -1 && row[totIdx] !== "" && row[totIdx] !== null) ? row[totIdx] : ""
         };
 

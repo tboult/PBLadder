@@ -92,15 +92,7 @@ function filterAdminPlayers() {
       || String(player.active).toLowerCase() === 'true'
       || String(player.status).toLowerCase() === 'active';
 
-    const checkInVal = player.checkedIn ?? player.isCheckedIn ?? player.checked ?? player.checkIn;
-    const checkInStr = String(checkInVal ?? '').trim().toLowerCase();
-    const isCheckedIn = checkInVal === true
-      || checkInStr === 'true'
-      || checkInStr === 'x'
-      || checkInStr === 'yes'
-      || checkInStr === 'checked in'
-      || (typeof checkInVal === 'string' && checkInStr.length > 0 && !['false', 'no', '0', 'unchecked', 'none'].includes(checkInStr))
-      || String(player.status).toLowerCase() === 'checked in';
+    const isCheckedIn = isAdminPlayerCheckedIn(player)
 
     const rawScore = (player.score !== undefined && player.score !== null)
       ? player.score
@@ -1134,18 +1126,7 @@ function updateAdminDashboard(forceRefresh = false) {
       || String(player.active).toLowerCase() === 'true'
       || String(player.status).toLowerCase() === 'active';
 
-    const checkInVal = player.checkedIn ?? player.isCheckedIn ?? player.checked ?? player.checkIn;
-    const checkInStr = String(checkInVal ?? '').trim().toLowerCase();
-    const isCheckedIn = checkInVal === true
-      || checkInVal === 1
-      || checkInStr === 'true'
-      || checkInStr === '1'
-      || checkInStr === 'x'
-      || checkInStr === 'yes'
-      || checkInStr === 'checked in'
-      || (typeof checkInVal === 'string' && checkInStr.length > 0 && !['false', 'no', '0', 'unchecked', 'none', 'n/a'].includes(checkInStr))
-      || String(player.status).toLowerCase() === 'checked in';
-
+    const isCheckedIn = isAdminPlayerCheckedIn(player)
     if (isActive) activeCount++;
     if (isCheckedIn) checkedInCount++;
   });
@@ -1193,3 +1174,24 @@ function updateAdminDashboard(forceRefresh = false) {
 
 
 
+
+function isAdminPlayerCheckedIn(player) {
+  if (!player) return false;
+  const val = player.checkedIn ?? player.isCheckedIn ?? player.checked ?? player.checkIn;
+  if (val === true) return true;
+  if (val === null || val === undefined || val === false || val === 0) return false;
+
+  const str = String(val).trim();
+  if (!str) return false;
+  const lower = str.toLowerCase();
+  if (lower === 'x') return true;
+  if (['false', 'no', '0', 'unchecked', 'none', 'n/a'].includes(lower)) return false;
+  if (lower.includes('1899') || /^\d{1,2}:\d{2}(:\d{2})?(\s*[ap]m)?$/i.test(lower)) return false;
+
+  const parsedMs = Date.parse(str);
+  if (!isNaN(parsedMs)) {
+    const FOUR_HOURS_MS = 4 * 60 * 60 * 1000;
+    return (Date.now() - parsedMs) <= FOUR_HOURS_MS && (parsedMs - Date.now()) <= 5 * 60 * 1000;
+  }
+  return false;
+}
