@@ -2259,8 +2259,9 @@ function runMenuClearSchedule(groupSelection) {
 
 /**
  * Synchronizes 'Sched [Group]' against 'Score [Group]':
- * 1. PRUNES rows on Sched sheet for players who were DELETED or marked INACTIVE/QUIT on Score sheet (and temporary Unknown placeholders).
- * 2. SYNCS valid players from Score sheet who are missing from Sched sheet.
+ * 1. Keeps ALL players on 'Score [Group]' (Active and Inactive) on 'Sched [Group]' so any player can check in.
+ * 2. Prunes only rows for players deleted from 'Score [Group]' (or marked QUIT/DROPPED/REMOVED), duplicates, and temporary Unknown placeholders.
+ * 3. Adds any missing players from 'Score [Group]' to 'Sched [Group]' with their phone number in Column M.
  */
 function syncScoreSheetPlayersToSched(ss, cleanGroup, schedSheet) {
   try {
@@ -2279,20 +2280,28 @@ function syncScoreSheetPlayersToSched(ss, cleanGroup, schedSheet) {
     let lastIdx = scoreHeaders.findIndex(h => /last|lname|l_name/i.test(h));
     let singleNameIdx = scoreHeaders.findIndex(h => /player|full\s*name|^name$/i.test(h));
     let statusIdx = scoreHeaders.findIndex(h => /status|active|state/i.test(h));
+    let scorePhoneIdx = scoreHeaders.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
 
     const isSeparateFirstLast = (firstIdx !== -1 && lastIdx !== -1);
     const normOf = (str) => typeof normalizeName === "function"
       ? normalizeName(str)
       : String(str || "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+    const cleanP = (p) => {
+      if (p === null || p === undefined) return "";
+      if (typeof p === "number") p = p.toFixed(0);
+      return String(p).replace(/\D/g, "");
+    };
 
     const validScoreRosterSet = new Set();
     const validScoreRosterList = [];
+    const scorePhoneByNormName = {};
 
     for (let r = 1; r < scoreData.length; r++) {
       const row = scoreData[r];
       const statusVal = statusIdx !== -1 ? String(row[statusIdx] || '').toUpperCase().trim() : "ACTIVE";
 
-      if (/QUIT|DROPPED|REMOVED|INACTIVE/i.test(statusVal)) continue;
+      // Include INACTIVE players so they stay on Sched and can check in; only exclude permanently removed players
+      if (/QUIT|DROPPED|REMOVED/i.test(statusVal)) continue;
 
       let fullName = "";
       if (isSeparateFirstLast) {
@@ -2306,9 +2315,12 @@ function syncScoreSheetPlayersToSched(ss, cleanGroup, schedSheet) {
       if (!fullName || /^total|^summary|^average|^rank|^court/i.test(fullName)) continue;
 
       const normKey = normOf(fullName);
+      const phoneDigits = scorePhoneIdx !== -1 ? cleanP(row[scorePhoneIdx]) : "";
+
       if (normKey && !validScoreRosterSet.has(normKey)) {
         validScoreRosterSet.add(normKey);
-        validScoreRosterList.push(fullName);
+        validScoreRosterList.push({ name: fullName, phone: phoneDigits });
+        if (phoneDigits) scorePhoneByNormName[normKey] = phoneDigits;
       }
     }
 
@@ -2319,6 +2331,9 @@ function syncScoreSheetPlayersToSched(ss, cleanGroup, schedSheet) {
     let schedNameIdx = schedHeaders.findIndex(h => /player|full\s*name|^name$/i.test(h));
     if (schedNameIdx === -1) schedNameIdx = 0;
 
+    let schedPhoneIdx = schedHeaders.findIndex(h => /phone|cell|mobile|contact|tel/i.test(h));
+    if (schedPhoneIdx === -1) schedPhoneIdx = 12; // Col M
+
     let checkInIdx = schedHeaders.findIndex(h => /check|x/i.test(h));
     let gameIndices = [];
     schedHeaders.forEach((h, idx) => {
@@ -2328,61 +2343,70 @@ function syncScoreSheetPlayersToSched(ss, cleanGroup, schedSheet) {
     const existingSchedNames = new Set();
     let rowsToKeep = [schedData[0]];
     let prunedCount = 0;
+    let updatedPhones = false;
 
-      for (let r = 1; r < schedData.length; r++) {
-          const row = schedData[r];
-          const pName = String(row[schedNameIdx] || '').trim();
-          const normKey = normOf(pName);
-          
-          if (!pName) continue;
-          if (isUnknownPlayerName(pName)) {
-              prunedCount++;
-              continue;
-          }
-          
-          const hasCheckIn = checkInIdx !== -1 && String(row[checkInIdx] || '').trim() !== "";
-          const hasScores = gameIndices.some(idx => String(row[idx] || '').trim() !== "");
-          const hasActivity = hasCheckIn || hasScores;
+    for (let r = 1; r < schedData.length; r++) {
+      const row = schedData[r].slice();
+      const pName = String(row[schedNameIdx] || '').trim();
+      const normKey = normOf(pName);
 
-          if (!existingSchedNames.has(normKey) && (validScoreRosterSet.has(normKey) || hasActivity)) {
-              existingSchedNames.add(normKey);
-              rowsToKeep.push(row);
-          } else {
-              prunedCount++;
-              Logger.log(`✂️ Pruned deleted/duplicate player '${pName}' from '${schedSheet.getName()}'.`);
-          }
+      if (!pName) continue;
+      if (isUnknownPlayerName(pName)) {
+        prunedCount++;
+        continue;
       }
-      
 
+      const hasCheckIn = checkInIdx !== -1 && String(row[checkInIdx] || '').trim() !== "";
+      const hasScores = gameIndices.some(idx => String(row[idx] || '').trim() !== "");
+      const hasActivity = hasCheckIn || hasScores;
 
-    if (prunedCount > 0) {
-      let targetWidth = rowsToKeep[0].length;
+      if (!existingSchedNames.has(normKey) && (validScoreRosterSet.has(normKey) || hasActivity)) {
+        existingSchedNames.add(normKey);
+        if (scorePhoneByNormName[normKey]) {
+          while (row.length <= schedPhoneIdx) row.push("");
+          if (!cleanP(row[schedPhoneIdx])) {
+            row[schedPhoneIdx] = scorePhoneByNormName[normKey];
+            updatedPhones = true;
+          }
+        }
+        rowsToKeep.push(row);
+      } else {
+        prunedCount++;
+        Logger.log(`✂️ Pruned deleted/duplicate player '${pName}' from '${schedSheet.getName()}'.`);
+      }
+    }
+
+    if (prunedCount > 0 || updatedPhones) {
+      let targetWidth = Math.max(rowsToKeep[0].length, schedPhoneIdx + 1);
       rowsToKeep.forEach(r => {
         while (r.length < targetWidth) r.push("");
         r.length = targetWidth;
       });
       schedSheet.clearContents();
+      schedSheet.getRange(1, schedPhoneIdx + 1, rowsToKeep.length, 1).setNumberFormat("@");
       schedSheet.getRange(1, 1, rowsToKeep.length, targetWidth).setValues(rowsToKeep);
     }
 
     const missingPlayers = [];
-    validScoreRosterList.forEach(name => {
-      const key = normOf(name);
+    validScoreRosterList.forEach(entry => {
+      const key = normOf(entry.name);
       if (key && !existingSchedNames.has(key)) {
         existingSchedNames.add(key);
-        missingPlayers.push(name);
+        missingPlayers.push(entry);
       }
     });
 
     if (missingPlayers.length > 0) {
-      const numCols = Math.max(schedSheet.getLastColumn(), 8);
-      const newRows = missingPlayers.map(pName => {
+      const numCols = Math.max(schedSheet.getLastColumn(), schedPhoneIdx + 1, 13);
+      const newRows = missingPlayers.map(entry => {
         const row = new Array(numCols).fill("");
-        row[schedNameIdx] = pName;
+        row[schedNameIdx] = entry.name;
+        if (entry.phone) row[schedPhoneIdx] = entry.phone;
         return row;
       });
 
       const startRow = schedSheet.getLastRow() + 1;
+      schedSheet.getRange(startRow, schedPhoneIdx + 1, newRows.length, 1).setNumberFormat("@");
       schedSheet.getRange(startRow, 1, newRows.length, numCols).setValues(newRows);
     }
 
@@ -2394,15 +2418,6 @@ function syncScoreSheetPlayersToSched(ss, cleanGroup, schedSheet) {
     return { addedCount: 0, prunedCount: 0 };
   }
 }
-
-
-
-
-
-
-
-
-
 
 
 
