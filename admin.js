@@ -138,12 +138,22 @@ async function toggleAdminCheckIn(btnEl, playerName, phone, currentCheckedInStat
       sheet: "Sched " + groupName,
       groupName: groupName,
       group: groupName,
-      playerName: playerName || phone,
-      phone: phone || playerName,
+      playerName: playerName || '',
+      phone: phone || '',
       isCheckedIn: newState
     });
 
-    if (res && res.success !== false && !res.error) {
+    const payload = (res && res.data && typeof res.data === 'object') ? res.data : res;
+    const isOk = Boolean(
+      res &&
+      res.status !== 'error' &&
+      !res.error &&
+      payload &&
+      payload.success === true &&
+      !payload.error
+    );
+
+    if (isOk) {
       const syncCheckInFields = (list) => {
         if (!Array.isArray(list)) return;
         const cleanPhone = String(phone || '').replace(/\D/g, '');
@@ -156,7 +166,7 @@ async function toggleAdminCheckIn(btnEl, playerName, phone, currentCheckedInStat
           pObj.checkedIn = newState;
           pObj.isCheckedIn = newState;
           pObj.checked = newState;
-          pObj.checkIn = newState;
+          pObj.checkIn = newState ? (payload.timestamp || true) : false;
           if (!newState && String(pObj.status || '').toLowerCase() === 'checked in') {
             pObj.status = pObj.active ? 'Active' : 'Inactive';
           }
@@ -172,7 +182,8 @@ async function toggleAdminCheckIn(btnEl, playerName, phone, currentCheckedInStat
       }
       filterAdminPlayers();
     } else {
-      alert('Failed to update check-in status: ' + (res?.message || res?.error || 'Server error'));
+      const errMsg = payload?.message || payload?.error || res?.message || res?.error || 'Server error';
+      alert('Failed to update check-in status: ' + errMsg);
       btnEl.disabled = false;
       btnEl.innerHTML = originalText;
     }
@@ -183,6 +194,7 @@ async function toggleAdminCheckIn(btnEl, playerName, phone, currentCheckedInStat
     btnEl.innerHTML = originalText;
   }
 }
+
 
 async function toggleAdminPlayerActive(btnEl, playerName, phone, currentActiveState) {
   const groupName = getAdminSelectedGroup();
