@@ -2492,6 +2492,11 @@ function renderRankingsAndSchedule(rawData) {
 
 
 
+
+
+
+
+
 async function lookupPhone(forceRefreshOrPhone = false) {
   const explicitPhone = typeof forceRefreshOrPhone === 'string' ? forceRefreshOrPhone.trim() : '';
   const forceRefresh = typeof forceRefreshOrPhone === 'boolean' ? forceRefreshOrPhone : false;
@@ -2504,7 +2509,15 @@ async function lookupPhone(forceRefreshOrPhone = false) {
     || '';
   const savedName = typeof getSavedName === 'function' ? getSavedName() : '';
 
-  if (phoneDigits.length < 7 || !group) return;
+  if (!group) {
+    renderLookupResult({ found: false, message: '⚠️ Please select a group on the Register & Help tab first.' });
+    return;
+  }
+
+  if (phoneDigits.length < 7 && !savedName) {
+    renderLookupResult({ found: false, message: '⚠️ Please enter and save your phone number on the Register & Help tab to view your court.' });
+    return;
+  }
 
   try {
     const res = await apiCall('findFoursomeByPhone', {
@@ -2517,25 +2530,28 @@ async function lookupPhone(forceRefreshOrPhone = false) {
 
     const data = (res && res.data && typeof res.data === 'object') ? res.data : res;
 
-    if (data && (data.found || Array.isArray(data.foursome) || Array.isArray(data.players))) {
+    if (data && data.found) {
       const playerObj = data.player || window.activeLookupPlayer || {
-        name: savedName || 'Player',
+        name: data.playerName || savedName || 'Player',
         phone: phoneDigits,
         group: group,
         court: data.court || '',
         status: 'ACTIVE'
       };
-      if (!playerObj.group) playerObj.group = group;
-      const foursomeList = data.foursome || data.players || [];
+      playerObj.group = group;
+      if (data.court) playerObj.court = data.court;
+
+      const foursomeList = data.foursome || data.teammates || data.players || [];
       renderLookupResult(playerObj, foursomeList, data.courtScores || null);
       return;
     }
 
-    const roster = await loadUnifiedRosterData(group, forceRefresh);
+    // Always force a fresh roster fetch on fallback so newly generated courts aren't missed
+    const roster = await loadUnifiedRosterData(group, true);
     const me = Array.isArray(roster) ? (
       roster.find(p => {
         const pDigits = String(p.phone || p.cell || p.mobile || '').replace(/\D/g, '').slice(-10);
-        return pDigits && pDigits === phoneDigits;
+        return pDigits && phoneDigits && pDigits === phoneDigits;
       }) || (savedName ? roster.find(p => String(p.name || '').trim().toLowerCase() === savedName.trim().toLowerCase()) : null)
     ) : null;
 
@@ -2547,17 +2563,25 @@ async function lookupPhone(forceRefreshOrPhone = false) {
       renderLookupResult({
         ...me,
         group: group,
+        court: courtStr || 'Unassigned',
         status: me.active === false ? 'INACTIVE' : 'ACTIVE'
       }, courtGroup, null);
+    } else {
+      renderLookupResult({
+        found: false,
+        message: (data && data.message) || `No schedule entry found for your number in ${group}.`
+      });
     }
   } catch (err) {
     console.error('Lookup error:', err);
+    renderLookupResult({ found: false, message: 'Error checking court assignment: ' + (err.message || err) });
   }
 }
 
 function renderLookupResult(dataOrPlayer, foursomeOrPhone, courtScores) {
   const regEl = document.getElementById('registrationSection');
   const container = document.getElementById('lookupResult') || document.getElementById('courtLookupResult');
+  const scoreContainer = document.getElementById('scoreInputsContainer');
   if (regEl) regEl.style.display = 'none';
   if (!container) return;
   container.style.display = 'block';
@@ -2586,7 +2610,12 @@ function renderLookupResult(dataOrPlayer, foursomeOrPhone, courtScores) {
   }
 
   if (!data || !data.found) {
-    container.innerHTML = `<div class="notice">${escapeHtml((data && data.message) || 'No court assignment found.')}</div>`;
+    const msg = escapeHtml((data && data.message) || 'No court assignment found.');
+    if (scoreContainer) {
+      scoreContainer.innerHTML = `<div class="notice">${msg}</div>`;
+    } else {
+      container.innerHTML = `<div class="notice">${msg}</div>`;
+    }
     return;
   }
 
@@ -2597,8 +2626,8 @@ function renderLookupResult(dataOrPlayer, foursomeOrPhone, courtScores) {
     court: data.court || '',
     status: 'ACTIVE'
   };
-  if (!playerObj.group && data.group) playerObj.group = data.group;
-  if (!playerObj.court && data.court) playerObj.court = data.court;
+  if (data.group) playerObj.group = data.group;
+  if (data.court) playerObj.court = data.court;
 
   window.activeLookupPlayer = playerObj;
   window.activeLookupFoursome = players;
@@ -2609,13 +2638,12 @@ function renderLookupResult(dataOrPlayer, foursomeOrPhone, courtScores) {
   const groupDisp = document.getElementById('pGroupDisplay');
   const courtDisp = document.getElementById('pCourtDisplay');
   const badge = document.getElementById('pStatusDisplay');
-  const scoreContainer = document.getElementById('scoreInputsContainer');
 
   const assignedCourt = String(data.court || playerObj.court || '').trim();
 
   if (nameDisp) nameDisp.innerText = data.playerName || playerObj.name || 'Player';
   if (groupDisp) groupDisp.innerText = window.currentLookupGroup;
-  if (courtDisp) courtDisp.innerText = assignedCourt;
+  if (courtDisp) courtDisp.innerText = assignedCourt || 'Unassigned';
   if (badge) {
     const isActive = String(playerObj.status || 'ACTIVE').toUpperCase() === 'ACTIVE';
     badge.innerText = isActive ? 'Active' : 'Inactive';
@@ -2631,8 +2659,10 @@ function renderLookupResult(dataOrPlayer, foursomeOrPhone, courtScores) {
 
   if (assignedCourt.toUpperCase() === 'BYE') {
     gamesHtml = `<div class="notice">⏸️ You have a <strong>BYE</strong> this week — no match scores to enter.</div>`;
+  } else if (!assignedCourt || assignedCourt === 'Unassigned' || assignedCourt === 'NoSchedYet') {
+    gamesHtml = `<div class="notice">⏳ Courts have not been assigned yet for <strong>${escapeHtml(window.currentLookupGroup)}</strong>. Tap <b>Recheck Court Assignment</b> once check-in closes.</div>`;
   } else if (!matchups.length) {
-    gamesHtml = `<div class="notice">⚠️ Active 4, 5, or 6-player court assignment required (${escapeHtml(assignedCourt || 'Unassigned')}).</div>`;
+    gamesHtml = `<div class="notice">⚠️ Active 4, 5, or 6-player court assignment required (${escapeHtml(assignedCourt)}).</div>`;
   } else {
     matchups.forEach((match, idx) => {
       const g = idx + 1;
@@ -2704,12 +2734,27 @@ async function submitSingleGameScore(gameNum, btnElement) {
   const btn = btnElement
     || document.getElementById(`submitG${gameNum}Btn`)
     || document.querySelector(`button[onclick*="submitSingleGameScore(${gameNum}"]`);
+
+  if (btn && btn.dataset.submitting === 'true') return;
+
   const players = Array.isArray(window.currentCourtPlayers) ? window.currentCourtPlayers : (window.activeLookupFoursome || []);
   const matchups = getCourtMatchups(players.length);
   const match = matchups[gameNum - 1];
 
   if (!match) {
     showFeedback('⚠️ Active 4, 5, or 6-player court match assignment required.', 'warning');
+    return;
+  }
+
+  const rawCourt = String(
+    window.activeLookupPlayer?.court
+    || document.getElementById('pCourtDisplay')?.innerText
+    || ''
+  ).replace(/\D/g, '');
+  const courtNum = rawCourt ? Number(rawCourt) : null;
+
+  if (!courtNum) {
+    showFeedback('⚠️ Valid court number not found. Tap "Recheck Court Assignment" and try again.', 'warning');
     return;
   }
 
@@ -2757,6 +2802,7 @@ async function submitSingleGameScore(gameNum, btnElement) {
   const origText = btn ? btn.innerText : `Submit Game ${gameNum}`;
 
   if (btn) {
+    btn.dataset.submitting = 'true';
     btn.innerText = '⏳ Submitting...';
     btn.style.background = '#6c757d';
     btn.disabled = true;
@@ -2765,11 +2811,12 @@ async function submitSingleGameScore(gameNum, btnElement) {
   try {
     const res = await apiCall('submitCourtScores', {
       group: groupName,
+      court: courtNum,
       submittedByName: submitterName,
       scores: scoresPayload
     });
 
-    const isSuccess = Boolean(res && res.success !== false && !res.error && (res.success === true || String(res.message || '').includes('Successfully')));
+    const isSuccess = Boolean(res && res.success === true && !res.error);
     showFeedback((res && res.message) || (isSuccess ? `✅ Game ${gameNum} saved!` : 'Error submitting scores.'), isSuccess ? 'success' : 'danger');
 
     if (isSuccess) {
@@ -2790,6 +2837,10 @@ async function submitSingleGameScore(gameNum, btnElement) {
       btn.innerText = origText;
       btn.style.background = '#0d6efd';
       btn.disabled = false;
+    }
+  } finally {
+    if (btn) {
+      delete btn.dataset.submitting;
     }
   }
 }

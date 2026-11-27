@@ -2565,11 +2565,14 @@ function submitCourtScores(payload) {
   return executeWithLock(function () {
     const rawGroup = payload && (payload.group || payload.groupName || payload.sheet || "");
     const group = String(rawGroup).replace(/^(Score|Sched|Rankings)\s*/i, "").trim();
-    const courtNum = Number(payload && payload.court);
+    const rawCourt = payload && payload.court !== undefined && payload.court !== null
+      ? String(payload.court).replace(/\D/g, "")
+      : "";
+    let courtNum = rawCourt ? Number(rawCourt) : NaN;
     const updates = (payload && Array.isArray(payload.scores)) ? payload.scores : [];
 
-    if (!group || isNaN(courtNum)) {
-      return { status: "error", success: false, message: "Invalid group or court number." };
+    if (!group) {
+      return { status: "error", success: false, message: "Invalid group name." };
     }
     if (updates.length === 0) {
       return { status: "success", success: true, message: "No scores provided to save." };
@@ -2596,6 +2599,7 @@ function submitCourtScores(payload) {
     const nameIdx = headers.findIndex(h => /name|player/i.test(h));
     const courtIdx = headers.findIndex(h => /court|crt/i.test(h));
     const totIdx = headers.findIndex(h => /^(total|tot|pts|score)$/i.test(h));
+    const enteredIdx = headers.findIndex(h => /entered/i.test(h));
 
     if (nameIdx === -1 || courtIdx === -1) {
       return { status: "error", success: false, message: "Missing Player or Court columns in sheet." };
@@ -2605,14 +2609,49 @@ function submitCourtScores(payload) {
       headers.findIndex(h => new RegExp(`^(game\\s*${num}|g${num})$`, "i").test(h))
     );
 
+    // Build map supporting both { name, g1..g6 } and { player, games: [...] }
     const updateMap = {};
     updates.forEach(u => {
       const key = normOf(u.player || u.playerName || u.name);
-      if (key) {
-        updateMap[key] = Array.isArray(u.games) ? u.games : [];
+      if (!key) return;
+
+      if (Array.isArray(u.games)) {
+        const gameObj = {};
+        u.games.forEach((val, idx) => {
+          if (idx < 6) gameObj[idx] = val;
+        });
+        updateMap[key] = gameObj;
+      } else {
+        const gameObj = {};
+        for (let g = 1; g <= 6; g++) {
+          const propKey = "g" + g;
+          if (Object.prototype.hasOwnProperty.call(u, propKey)) {
+            gameObj[g - 1] = u[propKey];
+          }
+        }
+        updateMap[key] = gameObj;
       }
     });
 
+    // If court was omitted by client, infer it from the first matching player's row
+    if (isNaN(courtNum)) {
+      for (let r = 1; r < data.length; r++) {
+        const rowKey = normOf(data[r][nameIdx]);
+        if (rowKey && (rowKey in updateMap)) {
+          const inferred = Number(String(data[r][courtIdx] || "").replace(/\D/g, ""));
+          if (!isNaN(inferred) && inferred > 0) {
+            courtNum = inferred;
+            break;
+          }
+        }
+      }
+    }
+
+    if (isNaN(courtNum) || courtNum <= 0) {
+      return { status: "error", success: false, message: "Invalid group or court number." };
+    }
+
+    const submittedBy = String((payload && payload.submittedByName) || "").trim();
     let updatedCount = 0;
 
     for (let r = 1; r < data.length; r++) {
@@ -2629,7 +2668,7 @@ function submitCourtScores(payload) {
 
       for (let g = 0; g < 6; g++) {
         const cIdx = gIdxs[g];
-        if (cIdx !== -1 && g < incomingGames.length) {
+        if (cIdx !== -1 && Object.prototype.hasOwnProperty.call(incomingGames, g)) {
           const val = incomingGames[g];
           data[r][cIdx] = (val === "" || val === null || val === undefined) ? "" : Number(val);
         }
@@ -2653,6 +2692,10 @@ function submitCourtScores(payload) {
         } else {
           data[r][totIdx] = "";
         }
+      }
+
+      if (enteredIdx !== -1 && submittedBy) {
+        data[r][enteredIdx] = submittedBy;
       }
 
       updatedCount++;
@@ -2681,10 +2724,182 @@ function submitCourtScores(payload) {
       status: "success",
       success: true,
       message: `Saved scores for ${updatedCount} player(s) on Court ${courtNum}.`,
+      court: "Court " + courtNum,
       updatedCount: updatedCount
     };
   });
 }
+
+function findFoursomeByPhone(payload) {
+  try {
+    var rawPhone = String(payload.phone || payload.phoneNum || "").replace(/\D/g, "");
+    var targetPlayerHint = String(payload.playerName || payload.name || "").trim();
+    var groupName = String(payload.groupName || payload.group || "").replace(/^(Sched|Score)\s*/i, "").trim();
+
+    if ((!rawPhone || rawPhone.length < 7) && !targetPlayerHint) {
+      return { success: false, found: false, message: "Valid phone number or player name required for lookup." };
+    }
+    if (!groupName) {
+      return { success: false, found: false, message: "Target group name is required." };
+    }
+
+    var ss = getDb();
+    var sheetName = "Sched " + groupName;
+    var sheet = ss.getSheetByName(sheetName);
+    if (!sheet) {
+      return { success: false, found: false, message: "Schedule sheet not found: " + sheetName };
+    }
+
+    var data = sheet.getDataRange().getValues();
+    if (data.length <= 1) {
+      return { success: false, found: false, message: "Schedule sheet is currently empty." };
+    }
+
+    var colName = 0;
+    var colCourt = 1;
+    var colPhone = 12;
+    var gameCols = { 1: 3, 2: 4, 3: 5, 4: 6, 5: 7, 6: 8 };
+
+    var headers = data[0].map(function (h) { return String(h || "").trim().toLowerCase(); });
+    for (var i = 0; i < headers.length; i++) {
+      var h = headers[i];
+      if (h.indexOf("name") !== -1 || h.indexOf("player") !== -1) colName = i;
+      else if (h.indexOf("court") !== -1 || h === "ct") colCourt = i;
+      else if (h.indexOf("phone") !== -1 || h.indexOf("cell") !== -1 || h.indexOf("mobile") !== -1) colPhone = i;
+      else {
+        for (var g = 1; g <= 6; g++) {
+          if (h === "g" + g || h === "game " + g || h === "game" + g || h === "score " + g || h === "score" + g || h === "s" + g) {
+            gameCols[g] = i;
+          }
+        }
+      }
+    }
+
+    var targetLast7 = rawPhone.length >= 7 ? rawPhone.slice(-7) : "";
+    var normOf = function (s) {
+      return typeof normalizeName === "function" ? normalizeName(s) : String(s || "").toLowerCase().trim();
+    };
+    var targetNormHint = normOf(targetPlayerHint);
+
+    var matchedRow = null;
+
+    // 1. Match by phone (preferring exact name match if multiple share a phone)
+    if (targetLast7) {
+      for (var r = 1; r < data.length; r++) {
+        var cellPhoneDigits = String(data[r][colPhone] || "").replace(/\D/g, "");
+        if (cellPhoneDigits.length >= 7 && cellPhoneDigits.slice(-7) === targetLast7) {
+          var rowPlayerName = String(data[r][colName] || "").trim();
+          if (!matchedRow) matchedRow = data[r];
+          if (targetNormHint && normOf(rowPlayerName) === targetNormHint) {
+            matchedRow = data[r];
+            break;
+          }
+        }
+      }
+    }
+
+    // 2. Fallback: match by normalized player name if phone was missing/changed on Sched
+    if (!matchedRow && targetNormHint) {
+      for (var r2 = 1; r2 < data.length; r2++) {
+        var rName = String(data[r2][colName] || "").trim();
+        if (rName && normOf(rName) === targetNormHint) {
+          matchedRow = data[r2];
+          break;
+        }
+      }
+    }
+
+    if (!matchedRow) {
+      return {
+        success: true,
+        found: false,
+        message: "Player not found on schedule for " + groupName + "."
+      };
+    }
+
+    var targetPlayerName = String(matchedRow[colName] || "Player").trim();
+    var rawCourt = String(matchedRow[colCourt] || "").trim();
+
+    if (!rawCourt) {
+      return {
+        success: true,
+        found: true,
+        playerName: targetPlayerName,
+        court: "Unassigned",
+        group: groupName,
+        teammates: [],
+        foursome: [],
+        message: "Courts have not been assigned yet for " + groupName + "."
+      };
+    }
+
+    if (rawCourt.toUpperCase() === "BYE") {
+      return {
+        success: true,
+        found: true,
+        playerName: targetPlayerName,
+        court: "BYE",
+        group: groupName,
+        teammates: [],
+        foursome: []
+      };
+    }
+
+    var targetCourtNum = rawCourt.replace(/\D/g, "");
+    if (!targetCourtNum) {
+      return {
+        success: true,
+        found: false,
+        message: "No valid court number assigned (" + rawCourt + ")."
+      };
+    }
+
+    var teammates = [];
+    for (var i = 1; i < data.length; i++) {
+      var row = data[i];
+      var cellCourtNum = String(row[colCourt] || "").trim().replace(/\D/g, "");
+
+      if (cellCourtNum === targetCourtNum) {
+        var pName = String(row[colName] || "").trim();
+        var pPhone = String(row[colPhone] || "").trim();
+
+        if (pName && pName.toLowerCase() !== "bye" && pName !== "--") {
+          var playerObj = {
+            name: pName,
+            first: pName.split(" ")[0] || pName,
+            last: pName.split(" ").slice(1).join(" ") || "",
+            phone: pPhone,
+            isUnknown: typeof isUnknownPlayerName === "function" ? isUnknownPlayerName(pName) : false
+          };
+
+          for (var g = 1; g <= 6; g++) {
+            var colIdx = gameCols[g];
+            playerObj["g" + g] = (colIdx !== undefined && row[colIdx] !== undefined) ? String(row[colIdx]).trim() : "";
+          }
+
+          teammates.push(playerObj);
+        }
+      }
+    }
+
+    return {
+      success: true,
+      found: true,
+      playerName: targetPlayerName,
+      court: "Court " + targetCourtNum,
+      group: groupName,
+      teammates: teammates,
+      foursome: teammates
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error: err.toString(),
+      message: "Server exception in findFoursomeByPhone: " + err.message
+    };
+  }
+}
+
 
 
 
@@ -3395,149 +3610,6 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
 
     return "✅ " + summary.join("\n");
   });
-}
-
-
-
-
-/**
- * Backend lookup for court assignments, teammates, and game scores (G1 through G6).
- * Handles single-row-per-player sheet layout:
- * Col A: Name | Col B: Court | Col C: Phone | Col D-I: Scores G1 through G6
- * 
- * @param {Object} payload Contains { phone, groupName }
- * @return {Object} JSON payload with player info, teammates list, and full court game scores
- */
-function findFoursomeByPhone(payload) {
-  try {
-    var rawPhone = String(payload.phone || payload.phoneNum || "").replace(/\D/g, "");
-    var targetPlayerHint = String(payload.playerName || payload.name || "").trim();
-    var groupName = String(payload.groupName || payload.group || "").replace(/^(Sched|Score)\s*/i, "").trim();
-
-    if (!rawPhone || rawPhone.length < 7) {
-      return { success: false, message: "Valid phone number required for lookup." };
-    }
-
-    if (!groupName) {
-      return { success: false, message: "Target group name is required." };
-    }
-
-    var ss = getDb();
-    var sheetName = "Sched " + groupName;
-    var sheet = ss.getSheetByName(sheetName);
-
-    if (!sheet) {
-      return { success: false, message: "Schedule sheet not found: " + sheetName };
-    }
-
-    var data = sheet.getDataRange().getValues();
-    if (data.length <= 1) {
-      return { success: false, message: "Schedule sheet is currently empty." };
-    }
-
-    var colName = 0;
-    var colCourt = 1;
-    var colPhone = 12; // Col M (index 12) in standard 13-col Sched layout
-    var gameCols = { 1: 3, 2: 4, 3: 5, 4: 6, 5: 7, 6: 8 };
-
-    var headers = data[0].map(function(h) { return String(h || "").trim().toLowerCase(); });
-    for (var i = 0; i < headers.length; i++) {
-      var h = headers[i];
-      if (h.indexOf("name") !== -1 || h.indexOf("player") !== -1) colName = i;
-      else if (h.indexOf("court") !== -1 || h === "ct") colCourt = i;
-      else if (h.indexOf("phone") !== -1 || h.indexOf("cell") !== -1 || h.indexOf("mobile") !== -1) colPhone = i;
-      else {
-        for (var g = 1; g <= 6; g++) {
-          if (h === "g" + g || h === "game " + g || h === "game" + g || h === "score " + g || h === "score" + g || h === "s" + g) {
-            gameCols[g] = i;
-          }
-        }
-      }
-    }
-
-    var targetLast7 = rawPhone.slice(-7);
-    var normOf = function(s) {
-      return typeof normalizeName === "function" ? normalizeName(s) : String(s || "").toLowerCase().trim();
-    };
-    var targetNormHint = normOf(targetPlayerHint);
-
-    var targetCourtNum = "";
-    var targetPlayerName = "";
-    var fallbackRow = null;
-
-    for (var r = 1; r < data.length; r++) {
-      var row = data[r];
-      var cellPhoneDigits = String(row[colPhone] || "").replace(/\D/g, "");
-      if (cellPhoneDigits.length >= 7 && cellPhoneDigits.slice(-7) === targetLast7) {
-        var rowPlayerName = String(row[colName] || "Player").trim();
-        if (!fallbackRow) fallbackRow = row;
-        if (targetNormHint && normOf(rowPlayerName) === targetNormHint) {
-          fallbackRow = row;
-          break;
-        }
-      }
-    }
-
-    if (fallbackRow) {
-      targetPlayerName = String(fallbackRow[colName] || "Player").trim();
-      var rawCourt = String(fallbackRow[colCourt] || "").trim();
-      targetCourtNum = rawCourt.replace(/\D/g, "");
-    }
-
-    if (!targetCourtNum) {
-      return {
-        success: false,
-        found: false,
-        message: "No court assignment found for this phone number."
-      };
-    }
-
-    var teammates = [];
-    for (var i = 1; i < data.length; i++) {
-      var row = data[i];
-      var cellCourtNum = String(row[colCourt] || "").trim().replace(/\D/g, "");
-
-      if (cellCourtNum === targetCourtNum) {
-        var pName = String(row[colName] || "").trim();
-        var pPhone = String(row[colPhone] || "").trim();
-
-        if (pName && pName.toLowerCase() !== "bye" && pName !== "--") {
-            var playerObj = {
-                name: pName,
-                first: pName.split(" ")[0] || pName,
-                last: pName.split(" ").slice(1).join(" ") || "",
-                phone: pPhone,
-                isUnknown: typeof isUnknownPlayerName === "function" ? isUnknownPlayerName(pName) : false
-            };
-            
-
-          for (var g = 1; g <= 6; g++) {
-            var colIdx = gameCols[g];
-            playerObj["g" + g] = (colIdx !== undefined && row[colIdx] !== undefined) ? String(row[colIdx]).trim() : "";
-          }
-
-          teammates.push(playerObj);
-        }
-      }
-    }
-
-    return {
-      success: true,
-      found: true,
-      playerName: targetPlayerName,
-      court: "Court " + targetCourtNum,
-      group: groupName,
-      teammates: teammates,
-      foursome: teammates
-    };
-
-  } catch (err) {
-    return {
-      success: false,
-      error: err.toString(),
-      message: "Server exception in findFoursomeByPhone: " + err.message
-    };
-  }
 }
 
 
