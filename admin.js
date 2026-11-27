@@ -1152,8 +1152,8 @@ function updateAdminDashboard(forceRefresh = false) {
   if (checkedInCount >= 4) {
     if (optimizeByes) {
       if (checkedInCount === 7) {
-        projectedCourts = 1;
-        projectedByes = 1; // 6-player court + 1 bye
+        projectedCourts = 2;
+        projectedByes = 0; // 4-player court + 3+ unknown
       } else {
         projectedCourts = Math.floor(checkedInCount / 4);
         projectedByes = 0;

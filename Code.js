@@ -2774,11 +2774,28 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
         ? normalizeName(str)
         : str.toLowerCase().replace(/\s+/g, " ");
     };
+    const isValidCheck = (val) => {
+      if (typeof isCheckInTrue === "function") return isCheckInTrue(val);
+      if (typeof isValidCheckInCell_ === "function") return isValidCheckInCell_(val);
+      if (val === null || val === undefined || val === false || val === "") return false;
+      if (val instanceof Date) return val.getFullYear() >= 2020;
+      const str = String(val).trim().toLowerCase();
+      if (!str || str.includes("1899") || ["false", "no", "0", "unchecked", "none", "n/a"].includes(str)) return false;
+      return true;
+    };
 
     let sheet = ss.getSheetByName(targetName);
     if (!sheet) return `⚠️ Error: Schedule tab '${targetName}' not found.`;
 
     const currentWeek = typeof calculateCurrentWeekNumber === 'function' ? calculateCurrentWeekNumber() : 1;
+
+    let scoreSheetName = "Score " + groupName;
+    let scoreSheet = ss.getSheetByName(scoreSheetName);
+
+    // Ensure any newly added players on Score <Group> exist on Sched <Group> before reading check-ins
+    if (scoreSheet && typeof syncScoreSheetPlayersToSched === "function") {
+      syncScoreSheetPlayersToSched(ss, groupName, sheet);
+    }
 
     let existingData = sheet.getDataRange().getValues();
     let existingMap = {};
@@ -2799,7 +2816,7 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
           if (!existingMap[normKey]) {
             let checkInVal = existingData[r][2] !== undefined ? existingData[r][2] : "";
             existingMap[normKey] = {
-              checkIn: (checkInVal !== null && String(checkInVal).trim() !== "") ? checkInVal : "",
+              checkIn: isValidCheck(checkInVal) ? checkInVal : "",
               g1: g1I !== -1 ? existingData[r][g1I] : "", g2: g2I !== -1 ? existingData[r][g2I] : "", 
               g3: g3I !== -1 ? existingData[r][g3I] : "", g4: g4I !== -1 ? existingData[r][g4I] : "",
               g5: g5I !== -1 ? existingData[r][g5I] : "", g6: g6I !== -1 ? existingData[r][g6I] : "",
@@ -2812,8 +2829,6 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
       }
     }
 
-    let scoreSheetName = "Score " + groupName;
-    let scoreSheet = ss.getSheetByName(scoreSheetName);
     const rankInfo = buildAuthoritativeRankLookup(ss, groupName, scoreSheet);
     const masterPhoneLookup = rankInfo.masterPhoneLookup;
 
@@ -2840,7 +2855,11 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
     let uncheckedPlayers = [];
 
     players.forEach(p => {
-      let isChecked = Boolean(p.checkedIn || p.checked || (p.prev.checkIn && String(p.prev.checkIn).trim() !== ""));
+      let isChecked = Boolean(
+        p.checkedIn === true ||
+        p.checked === true ||
+        isValidCheck(p.prev.checkIn)
+      );
       p.isChecked = isChecked; 
       if (isChecked) checkedInPlayers.push(p); else uncheckedPlayers.push(p);
     });
@@ -2870,6 +2889,8 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
 
       if (len === 6) {
         chunkSizes = [6];
+      } else if (len === 7) {
+        chunkSizes = availableCourts.length >= 2 ? [4, 4] : [4];
       } else if (len === 11) {
         chunkSizes = [5, 6];
       } else {
@@ -2883,20 +2904,32 @@ function rescheduleFromCheckInsCore(targetParam, courtsParam, forceIntegrateByes
           for (let i = 0; i < (len - 10) / 4; i++) chunkSizes.push(4);
           chunkSizes.push(5, 5);
         } else if (remainder === 3) {
-          if (len === 7) chunkSizes.push(4);
-          else {
-            for (let i = 0; i < (len - 15) / 4; i++) chunkSizes.push(4);
-            chunkSizes.push(5, 5, 5);
-          }
+          for (let i = 0; i < (len - 15) / 4; i++) chunkSizes.push(4);
+          chunkSizes.push(5, 5, 5);
         }
       }
 
       for (let size of chunkSizes) {
-         if (courtNumber < availableCourts.length && playersCopy.length >= size) {
-            let chunk = playersCopy.splice(0, size);
-            let cName = availableCourts[courtNumber++];
-             chunk.forEach(p => { p.assignedCourt = cName; courtAssignments[cName].push(p); });
-         } else break;
+        if (courtNumber < availableCourts.length && playersCopy.length > 0) {
+          let take = Math.min(size, playersCopy.length);
+          let chunk = playersCopy.splice(0, take);
+          let cName = availableCourts[courtNumber++];
+          chunk.forEach(p => { p.assignedCourt = cName; courtAssignments[cName].push(p); });
+
+          let unknownNeeded = size - take;
+          for (let u = 1; u <= unknownNeeded; u++) {
+            let uPlayer = {
+              name: "Unknown " + u,
+              assignedCourt: cName,
+              isChecked: false,
+              isUnknown: true,
+              phone: "",
+              prev: { checkIn: "", g1: "", g2: "", g3: "", g4: "", g5: "", g6: "", total: "", entered: "", phone: "" }
+            };
+            unknownPlayers.push(uPlayer);
+            courtAssignments[cName].push(uPlayer);
+          }
+        } else break;
       }
       playersCopy.forEach(p => { p.assignedCourt = "BYE"; playersForBye.push(p); });
 
@@ -3173,6 +3206,8 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
 
         if (len === 6) {
           chunkSizes = [6];
+        } else if (len === 7) {
+          chunkSizes = availableCourts.length >= 2 ? [4, 4] : [4];
         } else if (len === 11) {
           chunkSizes = [5, 6];
         } else {
@@ -3186,11 +3221,8 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
             for (let i = 0; i < (len - 10) / 4; i++) chunkSizes.push(4);
             chunkSizes.push(5, 5);
           } else if (remainder === 3) {
-            if (len === 7) chunkSizes.push(4);
-            else {
-              for (let i = 0; i < (len - 15) / 4; i++) chunkSizes.push(4);
-              chunkSizes.push(5, 5, 5);
-            }
+            for (let i = 0; i < (len - 15) / 4; i++) chunkSizes.push(4);
+            chunkSizes.push(5, 5, 5);
           }
         }
 
@@ -3198,11 +3230,17 @@ function scheduleAllCore(targetParam, courtsParam, forceIntegrateByes) {
 
         let courtNum = 0;
         for (let size of chunkSizes) {
-           if (courtNum < availableCourts.length && indicesCopy.length >= size) {
-              let chunk = indicesCopy.splice(0, size);
-              let cName = availableCourts[courtNumberFallback(courtNum++)];
-              chunk.forEach(idx => playerCourtMap[idx] = String(cName));
-           } else break;
+          if (courtNum < availableCourts.length && indicesCopy.length > 0) {
+            let take = Math.min(size, indicesCopy.length);
+            let chunk = indicesCopy.splice(0, take);
+            let cName = availableCourts[courtNum++];
+            chunk.forEach(idx => playerCourtMap[idx] = String(cName));
+
+            let unknownNeeded = size - take;
+            for (let u = 1; u <= unknownNeeded; u++) {
+              unknownRows.push(["Unknown " + u, String(cName), "", "", "", "", "", "", "", "", "", "", ""]);
+            }
+          } else break;
         }
         indicesCopy.forEach(idx => byeIndices.add(idx));
       } else {
