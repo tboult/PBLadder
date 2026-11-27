@@ -591,7 +591,7 @@ function cleanPhoneDigits(phoneVal) {
 
 /**
  * Harvests scores and court assignments from Schedule sheets into Score sheets.
- * Evaluates Game 1 through Game 6 and calculates the scaled 3-game average total.
+ * Evaluates Game 1 through Game 6 and sums the best 3 games (matching submitCourtScores).
  * Ignores Unknown court-filler placeholders.
  */
 function harvestScoresFromSchedules(ss, data, col, targetWeekIdx, schedSheet, weekNum) {
@@ -646,28 +646,27 @@ function harvestScoresFromSchedules(ss, data, col, targetWeekIdx, schedSheet, we
     let recordedTotalStr = schedData[r][scoreIdx];
     let recordedTotal = (recordedTotalStr !== "" && recordedTotalStr !== null) ? parseFloat(recordedTotalStr) : NaN;
 
-    let computedSum = 0;
-    let playedCount = 0;
+    let gameScores = [];
 
     for (let g = 0; g < 6; g++) {
       const idx = gIdxs[g];
       if (idx !== -1 && schedData[r][idx] !== "" && schedData[r][idx] !== null) {
         const val = parseFloat(schedData[r][idx]);
         if (!isNaN(val)) {
-          computedSum += val;
-          playedCount++;
+          gameScores.push(val);
         }
       }
     }
 
     let finalValToUse = null;
 
-    if (playedCount > 0) {
-      finalValToUse = (playedCount === 3) ? computedSum : Math.round((computedSum / playedCount) * 3);
+    if (gameScores.length > 0) {
+      const bestThree = gameScores.slice().sort((a, b) => b - a).slice(0, 3);
+      finalValToUse = bestThree.reduce((sum, s) => sum + s, 0);
 
       if (isNaN(recordedTotal) || Math.abs(finalValToUse - recordedTotal) > 0.001) {
         let oldVal = isNaN(recordedTotal) ? "(blank)" : recordedTotal;
-        warnings.push(`Sched Mismatch [${rawSchedName}]: Sum of games is ${computedSum} (${playedCount} games played), but Total was ${oldVal}. Corrected to 3-game scaled score of ${finalValToUse}.`);
+        warnings.push(`Sched Mismatch [${rawSchedName}]: Best ${bestThree.length} of ${gameScores.length} games is ${finalValToUse}, but Total was ${oldVal}. Corrected to ${finalValToUse}.`);
         schedData[r][scoreIdx] = finalValToUse;
         schedModified = true;
       }
@@ -745,9 +744,6 @@ function harvestScoresFromSchedules(ss, data, col, targetWeekIdx, schedSheet, we
 
   return warnings;
 }
-
-
-
 
 
 
